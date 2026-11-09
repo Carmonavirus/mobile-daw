@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.MobileDaw" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">#F4F3F0</item>
+        <item name="android:navigationBarColor">#F4F3F0</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
