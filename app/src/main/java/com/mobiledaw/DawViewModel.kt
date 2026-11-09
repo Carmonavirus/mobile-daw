@@ -89,7 +89,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onPause() {
-        setPlaying(false)
+        applyPlaying(false)
         NativeEngine.stop()
         saveNow()
     }
@@ -131,14 +131,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- transport
 
-    fun togglePlay() = setPlaying(!playing)
+    fun togglePlay() = applyPlaying(!playing)
 
-    private fun setPlaying(value: Boolean) {
+    private fun applyPlaying(value: Boolean) {
         playing = value
         NativeEngine.setPlaying(value)
     }
 
-    fun setMode(value: PlayMode) {
+    fun switchMode(value: PlayMode) {
         if (mode == value) return
         mode = value
         syncEngine()
@@ -264,7 +264,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun openProject(name: String) {
         saveNow()
         val loaded = store.load(name) ?: return
-        setPlaying(false)
+        applyPlaying(false)
         project = loaded
         selectedPatternId = loaded.patterns.first().id
         selectedChannelId = loaded.channels.firstOrNull()?.id ?: 0L
@@ -274,7 +274,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun newProject() {
         saveNow()
-        setPlaying(false)
+        applyPlaying(false)
         val p = DemoProject.empty(store.uniqueName("New project"))
         project = p
         selectedPatternId = p.patterns.first().id

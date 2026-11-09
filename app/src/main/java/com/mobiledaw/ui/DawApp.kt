@@ -77,7 +77,7 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit) {
         Segmented(
             options = listOf(PlayMode.PATTERN to "PAT", PlayMode.SONG to "SONG"),
             selected = vm.mode,
-            onSelect = vm::setMode,
+            onSelect = vm::switchMode,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         Column(Modifier.align(Alignment.Center).padding(horizontal = 92.dp), horizontalAlignment = Alignment.CenterHorizontally) {
