@@ -20,6 +20,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
 import com.mobiledaw.PlaylistTool
 import com.mobiledaw.Tab
 import com.mobiledaw.model.AudioClip
@@ -526,10 +530,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMuted(c: Color)
     drawLine(c, Offset(s * 0.9f, s * 0.36f), Offset(s * 0.62f, s * 0.64f), stroke, StrokeCap.Round)
 }
 
-/** A clip's window: rounded card at the bottom with a title row and content. */
+/**
+ * A clip's window: rounded card with a title row and content. With [onRename], tapping the
+ * title or "Rename" turns the title into a text field.
+ */
 @Composable
-private fun ClipWindowFrame(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
+private fun ClipWindowFrame(
+    title: String,
+    onDismiss: () -> Unit,
+    onRename: ((String) -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    var renaming by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf(title) }
+    fun finishRename() {
+        val name = draft.trim()
+        if (name.isNotEmpty() && name != title) onRename?.invoke(name.take(40))
+        renaming = false
+    }
+    Dialog(onDismissRequest = { if (renaming) finishRename(); onDismiss() }) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -538,16 +557,36 @@ private fun ClipWindowFrame(title: String, onDismiss: () -> Unit, content: @Comp
                 .padding(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = DawColors.Ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                TextAction("Done", strong = true, onClick = onDismiss)
+                if (renaming) {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        singleLine = true,
+                        label = { Text("Clip name") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { finishRename() }),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextAction("Save", strong = true) { finishRename() }
+                } else {
+                    Text(
+                        title,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = DawColors.Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = onRename != null) { draft = title; renaming = true },
+                    )
+                    if (onRename != null) {
+                        TextAction("Rename") { draft = title; renaming = true }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    TextAction("Done", strong = true, onClick = onDismiss)
+                }
             }
             Spacer(Modifier.height(10.dp))
             content()
@@ -565,7 +604,7 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
     }
     fun set(transform: (AudioClip) -> AudioClip) = vm.updateAudioClip(id, transform)
     val peaks = remember(clip.path) { vm.samplePeaks(clip.path, 400) }
-    ClipWindowFrame(clip.name, onDismiss) {
+    ClipWindowFrame(clip.name, onDismiss, onRename = { name -> set { it.copy(name = name) } }) {
         val (a, b) = ClipEdit.trimFractions(clip)
         Canvas(
             Modifier
