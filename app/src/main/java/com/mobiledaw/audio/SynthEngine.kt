@@ -6,7 +6,7 @@ package com.mobiledaw.audio
  */
 object SynthEngine {
     init {
-        NativeEngine // loads the native library
+        System.loadLibrary("mobiledaw") // same library as NativeEngine; loading twice is harmless
     }
 
     external fun paramNames(): Array<String>

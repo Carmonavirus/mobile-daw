@@ -71,6 +71,7 @@ internal fun fromNorm(info: SynthParams.Info, n: Float, curve: Curve): Float {
 
 /** Human-readable value for a parameter. */
 internal fun formatValue(name: String, v: Float): String = when {
+    name == "sub_oct" || name.endsWith("_unison") -> v.roundToInt().toString()
     name == "flt_cutoff" -> if (v >= 1000f) "%.1f kHz".format(v / 1000f) else "${v.roundToInt()} Hz"
     name == "lfo_rate" -> if (v < 10f) "%.2f Hz".format(v) else "%.1f Hz".format(v)
     name.endsWith("_a") || name.endsWith("_d") || name.endsWith("_r") || name == "glide" ->
@@ -78,7 +79,6 @@ internal fun formatValue(name: String, v: Float): String = when {
     name == "mod_pitch" || name == "lfo_pitch" -> "%+.1f st".format(v)
     name.endsWith("_fine") -> "%+d ct".format(v.roundToInt())
     name.endsWith("_semi") || name.endsWith("_oct") -> "%+d".format(v.roundToInt())
-    name.endsWith("_unison") || name == "sub_oct" -> v.roundToInt().toString()
     (SynthParams.byName(name)?.min ?: 0f) < 0f -> "%+d%%".format((v * 100).roundToInt())
     else -> "${(v * 100).roundToInt()}%"
 }
