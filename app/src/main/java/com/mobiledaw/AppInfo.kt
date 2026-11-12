@@ -129,6 +129,13 @@ object AppInfo {
         Release(
             "0.3", "2026-11-12T11:20:00Z",
             listOf(
+                "Sound library (Settings → Sounds → Sound library): every free source in one place, each on its own page.",
+                "General MIDI instruments built in: GeneralUser GS, 261 instruments and 13 drum kits (pianos, strings, brass, guitars, synths, every GM drum). Import your own .sf2/.sf3 too.",
+                "Two new synth engines with 60+ presets: Macro (leads, keys, chords, pads, plucks, 808s) and Modeled (FM, plucked strings, bells, flute, sax, brass, bowed strings, sitar, shakers, analog drums).",
+                "SFZ instruments: import a .zip with .sfz files and samples.",
+                "Freesound search inside the app (CC0 by default), plus Wikimedia Commons and Internet Archive. Tap to preview, Save puts the sound in Drum kits with its credit.",
+                "Credits & licences page with a Copy credits button for when you release a beat.",
+                "The sound picker (tap a channel's name) has tabs: Kits, Instruments, Synths, SFZ, Freesound, Commons, Archive.",
                 "New Settings menu (the ≡ button, top right).",
                 "Themes: pick a preset or your own background, note/step and accent colours.",
                 "Versions page with this list of what changed.",

@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.mobiledaw.audio.NativeEngine
 import com.mobiledaw.audio.Recorder
 import com.mobiledaw.audio.WavDecoder
+import com.mobiledaw.model.stepPitch
 import com.mobiledaw.model.KitLibrary
 import com.mobiledaw.model.AudioClip
 import com.mobiledaw.model.Channel
@@ -71,6 +72,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
+
+    // Declared before init {} below, which syncs the engine and needs them.
+    /** SoundFonts, SFZ, synth engine presets, online libraries and credits. */
+    val sounds = com.mobiledaw.sound.SoundSources(app)
+
+    /** Which SFZ each engine slot holds. */
+    private val loadedSources = arrayOfNulls<String>(NativeEngine.MAX_CHANNELS)
+    private val pendingFontLoads = mutableSetOf<String>()
+
+    /** True while a SoundFont is being read into memory (takes a second or two). */
+    var loadingSoundFont by mutableStateOf(false)
+        private set
 
     /** Bumped after an import so the kit browser refreshes. */
     var kitsVersion by mutableStateOf(0)
@@ -337,6 +350,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 NativeEngine.setSample(i, decoded?.frames, decoded?.sampleRate ?: 0f)
                 loadedSamples[i] = path
             }
+            syncExtraEngine(i, c)
         }
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
@@ -462,7 +476,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** Replaces a channel's steps with one hit every [every] steps across the whole pattern. */
     fun fillSteps(channel: Channel, every: Int) {
         val pattern = selectedPattern
-        val pitch = channel.instrument.defaultPitch
+        val pitch = channel.stepPitch
         val steps = pattern.lengthTicks / TICKS_PER_STEP
         updateNotes(channel.id) { (0 until steps step every).map { Note(it * TICKS_PER_STEP, TICKS_PER_STEP, pitch) } }
     }
@@ -529,18 +543,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (existing.isNotEmpty()) {
             updateNotes(channel.id) { list -> list.filter { it.start != tick } }
         } else {
-            val pitch = channel.instrument.defaultPitch
+            val pitch = channel.stepPitch
             updateNotes(channel.id) { it + Note(tick, TICKS_PER_STEP, pitch) }
             editPreview(channel, pitch)
         }
     }
 
     /** Preview used while editing: skipped during playback (and when switched off in Settings). */
-    fun editPreview(channel: Channel, pitch: Int = channel.instrument.defaultPitch) {
+    fun editPreview(channel: Channel, pitch: Int = channel.stepPitch) {
         if (!playing && previewOnEdit) preview(channel, pitch)
     }
 
-    fun preview(channel: Channel, pitch: Int = channel.instrument.defaultPitch) {
+    fun preview(channel: Channel, pitch: Int = channel.stepPitch) {
         val index = project.channels.indexOf(channel)
         if (index >= 0) NativeEngine.previewNote(index, pitch, 100)
     }
@@ -739,6 +753,155 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Keep the name the user gave the channel; the rack shows the sound's file name beside it.
         updateChannel(channelId) { it.copy(instrument = Instrument.SAMPLE, sample = sound.path) }
         project.channels.firstOrNull { it.id == channelId }?.let { preview(it) }
+    }
+
+    // ---------------------------------------------------------------- sound library (extra engines)
+
+    private fun syncExtraEngine(i: Int, c: Channel) {
+        when (c.instrument) {
+            Instrument.SOUNDFONT -> {
+                val source = c.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
+                val bank = sounds.soundFonts.loadedBank(source)
+                if (bank == null) loadSoundFont(source)
+                NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, bank ?: -1)
+            }
+            Instrument.MACRO, Instrument.MODELED -> NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, -1)
+            Instrument.MULTISAMPLE -> {
+                NativeEngine.setChannelEngine(i, c.instrument.id, 0, -1)
+                val source = c.source
+                if (loadedSources[i] != source) {
+                    loadedSources[i] = source
+                    viewModelScope.launch {
+                        val loaded = withContext(Dispatchers.IO) { source?.let { runCatching { sounds.sfz.load(it) }.getOrNull() } }
+                        if (loadedSources[i] == source) sounds.sfz.sendTo(i, loaded)
+                    }
+                }
+            }
+            else -> loadedSources[i] = null
+        }
+    }
+
+    /** Loads a SoundFont off the main thread, then re-syncs the engine and runs [then]. */
+    fun loadSoundFont(source: String, then: (() -> Unit)? = null) {
+        if (sounds.soundFonts.loadedBank(source) != null) {
+            then?.invoke()
+            return
+        }
+        if (!pendingFontLoads.add(source)) return
+        loadingSoundFont = true
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { runCatching { sounds.soundFonts.load(source) } }
+            pendingFontLoads.remove(source)
+            loadingSoundFont = pendingFontLoads.isNotEmpty()
+            syncEngine()
+            sounds.changed()
+            then?.invoke()
+        }
+    }
+
+    /** Plays a sound from the library without changing the project. */
+    fun auditionChoice(choice: com.mobiledaw.sound.SoundChoice) {
+        when (choice) {
+            is com.mobiledaw.sound.SoundChoice.Sample -> audition(choice.path)
+            is com.mobiledaw.sound.SoundChoice.Engine -> {
+                val pitch = choice.pitch ?: 60
+                when (choice.instrument) {
+                    Instrument.SOUNDFONT -> {
+                        val source = choice.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
+                        val bank = sounds.soundFonts.loadedBank(source)
+                        if (bank == null) loadSoundFont(source) { auditionChoice(choice) }
+                        else NativeEngine.auditionEngine(choice.instrument.id, choice.variant, bank, pitch, 100)
+                    }
+                    Instrument.MULTISAMPLE -> viewModelScope.launch {
+                        val loaded = withContext(Dispatchers.IO) { choice.source?.let { runCatching { sounds.sfz.load(it) }.getOrNull() } }
+                        sounds.sfz.sendTo(NativeEngine.AUDITION_SLOT, loaded)
+                        NativeEngine.auditionEngine(choice.instrument.id, 0, -1, pitch, 100)
+                    }
+                    else -> NativeEngine.auditionEngine(choice.instrument.id, choice.variant, -1, pitch, 100)
+                }
+            }
+        }
+    }
+
+    /** Plays a decoded sound (an online preview) in the audition slot. */
+    fun auditionDecoded(decoded: WavDecoder.Decoded) {
+        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.sampleRate)
+        NativeEngine.audition()
+    }
+
+    /** Adds the sound as a new channel ([channelId] null) or gives it to an existing channel. */
+    fun applyChoice(channelId: Long?, choice: com.mobiledaw.sound.SoundChoice) {
+        when (choice) {
+            is com.mobiledaw.sound.SoundChoice.Sample -> {
+                val sound = KitLibrary.Sound(choice.path, choice.name, choice.group)
+                if (channelId == null) addSampleChannel(sound) else setChannelSound(channelId, sound)
+            }
+            is com.mobiledaw.sound.SoundChoice.Engine -> {
+                if (channelId == null) {
+                    if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
+                    val id = project.nextId()
+                    update {
+                        it.copy(
+                            channels = it.channels + Channel(
+                                id, choice.name, choice.instrument,
+                                variant = choice.variant, source = choice.source, pitch = choice.pitch,
+                            ),
+                        )
+                    }
+                    selectedChannelId = id
+                } else {
+                    // Keep the channel's own name, as with kit sounds.
+                    updateChannel(channelId) {
+                        it.copy(instrument = choice.instrument, variant = choice.variant, source = choice.source, pitch = choice.pitch, sample = null)
+                    }
+                    project.channels.firstOrNull { it.id == channelId }?.let { preview(it) }
+                }
+            }
+        }
+    }
+
+    /** What an engine channel plays, for labels ("GeneralUser GS · Grand Piano"). */
+    fun soundLabel(c: Channel): String? = sounds.version.let { _ -> soundLabelNow(c) }
+
+    private fun soundLabelNow(c: Channel): String? = when (c.instrument) {
+        Instrument.SOUNDFONT -> {
+            val source = c.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
+            val preset = sounds.soundFonts.presets(source).firstOrNull { it.index == c.variant }
+            val drum = c.pitch?.let { com.mobiledaw.sound.SoundFontLibrary.GM_DRUMS[it] }
+            listOfNotNull(preset?.name, drum).joinToString(" · ").ifEmpty { sounds.soundFonts.nameOf(source) }
+        }
+        Instrument.MACRO -> sounds.macroPresets.getOrNull(c.variant)?.name
+        Instrument.MODELED -> sounds.modeledPresets.getOrNull(c.variant)?.name
+        Instrument.MULTISAMPLE -> sounds.sfz.nameOf(c.source)
+        else -> null
+    }
+
+    fun importSoundFont(uri: android.net.Uri) {
+        importing = true
+        importMessage = null
+        viewModelScope.launch {
+            val source = withContext(Dispatchers.IO) { runCatching { sounds.soundFonts.import(uri) }.getOrNull() }
+            importing = false
+            importMessage = if (source == null) "That isn't a .sf2 or .sf3 file." else "Imported \"${sounds.soundFonts.nameOf(source)}\"."
+            sounds.changed()
+        }
+    }
+
+    fun importSfz(uri: android.net.Uri) {
+        importing = true
+        importMessage = null
+        viewModelScope.launch {
+            val pack = withContext(Dispatchers.IO) { runCatching { sounds.sfz.importZip(uri) }.getOrNull() }
+            importing = false
+            importMessage = if (pack == null) "No .sfz instrument found in that .zip." else "Imported \"$pack\"."
+            sounds.changed()
+        }
+    }
+
+    /** After an online sound is saved into a kit. */
+    fun onKitsChanged() {
+        kitsVersion++
+        sounds.changed()
     }
 
     fun importKit(uri: android.net.Uri, isFolder: Boolean) {

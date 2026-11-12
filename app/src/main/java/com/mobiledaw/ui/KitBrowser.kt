@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobiledaw.DawViewModel
+import com.mobiledaw.model.Instrument
 import com.mobiledaw.model.KitLibrary
 import com.mobiledaw.ui.theme.DawColors
 
@@ -77,6 +78,17 @@ fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> U
     }
     var lastPlayed by remember { mutableStateOf<String?>(null) }
     var added by remember { mutableStateOf<String?>(null) }
+    // Opens on the tab the channel's current sound comes from; Kits otherwise.
+    var tab by remember {
+        mutableStateOf(
+            when (replacing?.instrument) {
+                Instrument.SOUNDFONT -> SoundSource.SOUNDFONTS
+                Instrument.MACRO, Instrument.MODELED -> SoundSource.SYNTHS
+                Instrument.MULTISAMPLE -> SoundSource.SFZ
+                else -> SoundSource.KITS
+            },
+        )
+    }
 
     FullScreen(onDismiss) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -91,11 +103,21 @@ fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> U
             TextAction("Done", strong = true, onClick = onDismiss)
         }
 
+        // Other sources (SoundFonts, synth engines, SFZ, online libraries) sit in tabs after Kits.
+        SourceTabs(tab) { tab = it }
+        if (tab != SoundSource.KITS) {
+            SourcePage(vm, tab, actionLabel = if (replacing != null) "Use" else "+", drumMode = replacing?.instrument?.isDrum ?: false) { choice ->
+                vm.applyChoice(replacing?.id, choice)
+                if (replacing != null) onDismiss() else added = "Added ${choice.name} to the rack."
+            }
+            return@FullScreen
+        }
+
         if (kits.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(24.dp)) {
                 Text("No drum kits yet", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                 Spacer(Modifier.height(6.dp))
-                Text("Add your kits in Settings → Drum kits.", fontSize = 14.sp, color = DawColors.InkSoft)
+                Text("Add your kits in Settings → Sounds → Drum kits, or pick from the other tabs above.", fontSize = 14.sp, color = DawColors.InkSoft)
                 Spacer(Modifier.height(14.dp))
                 TextAction("Open Drum kits", strong = true, onClick = onOpenSettings)
             }
@@ -226,7 +248,7 @@ fun DrumKitsSection(vm: DawViewModel) {
 }
 
 @Composable
-private fun FullScreen(onDismiss: () -> Unit, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+internal fun FullScreen(onDismiss: () -> Unit, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier
@@ -240,7 +262,7 @@ private fun FullScreen(onDismiss: () -> Unit, content: @Composable androidx.comp
 }
 
 @Composable
-private fun TreeHeader(title: String, subtitle: String, open: Boolean, level: Int, highlight: Boolean = false, onClick: () -> Unit) {
+internal fun TreeHeader(title: String, subtitle: String, open: Boolean, level: Int, highlight: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()

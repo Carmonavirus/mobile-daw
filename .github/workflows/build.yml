@@ -11,24 +11,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run the audio engine smoke test
         run: |
-          mkdir -p engine-test/out
-          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/main.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
-            -o engine-test/out/enginetest -pthread
-          cd engine-test && ./out/enginetest
+          engine-test/build.sh
+          # The bundled General MIDI bank, same pinned copy the app build fetches.
+          curl -sSfL -o engine-test/out/GeneralUser-GS.sf2 \
+            https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
+          cd engine-test && ./out/enginetest out/GeneralUser-GS.sf2
       - name: Build and run the mixer effects test (EQ, pitch correction, mixer tracks)
         run: |
-          mkdir -p engine-test/out
-          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/fx_test.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
-            -o engine-test/out/fxtest -pthread
+          # build.sh (above) also links the effects test against the full engine.
           cd engine-test && ./out/fxtest
       - name: Build and run the metronome and count-in test
         run: |
           mkdir -p engine-test/out
-          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/metronome_test.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
-            -o engine-test/out/metronometest -pthread
+          # Built by engine-test/build.sh in the first step.
           cd engine-test && ./out/metronometest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
@@ -94,17 +89,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: mobile-daw-debug-apk
-      - name: Publish APK to the latest-build release
+      # Feature branches still being tried out publish to their own release, never latest-build.
+      - name: Publish APK to its release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -x
+          case "$GITHUB_REF_NAME" in
+            claude/project-thread-ht5fxu) tag=sounds-build; title="Sounds test build"; latest="" ;;
+            *) tag=latest-build; title="Latest build"; latest="--latest" ;;
+          esac
           cp app-debug.apk mobile-daw.apk
           notes="Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
-          if gh release view latest-build -R "$GITHUB_REPOSITORY" >/dev/null; then
-            gh release upload latest-build mobile-daw.apk --clobber -R "$GITHUB_REPOSITORY"
-            gh release edit latest-build --notes "$notes" -R "$GITHUB_REPOSITORY"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null; then
+            gh release upload "$tag" mobile-daw.apk --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --notes "$notes" -R "$GITHUB_REPOSITORY"
           else
-            gh release create latest-build mobile-daw.apk --target "$GITHUB_SHA" --title "Latest build" --latest \
+            gh release create "$tag" mobile-daw.apk --target "$GITHUB_SHA" --title "$title" $latest \
               --notes "$notes" -R "$GITHUB_REPOSITORY"
           fi

@@ -497,6 +497,7 @@ private fun ChannelRow(
                 )
                 // The sound actually playing, small and grey next to the channel's own name.
                 val soundName = channel.sample?.substringAfterLast('/')?.substringBeforeLast('.')
+                    ?: vm.soundLabel(channel)
                     ?: channel.instrument.label.lowercase()
                 Spacer(Modifier.width(6.dp))
                 Text(
