@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Builds the desktop engine smoke test (same sources as the app's native library, minus Oboe/JNI).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+CPP=app/src/main/cpp
+TP=$CPP/third_party
+OUT=engine-test/out
+mkdir -p "$OUT/obj"
+INC="-I$CPP -I$TP/tsf -I$TP/plaits -I$TP/daisysp/Source -I$TP/daisysp/Source/Utility -I$TP/stk/include"
+pids=()
+objs=()
+for f in $(find $TP/plaits/plaits $TP/plaits/stmlib -name '*.cc') $(find $TP/daisysp/Source -name '*.cpp') $TP/stk/src/*.cpp \
+         $CPP/SoundEngines.cpp $CPP/MacroVoice.cpp $CPP/ModelVoice.cpp; do
+  o="$OUT/obj/$(echo "$f" | tr '/' '_').o"
+  objs+=("$o")
+  if [ ! -f "$o" ] || [ "$f" -nt "$o" ]; then
+    g++ -std=c++17 -O2 -w -DTEST -D__LITTLE_ENDIAN__ $INC -c "$f" -o "$o" &
+    pids+=($!)
+  fi
+  if [ "${#pids[@]}" -ge 8 ]; then wait "${pids[@]}"; pids=(); fi
+done
+[ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
+g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/main.cpp $CPP/DawCore.cpp "${objs[@]}" -o "$OUT/enginetest"

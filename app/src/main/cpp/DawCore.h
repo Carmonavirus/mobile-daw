@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "SoundEngines.h"
 #include "Synth.h"
 #include "wavesynth/WaveSynth.h"
 
@@ -99,6 +100,9 @@ public:
     // Frees a sequence the audio thread has finished with. Call regularly from the UI thread.
     void collectGarbage();
 
+    // SoundFont / Macro / Modeled / Multisample instruments (see SoundEngines.h).
+    SoundEngines& engines() { return engines_; }
+
     // ---- audio thread ----
     void render(float* interleavedStereo, int frames);
 
@@ -156,6 +160,8 @@ private:
     std::array<SampleData*, kSampleSlots> sample_{};
     Voice auditionVoice_{};
     std::atomic<bool> auditionTrigger_{false};
+
+    SoundEngines engines_;
 
     // Metering
     std::array<std::atomic<float>, kMaxChannels> levels_{};

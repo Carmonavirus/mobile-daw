@@ -32,11 +32,15 @@ Core::~Core() {
     delete retired_.exchange(nullptr);
 }
 
-void Core::setSampleRate(int sampleRate) { sampleRate_ = sampleRate > 0 ? sampleRate : 48000; }
+void Core::setSampleRate(int sampleRate) {
+    sampleRate_ = sampleRate > 0 ? sampleRate : 48000;
+    engines_.setSampleRate(sampleRate_);
+}
 
 void Core::collectGarbage() {
     delete retired_.exchange(nullptr);
     for (auto& r : retiredSample_) delete r.exchange(nullptr);
+    engines_.collectGarbage();
 }
 
 void Core::setSample(int slot, std::vector<float> frames, float sampleRate) {
@@ -212,6 +216,10 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     if (channel < 0 || channel >= kMaxChannels) return;
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
+    if (SoundEngines::handles(instrument)) {
+        engines_.noteOn(channel, pitch, velocity, gateSamples);
+        return;
+    }
     const bool cut = params_[channel].cutItself.load();
     if (instrument == kWavetable) {
         auto& synth = synths_[static_cast<size_t>(channel)];
@@ -250,6 +258,7 @@ void Core::releaseAll() {
     for (auto& pool : voices_)
         for (auto& v : pool) Synth::release(v);
     for (auto& s : synths_) s.releaseAll();
+    engines_.releaseAll();
 }
 
 void Core::advanceTick(const Sequence* seq) {
@@ -372,7 +381,7 @@ void Core::render(float* out, int frames) {
             if (instruments[c] == kWavetable) {
                 synths_[static_cast<size_t>(c)].tick(sumL, sumR);
             } else {
-                float sum = 0.0f;
+                float sum = SoundEngines::handles(instruments[c]) ? engines_.tick(c) : 0.0f;
                 for (auto& v : voices_[c]) {
                     if (!v.active) continue;
                     float x = instruments[c] == kSample ? sampleTick(v, sample_[c], &shapes[c]) : Synth::tick(v, instruments[c], sr);
@@ -391,6 +400,11 @@ void Core::render(float* out, int frames) {
             peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(rr)));
             left += l;
             right += rr;
+        }
+        {
+            const float a = engines_.tickAudition() * 0.8f;
+            left += a;
+            right += a;
         }
         if (auditionVoice_.active) {
             const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot]) * 0.8f;
