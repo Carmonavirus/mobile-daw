@@ -26,7 +26,7 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.5", "2026-11-12T13:30:00Z",
+            "0.5", "2026-11-12T17:30:00Z",
             listOf(
                 "PAT / SONG moved from the top bar to the left of the play button.",
                 "Record on the playlist: tap Record (right of play). The bar switches to a big play button and a big red record button.",
@@ -36,9 +36,16 @@ object AppInfo {
             ),
         ),
         Release(
+            "0.4.4", "2026-11-12T17:20:00Z",
+            listOf(
+                "Channel settings: Pitch slider to move a sample up or down 12 semitones.",
+                "Channel settings: Reverse toggle to play a sample backwards.",
+            ),
+        ),
+        Release(
             "0.4.3", "2026-11-12T13:15:00Z",
             listOf(
-                "Piano roll: FL-style scale colouring — in \"Key\" mode, notes in your scale are light and the rest are dark.",
+                "Piano roll: FL-style scale colouring — in Key mode, notes in your scale are light and the rest are dark.",
                 "Piano roll: optional one-finger scroll (Settings → Editing); tap still places notes.",
                 "Piano roll: the track chips no longer overlap the note grid.",
             ),

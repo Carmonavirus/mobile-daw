@@ -54,6 +54,8 @@ struct ChannelParams {
     std::atomic<float> trimEnd{1.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> release{0.0f};
+    std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
+    std::atomic<bool> reverse{false};   // play the sample backwards
     // Audio clips on the playlist: when playback starts or seeks into the middle of one of
     // this channel's notes, the sample starts from that point instead of staying silent.
     std::atomic<bool> resumeMidway{false};
@@ -81,7 +83,8 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
-    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release,
+                           int pitchSemis, bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
     // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
     void setChannelClip(int index, bool resumeMidway);

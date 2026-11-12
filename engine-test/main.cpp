@@ -36,7 +36,7 @@ int main() {
     for (size_t n = 0; n < tom.size(); ++n)
         tom[n] = std::sin(2 * 3.14159 * 110 * n / 44100.0) * std::exp(-double(n) / 4000.0);
     core.setSample(8, tom, 44100.0f);
-    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.03f);  // cut itself, trimmed, short fades
+    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.03f, 0, false);  // cut itself, trimmed, short fades
     core.setChannel(8, 8, 1.6f, 0.0f, false, false);              // boosted above unity
     core.setSample(kAuditionSlot, tom, 44100.0f);
     core.audition();
