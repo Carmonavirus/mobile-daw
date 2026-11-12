@@ -269,7 +269,7 @@ Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples
     const int instrument = params_[channel].instrument.load();
     if (SoundEngines::handles(instrument)) {
         engines_.noteOn(channel, pitch, velocity, gateSamples);
-        return;
+        return nullptr;
     }
     const bool cut = params_[channel].cutItself.load();
     if (instrument == kWavetable) {
