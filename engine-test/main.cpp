@@ -37,7 +37,7 @@ int main() {
         tom[n] = std::sin(2 * 3.14159 * 110 * n / 44100.0) * std::exp(-double(n) / 4000.0);
     core.setSample(8, tom, 44100.0f);
     // cut itself, trimmed, short attack/hold/decay, sustain 0.6, short release.
-    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.001f, 0.01f, 0.6f, 0.03f, 0, false);
+    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.0f, 0.002f, 0.001f, 0.01f, 0.6f, 0.03f, 0.0f, 0, false);
     core.setChannel(8, 8, 1.6f, 0.0f, false, false);              // boosted above unity
     core.setSample(kAuditionSlot, tom, 44100.0f);
     core.audition();
@@ -103,8 +103,8 @@ int main() {
         std::printf("FAIL seek\n");
         return 1;
     }
-    // Amplitude envelope on a steady sample: attack ramps in, sustain holds below peak.
-    auto sampleLevel = [&](float attack, float hold, float decay, float sustain, int atSample) {
+    // Amplitude envelope on a steady sample: delay stays silent, attack ramps in, sustain holds below peak.
+    auto sampleLevel = [&](float delay, float attack, float hold, float decay, float sustain, float tension, int atSample) {
         Core c2;
         c2.setSampleRate(sr);
         c2.setMasterVolume(1.0f);
@@ -112,7 +112,7 @@ int main() {
         c2.setChannel(0, 8, 1.0f, 0.0f, false, false);
         std::vector<float> flat(sr, 0.5f);  // 1 s of constant 0.5
         c2.setSample(0, flat, static_cast<float>(sr));
-        c2.setChannelSampler(0, false, 0.0f, 1.0f, attack, hold, decay, sustain, 0.0f, 0, false);
+        c2.setChannelSampler(0, false, 0.0f, 1.0f, delay, attack, hold, decay, sustain, 0.0f, tension, 0, false);
         c2.previewNote(0, 60, 1.0f);
         std::vector<float> mono;
         std::vector<float> b2(block * 2);
@@ -122,14 +122,22 @@ int main() {
         }
         return std::fabs(mono[static_cast<size_t>(atSample)]);
     };
-    const float envEarly = sampleLevel(0.2f, 0.0f, 0.0f, 1.0f, sr / 100);  // ~10 ms into a 200 ms attack
-    const float envFull = sampleLevel(0.2f, 0.0f, 0.0f, 1.0f, sr / 2);     // well past the attack
-    const float susLevel = sampleLevel(0.0f, 0.0f, 0.02f, 0.4f, sr / 2);   // held at sustain 0.4
-    const float susPeak = sampleLevel(0.0f, 0.0f, 0.02f, 0.4f, sr / 500);  // during the brief full part
-    std::printf("env: early=%.3f full=%.3f susLevel=%.3f susPeak=%.3f\n", envEarly, envFull, susLevel, susPeak);
+    const float envEarly = sampleLevel(0.0f, 0.2f, 0.0f, 0.0f, 1.0f, 0.0f, sr / 100);  // ~10 ms into a 200 ms attack
+    const float envFull = sampleLevel(0.0f, 0.2f, 0.0f, 0.0f, 1.0f, 0.0f, sr / 2);     // well past the attack
+    const float susLevel = sampleLevel(0.0f, 0.0f, 0.0f, 0.02f, 0.4f, 0.0f, sr / 2);   // held at sustain 0.4
+    const float susPeak = sampleLevel(0.0f, 0.0f, 0.0f, 0.02f, 0.4f, 0.0f, sr / 500);  // during the brief full part
+    const float delayed = sampleLevel(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, sr / 50);    // 20 ms into a 100 ms delay
+    const float afterDelay = sampleLevel(0.1f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, sr / 2);  // past the delay, full
+    // Positive tension bends the attack concave (ease-in), so the same point is quieter than linear.
+    const float tenCurved = sampleLevel(0.0f, 0.4f, 0.0f, 0.0f, 1.0f, 0.8f, sr / 10);  // 100 ms into 400 ms attack
+    const float tenLin = sampleLevel(0.0f, 0.4f, 0.0f, 0.0f, 1.0f, 0.0f, sr / 10);
+    std::printf("env: early=%.3f full=%.3f susLevel=%.3f susPeak=%.3f delayed=%.3f afterDelay=%.3f ten=%.3f/%.3f\n",
+                envEarly, envFull, susLevel, susPeak, delayed, afterDelay, tenCurved, tenLin);
     if (envEarly > 0.15f || envFull < 0.45f ||               // attack keeps the start quiet, then opens up
         susLevel > 0.26f || susLevel < 0.14f ||              // ~0.5 * 0.4 = 0.20
-        susPeak < 0.40f) {                                   // peaks near full before decaying
+        susPeak < 0.40f ||                                   // peaks near full before decaying
+        delayed > 0.02f || afterDelay < 0.45f ||             // silent during delay, full after
+        tenCurved >= tenLin) {                               // positive tension bends the ramp below linear
         std::printf("FAIL envelope\n");
         return 1;
     }

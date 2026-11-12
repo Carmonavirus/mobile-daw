@@ -54,13 +54,16 @@ struct ChannelParams {
     std::atomic<bool> cutItself{false};
     std::atomic<float> trimStart{0.0f};
     std::atomic<float> trimEnd{1.0f};
-    // Amplitude envelope (FL sampler-style): attack, hold and decay are times in seconds,
-    // sustain is the 0..1 level the decay falls to, release fades the tail before the end edge.
+    // Amplitude envelope (FL sampler-style): delay is silence before the attack, attack, hold and
+    // decay are times in seconds, sustain is the 0..1 level the decay falls to, release fades the
+    // tail before the end edge, tension (-1..1) curves the attack/decay/release segments.
+    std::atomic<float> envDelay{0.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> hold{0.0f};
     std::atomic<float> decay{0.0f};
     std::atomic<float> sustain{1.0f};
     std::atomic<float> release{0.0f};
+    std::atomic<float> tension{0.0f};
     std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
     std::atomic<bool> reverse{false};   // play the sample backwards
     // Audio clips on the playlist: when playback starts or seeks into the middle of one of
@@ -74,11 +77,13 @@ struct ChannelParams {
 struct SampleShape {
     double start = 0.0;
     double end = 0.0;
+    double delay = 0.0;
     double attack = 0.0;
     double hold = 0.0;
     double decay = 0.0;
     double sustain = 1.0;
     double release = 0.0;
+    double tension = 0.0;
 };
 
 class Core {
@@ -95,8 +100,9 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
-    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
-                           float decay, float sustain, float release, int pitchSemis, bool reverse);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float envDelay, float attack,
+                           float hold, float decay, float sustain, float release, float tension, int pitchSemis,
+                           bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
     // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
     void setChannelClip(int index, bool resumeMidway);

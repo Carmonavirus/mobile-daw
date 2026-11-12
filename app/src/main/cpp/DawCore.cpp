@@ -80,13 +80,25 @@ SampleShape Core::shapeFor(int channel) const {
     if (b - a < 0.001f) b = std::min(1.0f, a + 0.001f);
     shape.start = a * n;
     shape.end = b * n;
+    shape.delay = std::max(0.0f, p.envDelay.load()) * data->sampleRate;
     shape.attack = std::max(0.0f, p.attack.load()) * data->sampleRate;
     shape.hold = std::max(0.0f, p.hold.load()) * data->sampleRate;
     shape.decay = std::max(0.0f, p.decay.load()) * data->sampleRate;
     shape.sustain = std::clamp(p.sustain.load(), 0.0f, 1.0f);
     shape.release = std::max(0.0f, p.release.load()) * data->sampleRate;
+    shape.tension = std::clamp(p.tension.load(), -1.0f, 1.0f);
     return shape;
 }
+
+namespace {
+// Bends a 0..1 ramp by a tension amount in [-1, 1]. 0 is linear; positive eases out (fast then
+// slow), negative eases in (slow then fast). Same shape FL's envelope tension gives.
+double envWarp(double x, double tension) {
+    if (std::fabs(tension) < 1e-4) return x;
+    const double k = tension * 5.0;
+    return (std::exp(k * x) - 1.0) / (std::exp(k) - 1.0);
+}
+}  // namespace
 
 float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shape) {
     if (!data || data->frames.empty()) {
@@ -109,24 +121,29 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
     const float frac = static_cast<float>(pos - static_cast<double>(i));
     float s = f[i] + (f[i + 1] - f[i]) * frac;
     if (shape) {
-        // Time-based attack / hold / decay / sustain from the trigger, plus a position-based
-        // release that fades the tail before the end edge (edges flip for reverse playback).
+        // Time-based delay / attack / hold / decay / sustain from the trigger, plus a position-based
+        // release that fades the tail before the end edge (edges flip for reverse playback). Tension
+        // curves the attack, decay and release segments.
         const double t = static_cast<double>(v.age);
+        const double dly = shape->delay;
         const double a = shape->attack;
         const double h = shape->hold;
         const double d = shape->decay;
+        const double tn = shape->tension;
         double env;
-        if (a > 1.0 && t < a) {
-            env = t / a;  // attack ramp 0 -> 1
-        } else if (t < a + h) {
+        if (t < dly) {
+            env = 0.0;  // delay: silent before the attack begins
+        } else if (a > 1.0 && t < dly + a) {
+            env = envWarp((t - dly) / a, tn);  // attack ramp 0 -> 1
+        } else if (t < dly + a + h) {
             env = 1.0;  // hold at full
-        } else if (d > 1.0 && t < a + h + d) {
-            env = 1.0 - (1.0 - shape->sustain) * ((t - a - h) / d);  // decay 1 -> sustain
+        } else if (d > 1.0 && t < dly + a + h + d) {
+            env = 1.0 - (1.0 - shape->sustain) * envWarp((t - dly - a - h) / d, tn);  // decay 1 -> sustain
         } else {
             env = shape->sustain;  // held at the sustain level
         }
         const double toEnd = forward ? (hi - pos) : (pos - lo);
-        if (shape->release > 1.0) env = std::min(env, toEnd / shape->release);
+        if (shape->release > 1.0) env = std::min(env, envWarp(toEnd / shape->release, tn));
         s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
     }
     v.phase1 += v.phase2;  // phase2 holds the signed playback rate for sample voices
@@ -171,18 +188,21 @@ void Core::jumpTo(int64_t tick) {
         current_->events.begin()) : 0;
 }
 
-void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
-                             float decay, float sustain, float release, int pitchSemis, bool reverse) {
+void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float envDelay, float attack,
+                             float hold, float decay, float sustain, float release, float tension, int pitchSemis,
+                             bool reverse) {
     if (index < 0 || index >= kMaxChannels) return;
     auto& p = params_[index];
     p.cutItself.store(cutItself);
     p.trimStart.store(trimStart);
     p.trimEnd.store(trimEnd);
+    p.envDelay.store(envDelay);
     p.attack.store(attack);
     p.hold.store(hold);
     p.decay.store(decay);
     p.sustain.store(sustain);
     p.release.store(release);
+    p.tension.store(tension);
     p.pitchSemis.store(pitchSemis);
     p.reverse.store(reverse);
 }
