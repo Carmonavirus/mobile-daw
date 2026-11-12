@@ -74,49 +74,56 @@ class ScreenshotTest {
         shot("30-synth-presets")
     }
 
-    /** The mixer with the Vocals track, then its Parametric EQ and Pitch Correct editors. */
+    /** Screenshot without waiting for Compose to go idle: while the song plays it never does. */
+    private fun liveShot(name: String, settleMs: Long = 900) {
+        Thread.sleep(settleMs)
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
+        TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    /** The mixer with the Vocals track, then its Parametric EQ and Pitch Correct editors, with music playing. */
     @Test
     fun vocalChain() {
+        val trackId = com.mobiledaw.model.VOCALS_TRACK_ID
         rule.runOnUiThread {
-            val p = vm.project
             // Send the lead synth through the Vocals track so the plugins have something to show.
-            p.channels.firstOrNull { it.instrument == com.mobiledaw.model.Instrument.LEAD }?.let {
-                vm.routeChannel(it.id, com.mobiledaw.model.VOCALS_TRACK_ID)
-            }
+            vm.project.channels.firstOrNull { it.instrument == Instrument.LEAD }?.let { vm.routeChannel(it.id, trackId) }
             vm.tab = Tab.MIXER
-            if (!vm.playing) vm.togglePlay()
         }
-        shot("40-mixer-vocals-track")
+        rule.waitForIdle()
+        try {
+            rule.runOnUiThread { if (!vm.playing) vm.togglePlay() }
+            liveShot("40-mixer-vocals-track", 1500)
 
-        val track = vm.project.mixerTrack(com.mobiledaw.model.VOCALS_TRACK_ID) ?: error("no Vocals track")
-        val eq = track.effects.first { it.type == com.mobiledaw.model.EffectType.EQ }
-        rule.runOnUiThread {
-            vm.updateEffect(track.id, eq.id) {
-                it.copy(
-                    eq = com.mobiledaw.model.EqSettings(
-                        listOf(
-                            com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.LOW_CUT, 90f, 0f, 0.71f, slope = 2),
-                            com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 320f, -4.5f, 1.4f),
-                            com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 3200f, 5f, 0.9f),
-                            com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.HIGH_SHELF, 11000f, 3f, 0.71f),
+            val track = vm.project.mixerTrack(trackId) ?: error("no Vocals track")
+            val eq = track.effects.first { it.type == com.mobiledaw.model.EffectType.EQ }
+            rule.runOnUiThread {
+                vm.updateEffect(trackId, eq.id) {
+                    it.copy(
+                        eq = com.mobiledaw.model.EqSettings(
+                            listOf(
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.LOW_CUT, 90f, 0f, 0.71f, slope = 2),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 320f, -4.5f, 1.4f),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 3200f, 5f, 0.9f),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.HIGH_SHELF, 11000f, 3f, 0.71f),
+                            ),
                         ),
-                    ),
-                )
+                    )
+                }
+                vm.openEffect(trackId, eq.id)
             }
-            vm.openEffect(track.id, eq.id)
-        }
-        Thread.sleep(1200) // let the spectrum fill in
-        shot("41-parametric-eq")
-        tap("3")
-        shot("42-parametric-eq-band-3")
-        rule.runOnUiThread { vm.closeEffect() }
+            liveShot("41-parametric-eq", 2000)
+            rule.runOnUiThread { vm.closeEffect() }
 
-        val pitch = track.effects.first { it.type == com.mobiledaw.model.EffectType.PITCH }
-        rule.runOnUiThread { vm.openEffect(track.id, pitch.id) }
-        Thread.sleep(800)
-        shot("43-pitch-correct")
-        tap("Robot")
-        shot("44-pitch-correct-robot")
-        rule.runOnUiThread { vm.closeEffect() }
+            val pitch = track.effects.first { it.type == com.mobiledaw.model.EffectType.PITCH }
+            rule.runOnUiThread { vm.openEffect(trackId, pitch.id) }
+            liveShot("42-pitch-correct", 1500)
+            rule.runOnUiThread { vm.updateEffect(trackId, pitch.id) { it.copy(pitch = it.pitch?.copy(retuneMs = 0f, humanize = 0f)) } }
+            liveShot("43-pitch-correct-robot", 1200)
+            rule.runOnUiThread { vm.closeEffect() }
+        } finally {
+            // The engine outlives the activity: stop it so later tests can go idle.
+            rule.runOnUiThread { if (vm.playing) vm.togglePlay() }
+        }
     }
 }
