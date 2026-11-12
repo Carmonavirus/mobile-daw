@@ -75,6 +75,25 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
                 }
 
+                // ---------------------------------------------------------------- editing
+                SectionTitle("Editing")
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Hear sounds when placing", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                            Text("Plays a step or note as you place it, only while stopped.", fontSize = 12.sp, color = DawColors.Muted)
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = vm.previewOnEdit,
+                            onCheckedChange = vm::changePreviewOnEdit,
+                            colors = androidx.compose.material3.SwitchDefaults.colors(
+                                checkedTrackColor = DawColors.Note,
+                                checkedThumbColor = DawColors.OnNote,
+                            ),
+                        )
+                    }
+                }
+
                 // ---------------------------------------------------------------- drum kits
                 SectionTitle("Drum kits")
                 SectionCard { DrumKitsSection(vm) }

@@ -56,6 +56,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var tab by mutableStateOf(Tab.RACK)
     var settingsOpen by mutableStateOf(false)
+
+    private val prefs = app.getSharedPreferences("daw", android.content.Context.MODE_PRIVATE)
+
+    /** Hear a sound when placing a step or note. Never while playing, so beats don't double up. */
+    var previewOnEdit by mutableStateOf(prefs.getBoolean("preview_on_edit", true))
+        private set
+
+    fun changePreviewOnEdit(on: Boolean) {
+        previewOnEdit = on
+        prefs.edit().putBoolean("preview_on_edit", on).apply()
+    }
     var mode by mutableStateOf(PlayMode.PATTERN)
         private set
     var playing by mutableStateOf(false)
@@ -242,8 +253,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             val pitch = channel.instrument.defaultPitch
             updateNotes(channel.id) { it + Note(tick, TICKS_PER_STEP, pitch) }
-            preview(channel, pitch)
+            editPreview(channel, pitch)
         }
+    }
+
+    /** Preview used while editing: skipped during playback (and when switched off in Settings). */
+    fun editPreview(channel: Channel, pitch: Int = channel.instrument.defaultPitch) {
+        if (!playing && previewOnEdit) preview(channel, pitch)
     }
 
     fun preview(channel: Channel, pitch: Int = channel.instrument.defaultPitch) {
@@ -321,7 +337,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addNote(channelId: Long, note: Note) {
         updateNotes(channelId) { it + note }
-        project.channels.firstOrNull { it.id == channelId }?.let { preview(it, note.pitch) }
+        project.channels.firstOrNull { it.id == channelId }?.let { editPreview(it, note.pitch) }
     }
 
     fun replaceNote(channelId: Long, index: Int, note: Note) {

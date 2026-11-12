@@ -223,7 +223,7 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                                     val pitch = (original.pitch - (total.y / rowH).roundToInt()).coerceIn(LOWEST_PITCH, HIGHEST_PITCH)
                                     val moved = original.copy(start = start, pitch = pitch)
                                     if (moved != lastApplied) {
-                                        if (moved.pitch != lastApplied?.pitch) vm.preview(channelState.value, moved.pitch)
+                                        if (moved.pitch != lastApplied?.pitch) vm.editPreview(channelState.value, moved.pitch)
                                         vm.replaceNote(channelState.value.id, hit, moved)
                                         lastApplied = moved
                                     }
