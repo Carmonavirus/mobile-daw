@@ -42,7 +42,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +77,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
     var page by remember(pattern.id) { mutableIntStateOf(0) }
     if (page >= pattern.bars) page = pattern.bars - 1
     val playingBar = if (currentStep >= 0) currentStep / STEPS_PER_BAR else -1
+    val swipePage: (Int) -> Unit = { delta -> page = (page + delta).coerceIn(0, pattern.bars - 1) }
 
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
@@ -83,6 +86,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
             bars = pattern.bars,
             playingBar = playingBar,
             onPage = { page = it },
+            modifier = Modifier.barSwipe(swipePage),
             onAddBar = {
                 vm.setPatternBars(pattern.bars + 1)
                 page = pattern.bars
@@ -106,6 +110,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     currentStep = currentStep,
                     onChangeSound = { replaceId = channel.id; browsing = true },
                     onSettings = { settingsId = channel.id },
+                    onSwipePage = swipePage,
                 )
                 }
             }
@@ -142,7 +147,29 @@ fun ChannelRackScreen(vm: DawViewModel) {
     }
 }
 
-/** Swipe a channel to the right to delete it (an Undo bar appears). */
+/**
+ * Horizontal swipe to change bar: left = next bar, right = previous bar.
+ * Consumes the drag so a parent swipe-to-delete doesn't also move.
+ */
+@Composable
+private fun Modifier.barSwipe(onPage: (Int) -> Unit): Modifier {
+    val latest = androidx.compose.runtime.rememberUpdatedState(onPage)
+    return pointerInput(Unit) {
+    val threshold = 48.dp.toPx()
+    var total = 0f
+    detectHorizontalDragGestures(
+        onDragStart = { total = 0f },
+        onDragEnd = {
+            if (total <= -threshold) latest.value(1) else if (total >= threshold) latest.value(-1)
+        },
+    ) { change, dx ->
+        change.consume()
+        total += dx
+    }
+    }
+}
+
+/** Swipe a channel's name row to the right to delete it (an Undo bar appears). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
@@ -341,9 +368,9 @@ private fun StepperButton(label: String, enabled: Boolean, onClick: () -> Unit) 
  * last bar the right arrow becomes "+" and adds a new bar.
  */
 @Composable
-private fun BarPager(page: Int, bars: Int, playingBar: Int, onPage: (Int) -> Unit, onAddBar: () -> Unit) {
+private fun BarPager(page: Int, bars: Int, playingBar: Int, onPage: (Int) -> Unit, modifier: Modifier = Modifier, onAddBar: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PagerArrow("‹", enabled = page > 0) { onPage(page - 1) }
@@ -414,6 +441,7 @@ private fun ChannelRow(
     currentStep: Int,
     onChangeSound: () -> Unit,
     onSettings: () -> Unit,
+    onSwipePage: (Int) -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Column(
@@ -524,8 +552,9 @@ private fun ChannelRow(
             }
         }
         Spacer(Modifier.height(10.dp))
-        // The 16 steps of the bar currently shown.
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        // The 16 steps of the bar currently shown. Swiping across them pages bars
+        // (the drag is consumed here, so it never reaches swipe-to-delete on the card).
+        Row(Modifier.barSwipe(onSwipePage), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             for (col in 0 until STEPS_PER_BAR) {
                 val step = page * STEPS_PER_BAR + col
                 StepCell(
