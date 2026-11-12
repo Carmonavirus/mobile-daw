@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.2", "2026-11-12T13:45:00Z",
+            listOf(
+                "Chord generator in the piano roll: tap Chords. It writes a progression in the project's key into the channel you're on (great with the Wavetable synth).",
+                "Generate for a new progression; the slider goes from Conventional to Adventurous (borrowed chords, 7ths, sus, add9).",
+                "Each chord: tap to hear it, lock it, reroll just that one (↻), or move its voicing up/down (▴ ▾).",
+                "Set how many chords, the octave, ½/1/2 bars each, a bass note, and a rhythm (Hold, Beats, Arp). Keep writes them in, Cancel puts back what was there.",
+            ),
+        ),
+        Release(
             "0.4.1", "2026-11-12T12:20:00Z",
             listOf("Fix: the app crashed on launch after the last update. Fixed."),
         ),

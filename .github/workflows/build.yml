@@ -70,8 +70,8 @@ jobs:
   publish:
     needs: launch-test
     runs-on: ubuntu-latest
-    # The synth branch is merged into the main work branch before release, so it never publishes.
-    if: github.ref_name != 'claude/project-thread-n1suni'
+    # Feature branches (synth, chords) are merged into the main work branch before release, so they never publish.
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-e7wj3k'
     # Pushes to different branches must not update the release at the same time.
     concurrency: publish-apk
     permissions:
