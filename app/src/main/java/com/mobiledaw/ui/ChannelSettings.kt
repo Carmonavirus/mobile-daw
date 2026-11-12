@@ -178,6 +178,32 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
 
                     Spacer(Modifier.height(10.dp))
                     Card {
+                        LabeledSlider(
+                            label = "Pitch",
+                            value = channel.pitchSemis.toFloat(),
+                            range = -12f..12f,
+                            display = when {
+                                channel.pitchSemis == 0 -> "No change"
+                                channel.pitchSemis > 0 -> "+${channel.pitchSemis} st"
+                                else -> "${channel.pitchSemis} st"
+                            },
+                            snapTo = 0f,
+                        ) { v -> set { it.copy(pitchSemis = v.roundToInt().coerceIn(-12, 12)) } }
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Reverse", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                                Text("Play the sound backwards.", fontSize = 12.sp, color = DawColors.Muted)
+                            }
+                            Switch(
+                                checked = channel.reverse,
+                                onCheckedChange = { on -> set { it.copy(reverse = on) }; vm.preview(channel) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Card {
                         Text("Envelope", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                         Spacer(Modifier.height(4.dp))
                         LabeledSlider(

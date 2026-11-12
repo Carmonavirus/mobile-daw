@@ -184,7 +184,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setChannelCount(p.channels.size.coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release, c.pitchSemis, c.reverse)
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {

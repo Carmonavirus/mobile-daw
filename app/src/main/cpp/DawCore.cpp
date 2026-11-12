@@ -91,23 +91,31 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
         return 0.0f;
     }
     const auto& f = data->frames;
-    const double end = shape ? std::min(shape->end, static_cast<double>(f.size())) : static_cast<double>(f.size());
+    const double lo = shape ? shape->start : 0.0;
+    const double hi = shape ? std::min(shape->end, static_cast<double>(f.size())) : static_cast<double>(f.size());
     const double pos = v.phase1;
-    const size_t i = static_cast<size_t>(pos);
-    if (pos + 1.0 >= end || i + 1 >= f.size()) {
+    const bool forward = v.phase2 >= 0.0;
+    // Stop at whichever edge we are travelling towards (flips for reverse playback).
+    const bool reachedEdge = forward ? (pos + 1.0 >= hi) : (pos <= lo);
+    if (reachedEdge || pos < lo || pos >= hi) {
         v.active = false;
         return 0.0f;
     }
+    const size_t i = static_cast<size_t>(pos);
+    if (i + 1 >= f.size()) { v.active = false; return 0.0f; }
     const float frac = static_cast<float>(pos - static_cast<double>(i));
     float s = f[i] + (f[i + 1] - f[i]) * frac;
     if (shape) {
-        // Attack fades in from the trim start, release fades out before the trim end.
+        // Attack fades in from the playback start edge, release fades out before the end edge
+        // (edges flip when the sample plays in reverse).
+        const double fromStart = forward ? (pos - lo) : (hi - pos);
+        const double toEnd = forward ? (hi - pos) : (pos - lo);
         double env = 1.0;
-        if (shape->attack > 1.0) env = std::min(env, (pos - shape->start) / shape->attack);
-        if (shape->release > 1.0) env = std::min(env, (end - pos) / shape->release);
+        if (shape->attack > 1.0) env = std::min(env, fromStart / shape->attack);
+        if (shape->release > 1.0) env = std::min(env, toEnd / shape->release);
         s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
     }
-    v.phase1 += v.phase2;  // phase2 holds the playback rate for sample voices
+    v.phase1 += v.phase2;  // phase2 holds the signed playback rate for sample voices
     return s * v.velocity;
 }
 
@@ -148,7 +156,8 @@ void Core::jumpTo(int64_t tick) {
         current_->events.begin()) : 0;
 }
 
-void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release) {
+void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release,
+                             int pitchSemis, bool reverse) {
     if (index < 0 || index >= kMaxChannels) return;
     auto& p = params_[index];
     p.cutItself.store(cutItself);
@@ -156,6 +165,8 @@ void Core::setChannelSampler(int index, bool cutItself, float trimStart, float t
     p.trimEnd.store(trimEnd);
     p.attack.store(attack);
     p.release.store(release);
+    p.pitchSemis.store(pitchSemis);
+    p.reverse.store(reverse);
 }
 
 void Core::setChannelCount(int count) {
@@ -288,8 +299,18 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     if (instrument == kSample) {
         const SampleData* data = sample_[channel];
         const float rate = data ? data->sampleRate : static_cast<float>(sampleRate_);
-        target->phase2 = rate / sampleRate_ * std::pow(2.0, (pitch - 60) / 12.0);
-        target->phase1 = shapeFor(channel).start;
+        const int transpose = params_[channel].pitchSemis.load();
+        const double step = rate / sampleRate_ * std::pow(2.0, (pitch - 60 + transpose) / 12.0);
+        const SampleShape shape = shapeFor(channel);
+        if (params_[channel].reverse.load()) {
+            // Start just inside the trim end so interpolation still has a next sample.
+            const double last = data ? static_cast<double>(data->frames.size()) - 2.0 : shape.end - 2.0;
+            target->phase1 = std::max(shape.start, std::min(shape.end - 1.0, last));
+            target->phase2 = -step;  // walk backwards from the trim end
+        } else {
+            target->phase1 = shape.start;
+            target->phase2 = step;
+        }
     }
 }
 

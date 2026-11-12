@@ -56,6 +56,8 @@ struct ChannelParams {
     std::atomic<float> trimEnd{1.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> release{0.0f};
+    std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
+    std::atomic<bool> reverse{false};   // play the sample backwards
     // Mixer track (fx::Insert) this channel plays through, or -1 for straight to the master.
     std::atomic<int> insert{-1};
 };
@@ -82,7 +84,8 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
-    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release,
+                           int pitchSemis, bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
 
     // ---- mixer tracks (control thread)
