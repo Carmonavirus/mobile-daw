@@ -85,7 +85,7 @@ object OutputDevices {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val outputs = runCatching { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() }.getOrDefault(emptyList())
         val device = outputs.firstOrNull { id != 0 && it.id == id && it.type in PREFERENCE }
-            ?: PREFERENCE.firstNotNullOfOrNull { type -> outputs.firstOrNull { it.type == type } }
+            ?: PREFERENCE.asSequence().mapNotNull { type -> outputs.firstOrNull { it.type == type } }.firstOrNull()
             ?: return OutputDevice("speaker", "Phone speaker", false)
         val name = device.productName?.toString()?.trim().orEmpty()
         val label = when (device.type) {
