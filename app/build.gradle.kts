@@ -66,4 +66,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.oboe)
+    implementation(libs.androidx.documentfile)
 }

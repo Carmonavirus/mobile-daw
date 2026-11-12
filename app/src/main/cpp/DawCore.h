@@ -25,6 +25,15 @@ struct NoteEvent {
     float velocity;  // 0..1
 };
 
+// A mono audio sample, e.g. one hit from a drum kit.
+struct SampleData {
+    std::vector<float> frames;
+    float sampleRate = 48000.0f;
+};
+
+// Sample slot used to audition sounds in the kit browser without touching any channel.
+constexpr int kAuditionSlot = kMaxChannels;
+
 // An immutable, start-sorted list of note events that loops every loopTicks.
 struct Sequence {
     std::vector<NoteEvent> events;
@@ -53,6 +62,11 @@ public:
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
     void setMasterVolume(float v) { master_.store(v); }
     void previewNote(int channel, int pitch, float velocity);
+    // Replaces the sample a channel plays (slot 0..kMaxChannels-1) or the audition sample
+    // (kAuditionSlot). Pass empty frames to clear it.
+    void setSample(int slot, std::vector<float> frames, float sampleRate);
+    // Plays the audition sample once.
+    void audition() { auditionTrigger_.store(true); }
     int64_t positionTicks() const { return position_.load(); }
     bool isPlaying() const { return playing_.load(); }
     void readLevels(float* out, int count) const;
@@ -69,6 +83,8 @@ private:
     void advanceTick(const Sequence* seq);
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
+    void adoptSamples();
+    float sampleTick(Voice& v, const SampleData* data);
 
     int sampleRate_ = 48000;
     std::atomic<float> bpm_{120.0f};
@@ -100,6 +116,14 @@ private:
     std::array<Preview, kPreviewQueue> previews_{};
     std::atomic<int> previewWrite_{0};
     std::atomic<int> previewRead_{0};
+
+    // Samples: same hand-off scheme as sequences, one slot per channel plus audition.
+    static constexpr int kSampleSlots = kMaxChannels + 1;
+    std::array<std::atomic<SampleData*>, kSampleSlots> pendingSample_{};
+    std::array<std::atomic<SampleData*>, kSampleSlots> retiredSample_{};
+    std::array<SampleData*, kSampleSlots> sample_{};
+    Voice auditionVoice_{};
+    std::atomic<bool> auditionTrigger_{false};
 
     // Metering
     std::array<std::atomic<float>, kMaxChannels> levels_{};

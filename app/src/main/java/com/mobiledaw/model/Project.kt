@@ -17,6 +17,9 @@ enum class Instrument(val id: Int, val label: String, val isDrum: Boolean, val d
     LEAD(5, "Lead", false, 72),
     PLUCK(6, "Pluck", false, 72),
     PAD(7, "Pad", false, 60),
+
+    /** Plays an imported sound from a kit; see [Channel.sample]. */
+    SAMPLE(8, "Sample", true, 60),
 }
 
 /** A note inside a pattern. Times are in ticks (96 per beat). */
@@ -37,6 +40,8 @@ data class Channel(
     val pan: Float = 0f,
     val mute: Boolean = false,
     val solo: Boolean = false,
+    /** For [Instrument.SAMPLE]: the sound's path relative to the app's files folder. */
+    val sample: String? = null,
 )
 
 @Serializable

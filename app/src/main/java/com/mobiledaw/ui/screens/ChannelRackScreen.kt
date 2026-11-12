@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -47,6 +48,7 @@ import com.mobiledaw.model.STEPS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_STEP
 import com.mobiledaw.ui.AddChannelDialog
 import com.mobiledaw.ui.DawChip
+import com.mobiledaw.ui.KitBrowser
 import com.mobiledaw.ui.RoundToggle
 import com.mobiledaw.ui.Segmented
 import com.mobiledaw.ui.TextAction
@@ -55,6 +57,8 @@ import com.mobiledaw.ui.theme.DawColors
 @Composable
 fun ChannelRackScreen(vm: DawViewModel) {
     var adding by remember { mutableStateOf(false) }
+    var browsing by remember { mutableStateOf(false) }
+    var replaceId by remember { mutableStateOf<Long?>(null) }
     val pattern = vm.selectedPattern
     val totalSteps = pattern.bars * STEPS_PER_BAR
     val currentStep = if (vm.playing && vm.mode == PlayMode.PATTERN) (vm.positionTicks / TICKS_PER_STEP).toInt() else -1
@@ -76,16 +80,22 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     activeSteps = pattern.notesFor(channel.id).map { it.start / TICKS_PER_STEP }.toSet(),
                     totalSteps = totalSteps,
                     currentStep = currentStep,
+                    onChangeSound = { replaceId = channel.id; browsing = true },
                 )
             }
             item {
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                ) {
                     TextAction("+ Add channel") { adding = true }
+                    TextAction("Sounds", strong = true) { replaceId = null; browsing = true }
                 }
             }
         }
     }
     if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
+    if (browsing) KitBrowser(vm, replaceId) { browsing = false }
 }
 
 /** Pattern chips plus the pattern length selector, shared by the rack and piano roll. */
@@ -127,6 +137,7 @@ private fun ChannelRow(
     activeSteps: Set<Int>,
     totalSteps: Int,
     currentStep: Int,
+    onChangeSound: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Column(
@@ -157,14 +168,20 @@ private fun ChannelRow(
                             .background(lerpInk(level)),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(channel.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                    Text(channel.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 170.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(channel.instrument.label.lowercase(), fontSize = 12.sp, color = DawColors.Muted)
+                    if (channel.instrument != com.mobiledaw.model.Instrument.SAMPLE) {
+                        Text(channel.instrument.label.lowercase(), fontSize = 12.sp, color = DawColors.Muted)
+                    }
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Open piano roll") }, onClick = {
                         menu = false
                         vm.tab = Tab.PIANO
+                    })
+                    DropdownMenuItem(text = { Text("Change sound") }, onClick = {
+                        menu = false
+                        onChangeSound()
                     })
                     DropdownMenuItem(text = { Text("Delete channel") }, onClick = {
                         menu = false

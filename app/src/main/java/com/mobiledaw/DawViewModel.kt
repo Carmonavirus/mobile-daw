@@ -8,6 +8,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobiledaw.audio.NativeEngine
+import com.mobiledaw.audio.WavDecoder
+import com.mobiledaw.model.KitLibrary
 import com.mobiledaw.model.Channel
 import com.mobiledaw.model.Clip
 import com.mobiledaw.model.DemoProject
@@ -32,6 +34,20 @@ enum class PlayMode { PATTERN, SONG }
 
 class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProjectStore(app)
+    val kits = KitLibrary(app)
+
+    /** Which sample path each engine channel slot currently holds. */
+    private val loadedSamples = arrayOfNulls<String>(NativeEngine.MAX_CHANNELS)
+    private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
+    }
+
+    /** Bumped after an import so the kit browser refreshes. */
+    var kitsVersion by mutableStateOf(0)
+        private set
+    var importing by mutableStateOf(false)
+        private set
+    var importMessage by mutableStateOf<String?>(null)
 
     var project by mutableStateOf(loadInitial())
         private set
@@ -101,6 +117,12 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setChannelCount(p.channels.size.coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
+            val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
+            if (loadedSamples[i] != path) {
+                val decoded = path?.let { decodeSample(it) }
+                NativeEngine.setSample(i, decoded?.frames, decoded?.sampleRate ?: 0f)
+                loadedSamples[i] = path
+            }
         }
         val compiled = when (mode) {
             PlayMode.PATTERN -> SequenceCompiler.pattern(p, selectedPattern)
@@ -226,6 +248,49 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateChannel(id: Long, transform: (Channel) -> Channel) = update { p ->
         p.copy(channels = p.channels.map { if (it.id == id) transform(it) else it })
+    }
+
+    // ---------------------------------------------------------------- kits & samples
+
+    private fun decodeSample(path: String): WavDecoder.Decoded? =
+        sampleCache[path] ?: WavDecoder.decode(kits.file(path))?.also { sampleCache[path] = it }
+
+    /** Plays a kit sound without adding it to the project. */
+    fun audition(path: String) {
+        val decoded = decodeSample(path) ?: return
+        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.sampleRate)
+        NativeEngine.audition()
+    }
+
+    fun addSampleChannel(sound: KitLibrary.Sound) {
+        if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
+        val id = project.nextId()
+        update { it.copy(channels = it.channels + Channel(id, sound.name, Instrument.SAMPLE, sample = sound.path)) }
+        selectedChannelId = id
+    }
+
+    fun setChannelSound(channelId: Long, sound: KitLibrary.Sound) {
+        updateChannel(channelId) { it.copy(name = sound.name, instrument = Instrument.SAMPLE, sample = sound.path) }
+        project.channels.firstOrNull { it.id == channelId }?.let { preview(it) }
+    }
+
+    fun importKit(uri: android.net.Uri, isFolder: Boolean) {
+        importing = true
+        importMessage = null
+        viewModelScope.launch {
+            val kit = withContext(Dispatchers.IO) {
+                runCatching { if (isFolder) kits.importFolder(uri) else kits.importZip(uri) }.getOrNull()
+            }
+            importing = false
+            importMessage = if (kit == null) "No .wav sounds found there." else "Imported \"$kit\"."
+            kitsVersion++
+        }
+    }
+
+    fun deleteKit(kit: String) {
+        kits.deleteKit(kit)
+        sampleCache.clear()
+        kitsVersion++
     }
 
     // ---------------------------------------------------------------- piano roll

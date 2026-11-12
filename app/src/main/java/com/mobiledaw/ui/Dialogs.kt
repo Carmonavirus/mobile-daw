@@ -155,7 +155,7 @@ fun AddChannelDialog(onPick: (Instrument) -> Unit, onDismiss: () -> Unit) {
         Text("DRUMS", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
         Spacer(Modifier.height(6.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Instrument.entries.filter { it.isDrum }.forEach { DawChip(it.label, false) { onPick(it); onDismiss() } }
+            Instrument.entries.filter { it.isDrum && it != Instrument.SAMPLE }.forEach { DawChip(it.label, false) { onPick(it); onDismiss() } }
         }
         Spacer(Modifier.height(12.dp))
         Text("SYNTHS", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)

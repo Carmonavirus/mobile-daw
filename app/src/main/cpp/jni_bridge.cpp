@@ -65,6 +65,21 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_previewNote(
     engine()->core().previewNote(channel, pitch, velocity / 127.0f);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setSample(
+    JNIEnv* env, jobject, jint slot, jfloatArray frames, jfloat sampleRate) {
+    std::vector<float> data;
+    if (frames != nullptr) {
+        const jsize len = env->GetArrayLength(frames);
+        data.resize(static_cast<size_t>(len));
+        env->GetFloatArrayRegion(frames, 0, len, data.data());
+    }
+    engine()->core().setSample(slot, std::move(data), sampleRate);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_audition(JNIEnv*, jobject) {
+    engine()->core().audition();
+}
+
 JNIEXPORT jlong JNICALL Java_com_mobiledaw_audio_NativeEngine_positionTicks(JNIEnv*, jobject) {
     engine()->core().collectGarbage();
     return static_cast<jlong>(engine()->core().positionTicks());

@@ -4,6 +4,7 @@ package com.mobiledaw.audio
 object NativeEngine {
     /** Channel slots in the engine, plus one extra slot for the master meter. */
     const val MAX_CHANNELS = 32
+    const val AUDITION_SLOT = MAX_CHANNELS
 
     init {
         System.loadLibrary("mobiledaw")
@@ -20,6 +21,9 @@ object NativeEngine {
     /** [events] is flat: channel, startTick, lengthTicks, pitch, velocity (0..127) per note. */
     external fun setSequence(events: IntArray, loopTicks: Int)
     external fun previewNote(channel: Int, pitch: Int, velocity: Int)
+    /** Slot 0..MAX_CHANNELS-1 is a channel, [AUDITION_SLOT] is the kit browser preview. */
+    external fun setSample(slot: Int, frames: FloatArray?, sampleRate: Float)
+    external fun audition()
     external fun positionTicks(): Long
 
     /** Fills per-channel peaks; the last slot receives the master peak. */

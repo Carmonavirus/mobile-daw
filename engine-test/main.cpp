@@ -28,8 +28,16 @@ int main() {
     Core core;
     core.setSampleRate(sr);
     core.setBpm(140);
-    core.setChannelCount(8);
-    for (int i = 0; i < 8; ++i) core.setChannel(i, i, 0.8f, (i % 3 - 1) * 0.3f, false, false);
+    core.setChannelCount(9);
+    for (int i = 0; i < 9; ++i) core.setChannel(i, i, 0.8f, (i % 3 - 1) * 0.3f, false, false);
+
+    // Channel 8 plays an imported sample (here a synthetic 44.1 kHz tom).
+    std::vector<float> tom(44100 / 4);
+    for (size_t n = 0; n < tom.size(); ++n)
+        tom[n] = std::sin(2 * 3.14159 * 110 * n / 44100.0) * std::exp(-double(n) / 4000.0);
+    core.setSample(8, tom, 44100.0f);
+    core.setSample(kAuditionSlot, tom, 44100.0f);
+    core.audition();
 
     std::vector<NoteEvent> ev;
     for (int s = 0; s < 32; ++s) {
@@ -43,6 +51,7 @@ int main() {
     int chord[] = {55, 58, 62};
     for (int i = 0; i < 4; ++i) ev.push_back({5, i * kTicksPerStep * 8, kTicksPerStep * 6, 67 + i * 2, 0.7f});
     for (int i = 0; i < 8; ++i) ev.push_back({6, i * kTicksPerStep * 4 + kTicksPerStep * 2, kTicksPerStep, 74 + (i % 3) * 3, 0.6f});
+    for (int s = 0; s < 32; s += 6) ev.push_back({8, s * kTicksPerStep, kTicksPerStep, 55 + s % 12, 0.9f});
     for (int n : chord) ev.push_back({7, 0, kTicksPerStep * 32, n, 0.5f});
     core.setSequence(ev, kTicksPerStep * 32);
     core.setPlaying(true);
@@ -57,6 +66,7 @@ int main() {
             core.setSequence(ev, kTicksPerStep * 32);  // exercise the hot swap
         }
         if (done == sr * 2 + block * 4) core.collectGarbage();
+        if (done == sr * 3) core.setSample(8, tom, 22050.0f);  // hot-swap a sample mid-play
         core.render(buf.data(), block);
         out.insert(out.end(), buf.begin(), buf.end());
     }

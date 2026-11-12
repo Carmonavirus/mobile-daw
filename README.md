@@ -19,8 +19,15 @@ Projects are saved automatically as JSON in the app's private storage.
 
 ## Instruments
 
-All sounds are synthesised, so there are no sample files: kick, snare, hi-hat, clap,
-bass, lead, pluck and pad.
+Built in (synthesised, no sample files): kick, snare, hi-hat, clap, bass, lead, pluck and pad.
+
+### Your own drum kits
+
+In the **Rack**, tap **Sounds**, then **Import .zip** and pick a kit you downloaded (or
+**Import folder** for one you already unzipped). The kit's WAV files are copied into the app,
+grouped by their folders. Tap a sound to hear it and **+** to add it as a channel. Long-press a
+channel name and choose **Change sound** to swap what it plays. Sample channels follow the piano
+roll too: C4 plays the sound as-is, other notes pitch it up or down.
 
 ## Architecture
 
@@ -65,4 +72,4 @@ cd engine-test && ./out/enginetest   # writes out/render.wav
 
 ## Not yet
 
-Audio recording, effects, WAV export, sample import and MIDI keyboards.
+Audio recording, effects, WAV export, MP3 samples and MIDI keyboards.

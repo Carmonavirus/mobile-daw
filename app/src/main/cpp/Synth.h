@@ -15,10 +15,11 @@ enum Instrument : int {
     kLead = 5,
     kPluck = 6,
     kPad = 7,
-    kInstrumentCount = 8,
+    kSample = 8,  // plays an imported audio file, rendered by Core
+    kInstrumentCount = 9,
 };
 
-inline bool isDrum(int instrument) { return instrument <= kClap; }
+inline bool isDrum(int instrument) { return instrument <= kClap || instrument == kSample; }
 
 struct Voice {
     bool active = false;

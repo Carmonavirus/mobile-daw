@@ -7,10 +7,20 @@ namespace daw {
 
 Core::Core() {
     for (auto& l : levels_) l.store(0.0f);
+    for (int i = 0; i < kSampleSlots; ++i) {
+        pendingSample_[i].store(nullptr);
+        retiredSample_[i].store(nullptr);
+        sample_[i] = nullptr;
+    }
     current_ = new Sequence();
 }
 
 Core::~Core() {
+    for (int i = 0; i < kSampleSlots; ++i) {
+        delete sample_[i];
+        delete pendingSample_[i].exchange(nullptr);
+        delete retiredSample_[i].exchange(nullptr);
+    }
     delete current_;
     delete pending_.exchange(nullptr);
     delete retired_.exchange(nullptr);
@@ -20,6 +30,50 @@ void Core::setSampleRate(int sampleRate) { sampleRate_ = sampleRate > 0 ? sample
 
 void Core::collectGarbage() {
     delete retired_.exchange(nullptr);
+    for (auto& r : retiredSample_) delete r.exchange(nullptr);
+}
+
+void Core::setSample(int slot, std::vector<float> frames, float sampleRate) {
+    if (slot < 0 || slot >= kSampleSlots) return;
+    collectGarbage();
+    auto* data = new SampleData();
+    data->frames = std::move(frames);
+    data->sampleRate = sampleRate > 0 ? sampleRate : 44100.0f;
+    delete pendingSample_[slot].exchange(data);
+}
+
+void Core::adoptSamples() {
+    for (int i = 0; i < kSampleSlots; ++i) {
+        if (retiredSample_[i].load() != nullptr) continue;
+        SampleData* next = pendingSample_[i].exchange(nullptr);
+        if (!next) continue;
+        // Voices may point into the old buffer, so silence them before handing it back.
+        if (i == kAuditionSlot) {
+            auditionVoice_.active = false;
+        } else {
+            for (auto& v : voices_[i]) v.active = false;
+        }
+        retiredSample_[i].store(sample_[i]);
+        sample_[i] = next;
+    }
+}
+
+float Core::sampleTick(Voice& v, const SampleData* data) {
+    if (!data || data->frames.empty()) {
+        v.active = false;
+        return 0.0f;
+    }
+    const auto& f = data->frames;
+    const double pos = v.phase1;
+    const size_t i = static_cast<size_t>(pos);
+    if (i + 1 >= f.size()) {
+        v.active = false;
+        return 0.0f;
+    }
+    const float frac = static_cast<float>(pos - static_cast<double>(i));
+    const float s = f[i] + (f[i + 1] - f[i]) * frac;
+    v.phase1 += v.phase2;  // phase2 holds the playback rate for sample voices
+    return s * v.velocity;
 }
 
 void Core::setSequence(std::vector<NoteEvent> events, int64_t loopTicks) {
@@ -95,6 +149,11 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     }
     // Drums ignore note length, they ring out naturally.
     Synth::start(*target, pitch, velocity, isDrum(instrument) ? 0 : std::max<int64_t>(gateSamples, 1));
+    if (instrument == kSample) {
+        const SampleData* data = sample_[channel];
+        const float rate = data ? data->sampleRate : static_cast<float>(sampleRate_);
+        target->phase2 = rate / sampleRate_ * std::pow(2.0, (pitch - 60) / 12.0);
+    }
 }
 
 void Core::releaseAll() {
@@ -128,6 +187,13 @@ void Core::render(float* out, int frames) {
                                  [](int64_t t, const NoteEvent& e) { return t < e.start; }) -
                 current_->events.begin());
         }
+    }
+
+    adoptSamples();
+    if (auditionTrigger_.exchange(false)) {
+        const SampleData* data = sample_[kAuditionSlot];
+        Synth::start(auditionVoice_, 60, 0.9f, 0);
+        auditionVoice_.phase2 = (data ? data->sampleRate : static_cast<float>(sampleRate_)) / sampleRate_;
     }
 
     // Preview notes from the UI.
@@ -190,7 +256,8 @@ void Core::render(float* out, int frames) {
         for (int c = 0; c < channelCount; ++c) {
             float sum = 0.0f;
             for (auto& v : voices_[c]) {
-                if (v.active) sum += Synth::tick(v, instruments[c], sr);
+                if (!v.active) continue;
+                sum += instruments[c] == kSample ? sampleTick(v, sample_[c]) : Synth::tick(v, instruments[c], sr);
             }
             if (!audible[c]) continue;
             float l = sum * gains[c][0];
@@ -198,6 +265,11 @@ void Core::render(float* out, int frames) {
             peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(rr)));
             left += l;
             right += rr;
+        }
+        if (auditionVoice_.active) {
+            const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot]) * 0.8f;
+            left += a;
+            right += a;
         }
         left = std::tanh(left * master);
         right = std::tanh(right * master);
