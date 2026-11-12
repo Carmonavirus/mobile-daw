@@ -13,6 +13,9 @@ object NativeEngine {
     external fun start(): Boolean
     external fun stop()
     external fun setPlaying(playing: Boolean)
+
+    /** Stop all sound: stops playback and silences every voice, synth tail and audio clip at once. */
+    external fun panic()
     external fun seek(tick: Long)
     external fun setBpm(bpm: Float)
     external fun setMasterVolume(volume: Float)

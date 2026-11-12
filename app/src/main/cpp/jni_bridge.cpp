@@ -32,6 +32,10 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setPlaying(JNIEnv*,
     engine()->core().setPlaying(playing == JNI_TRUE);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_panic(JNIEnv*, jobject) {
+    engine()->core().panic();
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setBpm(JNIEnv*, jobject, jfloat bpm) {
     engine()->core().setBpm(bpm);
 }

@@ -143,12 +143,14 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
 @Composable
 private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            StopAllButton(vm::stopAllSound)
+            Spacer(Modifier.weight(1f))
             Segmented(
                 options = listOf(PlayMode.PATTERN to "PAT", PlayMode.SONG to "SONG"),
                 selected = vm.mode,
                 onSelect = vm::switchMode,
-                modifier = Modifier.padding(end = 14.dp),
+                modifier = Modifier.padding(start = 4.dp, end = 8.dp),
             )
         }
         PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
@@ -221,6 +223,21 @@ private fun RecordTransport(vm: DawViewModel, onRecord: () -> Unit) {
             )
         }
         RecordButton(vm.takeState != TakeState.IDLE, onRecord)
+    }
+}
+
+/** "Stop all sound": a square in a ring, far left of the transport. Cuts every sound at once. */
+@Composable
+private fun StopAllButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(DawColors.Chip)
+            .clickable(onClickLabel = "Stop all sound", onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(11.dp).clip(RoundedCornerShape(2.dp)).background(DawColors.Ink))
     }
 }
 
