@@ -54,6 +54,8 @@ struct ChannelParams {
     std::atomic<float> trimEnd{1.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> release{0.0f};
+    std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
+    std::atomic<bool> reverse{false};   // play the sample backwards
 };
 
 // Per-block snapshot of a sample channel's trim and envelope, in sample frames.
@@ -78,7 +80,8 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
-    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release,
+                           int pitchSemis, bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
     void previewNote(int channel, int pitch, float velocity);
     // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.

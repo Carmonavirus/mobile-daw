@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.4", "2026-11-12T17:20:00Z",
+            listOf(
+                "Channel settings: Pitch slider to move a sample up or down 12 semitones.",
+                "Channel settings: Reverse toggle to play a sample backwards.",
+            ),
+        ),
+        Release(
             "0.4.3", "2026-11-12T13:15:00Z",
             listOf(
                 "Piano roll: FL-style scale colouring — in Key mode, notes in your scale are light and the rest are dark.",
