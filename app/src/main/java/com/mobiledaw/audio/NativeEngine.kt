@@ -36,6 +36,14 @@ object NativeEngine {
     external fun audition()
     external fun positionTicks(): Long
 
+    /** Metronome click, made in the engine on each beat (beat 1 accented). Never in a bounce/export. */
+    external fun setMetronome(on: Boolean, beatsPerBar: Int)
+    /** Clicks [beats] beats (from stopped), then starts playback from the seek position on the next beat. */
+    external fun startCountIn(beats: Int)
+    /** The count-in beat just clicked (1..beats), or 0 when not counting in. */
+    external fun countInBeat(): Int
+    external fun isPlaying(): Boolean
+
     /** Time from the engine writing audio to it leaving the speaker / earbuds, in ms (stream timestamps). < 0 = unknown. */
     external fun outputLatencyMs(): Double
     /** The output buffer alone, in ms. < 0 = no stream. */

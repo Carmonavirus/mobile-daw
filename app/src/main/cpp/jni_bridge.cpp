@@ -103,6 +103,23 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_audition(JNIEnv*, j
     engine()->core().audition();
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setMetronome(JNIEnv*, jobject, jboolean on, jint beatsPerBar) {
+    engine()->core().setBeatsPerBar(beatsPerBar);
+    engine()->core().setMetronome(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_startCountIn(JNIEnv*, jobject, jint beats) {
+    engine()->core().startCountIn(beats);
+}
+
+JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_countInBeat(JNIEnv*, jobject) {
+    return engine()->core().countInBeat();
+}
+
+JNIEXPORT jboolean JNICALL Java_com_mobiledaw_audio_NativeEngine_isPlaying(JNIEnv*, jobject) {
+    return engine()->core().isPlaying() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jlong JNICALL Java_com_mobiledaw_audio_NativeEngine_positionTicks(JNIEnv*, jobject) {
     engine()->core().collectGarbage();
     return static_cast<jlong>(engine()->core().positionTicks());
