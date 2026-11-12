@@ -228,7 +228,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
-            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 1f, 0.005f, 0, false)
+            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, 0, false)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
