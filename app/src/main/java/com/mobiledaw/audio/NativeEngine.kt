@@ -36,4 +36,21 @@ object NativeEngine {
     /** Fills per-channel peaks; the last slot receives the master peak. */
     external fun readLevels(out: FloatArray)
     external fun readScope(out: FloatArray)
+
+    // ---- mixer tracks (see app/src/main/cpp/fx)
+    const val MAX_INSERTS = 8
+    const val MAX_SLOTS = 8
+
+    /** Routes a channel slot to mixer track [insert] (0 until MAX_INSERTS), or -1 for the master. */
+    external fun setChannelInsert(channel: Int, insert: Int)
+    external fun setInsertCount(count: Int)
+    external fun setInsert(index: Int, volume: Float, pan: Float, mute: Boolean)
+    /** [type] is an EffectType id, 0 empties the slot. */
+    external fun setInsertEffect(index: Int, slot: Int, type: Int, bypass: Boolean)
+    external fun setEffectParams(index: Int, slot: Int, values: FloatArray)
+    external fun readInsertLevels(out: FloatArray)
+    /** Newest post-effects samples of a mixer track (mono), oldest first. */
+    external fun readInsertSignal(index: Int, out: FloatArray)
+    /** out[0] = detected Hz, out[1] = corrected Hz; 0 when nothing is sung. */
+    external fun readPitch(index: Int, slot: Int, out: FloatArray)
 }

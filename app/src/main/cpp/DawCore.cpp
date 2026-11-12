@@ -2,11 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <thread>
 
 namespace daw {
 
-Core::Core() {
+Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts>>()) {
     for (auto& l : levels_) l.store(0.0f);
     for (int i = 0; i < kSampleSlots; ++i) {
         pendingSample_[i].store(nullptr);
@@ -222,6 +223,52 @@ void Core::setChannel(int index, int instrument, float volume, float pan, bool m
     p.solo.store(solo);
 }
 
+void Core::setChannelInsert(int channel, int insert) {
+    if (channel < 0 || channel >= kMaxChannels) return;
+    params_[channel].insert.store(insert >= 0 && insert < fx::kMaxInserts ? insert : -1);
+}
+
+void Core::setInsert(int index, float volume, float pan, bool mute) {
+    if (index < 0 || index >= fx::kMaxInserts) return;
+    auto& ins = (*inserts_)[static_cast<size_t>(index)];
+    ins.volume.store(volume);
+    ins.pan.store(pan);
+    ins.mute.store(mute);
+}
+
+void Core::setInsertEffect(int index, int slot, int type, bool bypass) {
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
+    s.type.store(type);
+    s.bypass.store(bypass);
+}
+
+void Core::setEffectParam(int index, int slot, int param, float value) {
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
+    (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].params[static_cast<size_t>(param)].store(value);
+}
+
+void Core::readInsertLevels(float* out, int count) const {
+    for (int i = 0; i < count && i < fx::kMaxInserts; ++i) out[i] = (*inserts_)[static_cast<size_t>(i)].level.load();
+}
+
+void Core::readInsertSignal(int index, float* out, int count) const {
+    if (index < 0 || index >= fx::kMaxInserts) return;
+    const auto& ins = (*inserts_)[static_cast<size_t>(index)];
+    count = std::min(count, fx::kSpectrumSize);
+    const int end = ins.spectrumWrite.load();
+    for (int i = 0; i < count; ++i)
+        out[i] = ins.spectrum[static_cast<size_t>((end - count + i + fx::kSpectrumSize) % fx::kSpectrumSize)];
+}
+
+void Core::readPitch(int index, int slot, float* out) const {
+    out[0] = out[1] = 0.0f;
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    const auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
+    out[0] = s.pitch.detectedHz();
+    out[1] = s.pitch.targetHz();
+}
+
 void Core::previewNote(int channel, int pitch, float velocity) { pushPreview({channel, pitch, velocity, 0}); }
 
 void Core::previewHold(int channel, int pitch, float velocity, bool on) {
@@ -327,6 +374,15 @@ void Core::advanceTick(const Sequence* seq) {
 }
 
 void Core::render(float* out, int frames) {
+    while (frames > 0) {
+        const int n = std::min(frames, kBlock);
+        renderBlock(out, n);
+        out += 2 * n;
+        frames -= n;
+    }
+}
+
+void Core::renderBlock(float* out, int frames) {
     // Adopt a newly published sequence, but only once the UI has freed the last retired one,
     // so the audio thread never frees memory.
     if (retired_.load() == nullptr) {
@@ -410,6 +466,16 @@ void Core::render(float* out, int frames) {
             synth.silence();  // the channel switched to another instrument
         }
     }
+    const int insertCount = insertCount_.load();
+    int routes[kMaxChannels];
+    for (int c = 0; c < channelCount; ++c) {
+        const int r = params_[c].insert.load();
+        routes[c] = r < insertCount ? r : -1;
+    }
+    for (int b = 0; b < insertCount; ++b) {
+        std::fill(busL_[static_cast<size_t>(b)].begin(), busL_[static_cast<size_t>(b)].begin() + frames, 0.0f);
+        std::fill(busR_[static_cast<size_t>(b)].begin(), busR_[static_cast<size_t>(b)].begin() + frames, 0.0f);
+    }
     SampleShape shapes[kMaxChannels];
     for (int c = 0; c < channelCount; ++c) {
         if (instruments[c] == kSample) shapes[c] = shapeFor(c);
@@ -455,16 +521,51 @@ void Core::render(float* out, int frames) {
             float l = sumL * gains[c][0];
             float rr = sumR * gains[c][1];
             peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(rr)));
-            left += l;
-            right += rr;
+            if (routes[c] >= 0) {
+                busL_[static_cast<size_t>(routes[c])][static_cast<size_t>(i)] += l;
+                busR_[static_cast<size_t>(routes[c])][static_cast<size_t>(i)] += rr;
+            } else {
+                left += l;
+                right += rr;
+            }
         }
         if (auditionVoice_.active) {
             const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot]) * 0.8f;
             left += a;
             right += a;
         }
-        left = std::tanh(left * master);
-        right = std::tanh(right * master);
+        out[2 * i] = left;
+        out[2 * i + 1] = right;
+    }
+
+    // Mixer tracks: run each bus through its effects and add it to the master.
+    for (int b = 0; b < insertCount; ++b) {
+        auto& ins = (*inserts_)[static_cast<size_t>(b)];
+        float* bl = busL_[static_cast<size_t>(b)].data();
+        float* br = busR_[static_cast<size_t>(b)].data();
+        for (auto& slot : ins.slots) slot.process(bl, br, frames, sr);
+        const float pan = std::clamp(ins.pan.load(), -1.0f, 1.0f);
+        const float angle = (pan + 1.0f) * 0.25f * 3.14159265f;
+        const float vol = ins.mute.load() ? 0.0f : ins.volume.load();
+        const float gl = std::cos(angle) * vol * 1.414f, gr = std::sin(angle) * vol * 1.414f;
+        int w = ins.spectrumWrite.load(std::memory_order_relaxed);
+        float peak = 0.0f;
+        for (int i = 0; i < frames; ++i) {
+            ins.spectrum[static_cast<size_t>(w)] = 0.5f * (bl[i] + br[i]);
+            w = (w + 1) % fx::kSpectrumSize;
+            const float l = bl[i] * gl, r = br[i] * gr;
+            peak = std::max(peak, std::max(std::fabs(l), std::fabs(r)));
+            out[2 * i] += l;
+            out[2 * i + 1] += r;
+        }
+        ins.spectrumWrite.store(w, std::memory_order_relaxed);
+        ins.level.store(std::max(std::min(peak, 1.0f), ins.level.load() * 0.85f));
+    }
+    for (int b = insertCount; b < fx::kMaxInserts; ++b) (*inserts_)[static_cast<size_t>(b)].level.store(0.0f);
+
+    for (int i = 0; i < frames; ++i) {
+        const float left = std::tanh(out[2 * i] * master);
+        const float right = std::tanh(out[2 * i + 1] * master);
         out[2 * i] = left;
         out[2 * i + 1] = right;
         float mono = 0.5f * (left + right);
