@@ -1,0 +1,79 @@
+name: Screenshots
+
+# Runs the app on an Android emulator, takes the screenshots defined in
+# app/src/androidTest/java/com/mobiledaw/ScreenshotTest.kt and stores them on the
+# "screenshots" branch, in a folder named after the branch that was pushed.
+on:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/screenshots.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: screenshots-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build the app and the screenshot test
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+      - name: Run the screenshot test on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.mobiledaw.ScreenshotTest
+      - name: Collect screenshots
+        if: always()
+        run: |
+          mkdir -p shots
+          find app/build/outputs -path '*additional_output*' -name '*.png' -exec cp {} shots/ \;
+          ls -la shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots
+      - name: Store screenshots on the screenshots branch
+        if: always()
+        run: |
+          set -e
+          [ -n "$(ls shots 2>/dev/null)" ] || exit 0
+          dir="${GITHUB_REF_NAME//\//-}"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch origin screenshots; then
+            git worktree add -B screenshots out-shots origin/screenshots
+          else
+            git worktree add --detach out-shots
+            git -C out-shots checkout --orphan screenshots
+            git -C out-shots rm -rfq .
+          fi
+          rm -rf "out-shots/$dir" && mkdir -p "out-shots/$dir" && cp shots/*.png "out-shots/$dir/"
+          echo "${GITHUB_SHA}" > "out-shots/$dir/COMMIT"
+          git -C out-shots add -A
+          git -C out-shots commit -qm "Screenshots of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}" || exit 0
+          for i in 1 2 3; do
+            git -C out-shots push origin HEAD:screenshots && break
+            git -C out-shots pull --rebase origin screenshots
+          done
