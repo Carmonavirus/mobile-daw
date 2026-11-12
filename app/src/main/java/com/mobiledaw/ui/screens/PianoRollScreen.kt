@@ -243,14 +243,15 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                             }
                             if (pinched) continue
                             val change = pressed.first()
-                            total += change.positionChange()
+                            val delta = change.positionChange()  // read before consume(): consumed changes report zero
+                            total += delta
                             if (!dragging && total.getDistance() > touchSlop) dragging = true
                             if (!dragging) continue
                             change.consume()
                             when (mode) {
                                 DragMode.PAN -> {
-                                    scrollX -= change.positionChange().x
-                                    scrollY -= change.positionChange().y
+                                    scrollX -= delta.x
+                                    scrollY -= delta.y
                                     clampScroll()
                                 }
                                 DragMode.MOVE -> if (original != null) {
