@@ -1,0 +1,51 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  engine-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the audio engine smoke test
+        run: |
+          mkdir -p engine-test/out
+          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
+            engine-test/main.cpp app/src/main/cpp/DawCore.cpp -o engine-test/out/enginetest
+          cd engine-test && ./out/enginetest
+
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      # The runner image already ships the Android SDK; Gradle installs the NDK it needs.
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-daw-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+      # Keep one always-current APK on the "latest-build" release so it can be
+      # installed straight from a phone browser.
+      - name: Publish APK to the latest-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk mobile-daw.apk
+          if gh release view latest-build >/dev/null 2>&1; then
+            gh release upload latest-build mobile-daw.apk --clobber
+            gh release edit latest-build --target "$GITHUB_SHA" \
+              --notes "Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
+          else
+            gh release create latest-build mobile-daw.apk --target "$GITHUB_SHA" --title "Latest build" --latest \
+              --notes "Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
+          fi
