@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.6.1", "2026-11-12T17:50:00Z",
+            listOf(
+                "Channel envelope: a row of knobs under the graph — delay, attack, hold, decay, sustain, release and tension (drag a knob up or down).",
+                "Channel envelope: delay (silence before the sound) and tension (curve the attack/decay/release).",
+                "Channel settings: the Trim waveform now flips when Reverse is on, matching what you hear.",
+            ),
+        ),
+        Release(
             "0.6", "2026-11-12T17:45:00Z",
             listOf(
                 "Mixer tracks: the Mixer now has a Vocals track with its own effects. Recordings play through it; add more tracks with + Track.",

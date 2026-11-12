@@ -51,12 +51,14 @@ data class Channel(
     /** Part of the sample that plays, as fractions 0..1. */
     val trimStart: Float = 0f,
     val trimEnd: Float = 1f,
-    /** Amplitude envelope: attack/hold/decay/release in seconds, sustain as a 0..1 level. */
+    /** Amplitude envelope: delay/attack/hold/decay/release in seconds, sustain 0..1, tension -1..1. */
+    val envDelay: Float = 0f,
     val attack: Float = 0f,
     val hold: Float = 0f,
     val decay: Float = 0f,
     val sustain: Float = 1f,
     val release: Float = 0f,
+    val tension: Float = 0f,
     /** Transpose in semitones (-12..12) and reverse playback, for sample channels. */
     val pitchSemis: Int = 0,
     val reverse: Boolean = false,
