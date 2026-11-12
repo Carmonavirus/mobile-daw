@@ -540,9 +540,26 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: run {
-            val max = if (path.startsWith(RECORDINGS_DIR)) WavDecoder.MAX_RECORDING_SECONDS else 60
-            WavDecoder.decode(kits.file(path), max)?.also { sampleCache[path] = it }
+            val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
+            val max = if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
+            WavDecoder.decode(kits.file(path), max)?.also {
+                sampleCache[path] = it
+                trimSampleCache()
+            }
         }
+
+    /**
+     * Keeps decoded sounds under ~24M frames (about 100 MB of floats): a few long imported loops
+     * would otherwise fill memory. The engine keeps its own copy, so dropping one here is safe.
+     */
+    private fun trimSampleCache() {
+        var total = sampleCache.values.sumOf { it.frames.size.toLong() }
+        val iter = sampleCache.entries.iterator()
+        while (total > MAX_CACHED_FRAMES && sampleCache.size > 1 && iter.hasNext()) {
+            total -= iter.next().value.frames.size
+            iter.remove()
+        }
+    }
 
     /** Peak values (0..1) across a sample, for drawing its waveform. */
     fun samplePeaks(path: String, bins: Int): FloatArray {
@@ -1177,6 +1194,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        private const val MAX_CACHED_FRAMES = 24_000_000L
         /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT
     }
