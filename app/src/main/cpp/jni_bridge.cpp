@@ -41,8 +41,15 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setMasterVolume(JNI
 }
 
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelSampler(
-    JNIEnv*, jobject, jint index, jboolean cutItself, jfloat trimStart, jfloat trimEnd, jfloat attack, jfloat release) {
-    engine()->core().setChannelSampler(index, cutItself == JNI_TRUE, trimStart, trimEnd, attack, release);
+    JNIEnv*, jobject, jint index, jboolean cutItself, jfloat trimStart, jfloat trimEnd, jfloat attack, jfloat hold,
+    jfloat decay, jfloat sustain, jfloat release, jint pitchSemis, jboolean reverse) {
+    engine()->core().setChannelSampler(index, cutItself == JNI_TRUE, trimStart, trimEnd, attack, hold, decay, sustain,
+                                       release, pitchSemis, reverse == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelClip(
+    JNIEnv*, jobject, jint index, jboolean resumeMidway) {
+    engine()->core().setChannelClip(index, resumeMidway == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelCount(JNIEnv*, jobject, jint count) {
@@ -110,6 +117,52 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readScope(JNIEnv* e
     std::vector<float> tmp(static_cast<size_t>(len));
     engine()->core().readScope(tmp.data(), len);
     env->SetFloatArrayRegion(out, 0, len, tmp.data());
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelInsert(JNIEnv*, jobject, jint channel, jint insert) {
+    engine()->core().setChannelInsert(channel, insert);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setInsertCount(JNIEnv*, jobject, jint count) {
+    engine()->core().setInsertCount(count);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setInsert(
+    JNIEnv*, jobject, jint index, jfloat volume, jfloat pan, jboolean mute) {
+    engine()->core().setInsert(index, volume, pan, mute == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setInsertEffect(
+    JNIEnv*, jobject, jint index, jint slot, jint type, jboolean bypass) {
+    engine()->core().setInsertEffect(index, slot, type, bypass == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setEffectParams(
+    JNIEnv* env, jobject, jint index, jint slot, jfloatArray values) {
+    const jsize len = env->GetArrayLength(values);
+    std::vector<float> data(static_cast<size_t>(len));
+    env->GetFloatArrayRegion(values, 0, len, data.data());
+    for (jsize i = 0; i < len; ++i) engine()->core().setEffectParam(index, slot, i, data[static_cast<size_t>(i)]);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readInsertLevels(JNIEnv* env, jobject, jfloatArray out) {
+    const jsize len = env->GetArrayLength(out);
+    std::vector<float> tmp(static_cast<size_t>(len));
+    engine()->core().readInsertLevels(tmp.data(), len);
+    env->SetFloatArrayRegion(out, 0, len, tmp.data());
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readInsertSignal(JNIEnv* env, jobject, jint index, jfloatArray out) {
+    const jsize len = env->GetArrayLength(out);
+    std::vector<float> tmp(static_cast<size_t>(len));
+    engine()->core().readInsertSignal(index, tmp.data(), len);
+    env->SetFloatArrayRegion(out, 0, len, tmp.data());
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readPitch(JNIEnv* env, jobject, jint index, jint slot, jfloatArray out) {
+    float tmp[2];
+    engine()->core().readPitch(index, slot, tmp);
+    if (env->GetArrayLength(out) >= 2) env->SetFloatArrayRegion(out, 0, 2, tmp);
 }
 
 }  // extern "C"

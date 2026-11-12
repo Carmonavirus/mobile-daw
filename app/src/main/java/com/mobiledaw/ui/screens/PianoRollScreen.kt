@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,10 +68,12 @@ fun PianoRollScreen(vm: DawViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
-        // Track chips: which channel the piano roll is editing.
+        // Track chips: which channel the piano roll is editing. Solid background so the
+        // grid below can never show through behind them.
         Row(
             Modifier
                 .fillMaxWidth()
+                .background(DawColors.Paper)
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
@@ -86,7 +90,8 @@ fun PianoRollScreen(vm: DawViewModel) {
 
         if (channel == null) return@Column
 
-        PianoRollCanvas(vm, Modifier.weight(1f).fillMaxWidth())
+        // clipToBounds stops any note/label drawing from spilling up over the track chips.
+        PianoRollCanvas(vm, Modifier.weight(1f).fillMaxWidth().clipToBounds())
 
         // Chords panel: replaces the controls below while open.
         if (vm.chordGen != null) {
@@ -211,7 +216,9 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                         val down = awaitFirstDown()
                         val hit = hitNote(down.position)
                         val original: Note? = notesState.value.getOrNull(hit)
+                        // One-finger-scroll mode: a drag always pans; a tap still places/deletes.
                         var mode = when {
+                            vm.oneFingerScroll -> DragMode.PAN
                             original == null -> DragMode.PAN
                             noteX(original.start + original.length) - down.position.x < edgeGrab -> DragMode.RESIZE
                             else -> DragMode.MOVE
@@ -251,14 +258,15 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                             }
                             if (pinched) continue
                             val change = pressed.first()
-                            total += change.positionChange()
+                            val delta = change.positionChange()  // read before consume(): consumed changes report zero
+                            total += delta
                             if (!dragging && total.getDistance() > touchSlop) dragging = true
                             if (!dragging) continue
                             change.consume()
                             when (mode) {
                                 DragMode.PAN -> {
-                                    scrollX -= change.positionChange().x
-                                    scrollY -= change.positionChange().y
+                                    scrollX -= delta.x
+                                    scrollY -= delta.y
                                     clampScroll()
                                 }
                                 DragMode.MOVE -> if (original != null) {
@@ -309,10 +317,12 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
             val firstPitch = pitchAt(size.height).coerceAtLeast(LOWEST_PITCH)
             val lastPitch = pitchAt(0f).coerceAtMost(HIGHEST_PITCH)
 
-            // Rows: black-key rows are slightly darker, with a line under every C.
+            // Row shading. In "Key" mode (FL-style): notes in the project scale stay light,
+            // out-of-scale notes are darkened. In "All" mode: the usual piano black-key shading.
             for (p in firstPitch..lastPitch) {
                 val y = noteY(p)
-                if (isBlackKey(p)) {
+                val darken = if (labelAll) isBlackKey(p) else !inScale(p, project.key, project.minor)
+                if (darken) {
                     drawRect(DawColors.Chip.copy(alpha = 0.55f), Offset(0f, y), Size(size.width, rowH))
                 }
                 if (p % 12 == 0) {

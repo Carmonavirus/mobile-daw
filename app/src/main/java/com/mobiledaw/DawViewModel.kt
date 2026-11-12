@@ -9,11 +9,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobiledaw.audio.NativeEngine
+import com.mobiledaw.audio.Recorder
 import com.mobiledaw.audio.WavDecoder
 import com.mobiledaw.model.KitLibrary
+import com.mobiledaw.model.AudioClip
 import com.mobiledaw.model.Channel
 import com.mobiledaw.model.Clip
 import com.mobiledaw.model.DemoProject
+import com.mobiledaw.model.Effect
+import com.mobiledaw.model.EffectType
+import com.mobiledaw.model.EqSettings
+import com.mobiledaw.model.MAX_EFFECTS
+import com.mobiledaw.model.MAX_MIXER_TRACKS
+import com.mobiledaw.model.MixerTrack
+import com.mobiledaw.model.PitchSettings
 import com.mobiledaw.model.Instrument
 import com.mobiledaw.model.Note
 import com.mobiledaw.model.Pattern
@@ -34,6 +43,9 @@ enum class Tab(val label: String) { PLAYLIST("Playlist"), RACK("Rack"), PIANO("P
 /** PATTERN loops the selected pattern; SONG plays the playlist arrangement. */
 enum class PlayMode { PATTERN, SONG }
 
+/** Where a mic recording is: idle, counting in (1, 2, 3, GO) or recording. */
+enum class TakeState { IDLE, COUNTING, RECORDING }
+
 class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProjectStore(app)
     val kits = KitLibrary(app)
@@ -47,6 +59,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // The patch each engine slot last received, so unchanged sounds aren't resent.
     // Declared before init{} because syncEngine()/syncSynth() (run from init) reads it.
     private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
+
+    // What each engine effect slot last received, so unchanged effects aren't resent.
+    // Also declared before init{} (syncEngine() -> syncMixer() reads it).
+    private val sentEffects = HashMap<Int, Pair<Int, FloatArray>>()
+
+    /** Mixer track meters, by position in [Project.mixerTracks]. Before init{}: its loop writes it. */
+    var trackLevels by mutableStateOf(FloatArray(NativeEngine.MAX_INSERTS))
+        private set
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
@@ -68,6 +88,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** Hear a sound when placing a step or note. Never while playing, so beats don't double up. */
     var previewOnEdit by mutableStateOf(prefs.getBoolean("preview_on_edit", true))
         private set
+
+    /** Piano roll: one-finger drag scrolls (tap still edits). Off = one finger edits notes, two scroll. */
+    var oneFingerScroll by mutableStateOf(prefs.getBoolean("one_finger_scroll", false))
+        private set
+
+    fun changeOneFingerScroll(on: Boolean) {
+        oneFingerScroll = on
+        prefs.edit().putBoolean("one_finger_scroll", on).apply()
+    }
 
     fun changePreviewOnEdit(on: Boolean) {
         previewOnEdit = on
@@ -114,6 +143,30 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var scope by mutableStateOf(FloatArray(SCOPE_BINS))
         private set
 
+    // Recording state. Declared before init{} because syncEngine() reads takeState.
+    private val recorder = Recorder()
+    private var takeJob: Job? = null
+
+    /** Playlist record mode: the bottom bar turns into big play + record buttons. */
+    var recordMode by mutableStateOf(false)
+        private set
+    var takeState by mutableStateOf(TakeState.IDLE)
+        private set
+    /** Count-in shown over the playlist: 1, 2, 3, then 4 means "GO". Null when hidden. */
+    var countIn by mutableStateOf<Int?>(null)
+        private set
+    /** Where the current take starts and which lane it lands on. */
+    var takeStartTick by mutableIntStateOf(0)
+        private set
+    var takeLane by mutableIntStateOf(0)
+        private set
+    /** Live peaks of the take being recorded, each covering Recorder.PEAK_MS. */
+    var takePeaks by mutableStateOf(FloatArray(0))
+        private set
+    var micLevel by mutableStateOf(0f)
+        private set
+    var recordMessage by mutableStateOf<String?>(null)
+
     private var saveJob: Job? = null
 
     val selectedPattern: Pattern
@@ -129,6 +182,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 positionTicks = NativeEngine.positionTicks()
                 levels = FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) }
                 scope = FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) }
+                trackLevels = FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) }
                 delay(33)
             }
         }
@@ -147,6 +201,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onPause() {
+        if (takeState != TakeState.IDLE) stopTake()
         applyPlaying(false)
         NativeEngine.stop()
         saveNow()
@@ -156,10 +211,12 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val p = project
         NativeEngine.setBpm(p.bpm.toFloat())
         NativeEngine.setMasterVolume(p.masterVolume)
-        NativeEngine.setChannelCount(p.channels.size.coerceAtMost(NativeEngine.MAX_CHANNELS))
+        val audioSlots = SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS)
+        NativeEngine.setChannelCount((p.channels.size + audioSlots.size).coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release)
+            NativeEngine.setChannelClip(i, false)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.hold, c.decay, c.sustain, c.release, c.pitchSemis, c.reverse)
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -168,12 +225,28 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 loadedSamples[i] = path
             }
         }
+        // Audio clips each get a hidden sample slot after the channels.
+        audioSlots.forEach { (slot, clip) ->
+            NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
+            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 1f, 0.005f, 0, false)
+            NativeEngine.setChannelClip(slot, true)
+            sentPatches[slot] = null
+            if (loadedSamples[slot] != clip.path) {
+                val decoded = decodeSample(clip.path)
+                NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
+                loadedSamples[slot] = clip.path
+            }
+        }
         val compiled = when (mode) {
             PlayMode.PATTERN -> SequenceCompiler.pattern(p, selectedPattern)
             PlayMode.SONG -> SequenceCompiler.song(p)
         }
-        NativeEngine.setSequence(compiled.events, compiled.loopTicks)
-        loopTicks = compiled.loopTicks
+        // While recording, keep the song from looping back to the start under the take.
+        val loop = if (takeState == TakeState.IDLE) compiled.loopTicks
+        else maxOf(compiled.loopTicks, takeStartTick + p.bpm * TICKS_PER_BEAT_PER_MINUTE * 5)
+        NativeEngine.setSequence(compiled.events, loop)
+        loopTicks = loop
+        syncMixer()
     }
 
     /** Project as it was before the last delete, while that delete can still be undone. */
@@ -205,7 +278,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- transport
 
-    fun togglePlay() = applyPlaying(!playing)
+    fun togglePlay() {
+        if (takeState != TakeState.IDLE) stopTake() else applyPlaying(!playing)
+    }
 
     /** Moves the playhead to a fraction (0..1) of the pattern or song, snapped to a step. */
     fun seekTo(fraction: Float) {
@@ -464,7 +539,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- kits & samples
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
-        sampleCache[path] ?: WavDecoder.decode(kits.file(path))?.also { sampleCache[path] = it }
+        sampleCache[path] ?: run {
+            val max = if (path.startsWith(RECORDINGS_DIR)) WavDecoder.MAX_RECORDING_SECONDS else 60
+            WavDecoder.decode(kits.file(path), max)?.also { sampleCache[path] = it }
+        }
 
     /** Peak values (0..1) across a sample, for drawing its waveform. */
     fun samplePeaks(path: String, bins: Int): FloatArray {
@@ -496,8 +574,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun addSampleChannel(sound: KitLibrary.Sound) {
         if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
         val id = project.nextId()
-        update { it.copy(channels = it.channels + Channel(id, sound.name, Instrument.SAMPLE, sample = sound.path)) }
+        update { it.copy(channels = it.channels + Channel(id, shortName(sound.name), Instrument.SAMPLE, sample = sound.path)) }
         selectedChannelId = id
+    }
+
+    /** A short channel name from a sound's filename, e.g. "808 - Christopher Spinza" -> "808". */
+    private fun shortName(full: String): String {
+        val head = full.substringBefore(" - ").substringBefore(" (").trim()
+        val name = head.ifEmpty { full.trim() }
+        return if (name.length > 16) name.take(16).trim() else name
     }
 
     fun setChannelSound(channelId: Long, sound: KitLibrary.Sound) {
@@ -666,6 +751,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- playlist
 
+    /** The audio clip under a point on the playlist, if any. */
+    fun audioClipAt(lane: Int, tick: Int): AudioClip? =
+        project.audioClips.lastOrNull { it.lane == lane && tick >= it.startTick && tick < it.endTick(project.bpm) }
+
+    fun deleteAudioClip(id: Long) {
+        val before = project
+        update { p -> p.copy(audioClips = p.audioClips.filter { it.id != id }) }
+        undoSnapshot = before
+        undoLabel = "Deleted recording"
+    }
+
     fun toggleClip(lane: Int, bar: Int) {
         val p = project
         val hit = p.clips.firstOrNull { it.lane == lane && bar >= it.bar && bar < it.bar + p.clipBars(it) }
@@ -676,6 +772,126 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val bars = selectedPattern.bars
         val overlaps = p.clips.any { it.lane == lane && bar < it.bar + p.clipBars(it) && it.bar < bar + bars }
         if (!overlaps) update { it.copy(clips = it.clips + Clip(lane, bar, selectedPatternId)) }
+    }
+
+    // ---------------------------------------------------------------- recording
+
+
+    fun enterRecordMode() {
+        recordMode = true
+        tab = Tab.PLAYLIST
+        switchMode(PlayMode.SONG)
+    }
+
+    fun exitRecordMode() {
+        if (takeState != TakeState.IDLE) stopTake()
+        recordMode = false
+    }
+
+    /** The big record button: starts a count-in and take, or stops the take. */
+    fun toggleTake() {
+        if (takeState == TakeState.IDLE) startTake() else stopTake()
+    }
+
+    private fun startTake() {
+        if (playing) applyPlaying(false)
+        switchMode(PlayMode.SONG)
+        val start = (positionTicks.toInt()).coerceAtLeast(0)
+        takeStartTick = start
+        takeLane = (0 until PLAYLIST_LANES).firstOrNull { project.laneFree(it, start, Int.MAX_VALUE) }
+            ?: (0 until PLAYLIST_LANES).firstOrNull { project.laneFree(it, start, start + TICKS_PER_BAR) }
+            ?: 0
+        takePeaks = FloatArray(0)
+        takeState = TakeState.COUNTING
+        recordMessage = null
+        takeJob = viewModelScope.launch {
+            val beatMs = 60_000L / project.bpm.coerceAtLeast(1)
+            for (n in 1..3) {
+                countIn = n
+                click(high = false)
+                delay(beatMs)
+            }
+            countIn = 4
+            click(high = true)
+            val file = recordingFile("take-${System.currentTimeMillis()}.wav")
+            val ok = withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { recorder.start(file) }
+            if (!isActive) {
+                // Stopped during the count-in while the mic was opening.
+                recorder.stop()?.file?.delete()
+                return@launch
+            }
+            if (!ok) {
+                countIn = null
+                takeState = TakeState.IDLE
+                recordMessage = "Couldn't open the microphone."
+                return@launch
+            }
+            takeState = TakeState.RECORDING
+            syncEngine() // longer loop so the song doesn't wrap under the take
+            NativeEngine.seek(start.toLong())
+            applyPlaying(true)
+            launch {
+                delay(beatMs.coerceAtMost(700))
+                if (countIn == 4) countIn = null
+            }
+            while (isActive && recorder.isRunning) {
+                takePeaks = recorder.peaksSnapshot()
+                micLevel = recorder.level
+                delay(50)
+            }
+            // The recorder stopped by itself (time limit): finish the take.
+            if (takeState == TakeState.RECORDING) stopTake()
+        }
+    }
+
+    fun stopTake() {
+        val state = takeState
+        takeJob?.cancel()
+        takeJob = null
+        countIn = null
+        micLevel = 0f
+        takeState = TakeState.IDLE
+        applyPlaying(false)
+        if (state != TakeState.RECORDING) {
+            syncEngine()
+            return
+        }
+        val take = recorder.stop()
+        takePeaks = FloatArray(0)
+        val start = takeStartTick
+        if (take == null) {
+            syncEngine()
+            return
+        }
+        placeRecording(take.file, take.seconds, takeLane, start)
+        // Park the playhead at the start of the take so play replays it.
+        NativeEngine.seek(start.toLong())
+        positionTicks = start.toLong()
+    }
+
+    /** Puts a finished recording (a WAV in the app's files folder) on the playlist. */
+    fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int) {
+        val path = file.relativeTo(getApplication<Application>().filesDir).path
+        val number = project.audioClips.size + 1
+        update { p ->
+            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number"))
+        }
+    }
+
+    /** Where recordings are saved. */
+    fun recordingFile(name: String): java.io.File = kits.file("$RECORDINGS_DIR/$name")
+
+    /** A short count-in blip through the audition voice. */
+    private fun click(high: Boolean) {
+        val sr = 48000
+        val freq = if (high) 1760.0 else 1175.0
+        val n = sr / 20
+        val frames = FloatArray(n) { i ->
+            val t = i.toDouble() / sr
+            (kotlin.math.sin(2 * Math.PI * freq * t) * kotlin.math.exp(-t * 60) * 0.8).toFloat()
+        }
+        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, frames, sr.toFloat())
+        NativeEngine.audition()
     }
 
     // ---------------------------------------------------------------- projects
@@ -714,11 +930,161 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         store.save(project)
     }
 
+    // ---------------------------------------------------------------- mixer tracks & effects
+
+    /** The effect whose editor is open: (mixer track id, effect id). */
+    var openEffect by mutableStateOf<Pair<Long, Long>?>(null)
+        private set
+
+    /** Engine insert index of a mixer track, or -1 (master) when it doesn't exist. */
+    fun insertIndex(trackId: Long?): Int {
+        if (trackId == null) return -1
+        val i = project.mixerTracks.indexOfFirst { it.id == trackId }
+        return if (i in 0 until NativeEngine.MAX_INSERTS) i else -1
+    }
+
+    private fun syncMixer() {
+        val p = project
+        val tracks = p.mixerTracks.take(NativeEngine.MAX_INSERTS)
+        NativeEngine.setInsertCount(tracks.size)
+        tracks.forEachIndexed { t, track ->
+            NativeEngine.setInsert(t, track.volume, track.pan, track.mute)
+            for (slot in 0 until NativeEngine.MAX_SLOTS) {
+                val fx = track.effects.getOrNull(slot)
+                val key = t * NativeEngine.MAX_SLOTS + slot
+                val type = fx?.type?.id ?: 0
+                NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
+                if (fx == null) {
+                    sentEffects.remove(key)
+                    continue
+                }
+                val params = fx.params(p)
+                val last = sentEffects[key]
+                if (last == null || last.first != type || !last.second.contentEquals(params)) {
+                    NativeEngine.setEffectParams(t, slot, params)
+                    sentEffects[key] = type to params
+                }
+            }
+        }
+        p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
+            NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
+        }
+        // Recorded audio clips play through the recording track (the Vocals track by default).
+        val recordingInsert = insertIndex(p.recordingTrackId)
+        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, _) ->
+            NativeEngine.setChannelInsert(slot, recordingInsert)
+        }
+    }
+
+    /** Mixer-only edits (knobs, EQ drags) skip recompiling the song. */
+    private fun updateMixer(transform: (Project) -> Project) {
+        undoSnapshot = null
+        project = transform(project)
+        syncMixer()
+        scheduleSave()
+    }
+
+    fun updateMixerTrack(id: Long, transform: (MixerTrack) -> MixerTrack) = updateMixer { p ->
+        p.copy(mixerTracks = p.mixerTracks.map { if (it.id == id) transform(it) else it })
+    }
+
+    fun addMixerTrack(): Long? {
+        if (project.mixerTracks.size >= MAX_MIXER_TRACKS) return null
+        val id = project.nextMixerTrackId()
+        val name = "Track ${project.mixerTracks.size + 1}"
+        updateMixer { it.copy(mixerTracks = it.mixerTracks + MixerTrack(id, name)) }
+        return id
+    }
+
+    fun deleteMixerTrack(id: Long) {
+        val before = project
+        val name = before.mixerTrack(id)?.name ?: "track"
+        update { p ->
+            p.copy(
+                mixerTracks = p.mixerTracks.filter { it.id != id },
+                channels = p.channels.map { if (it.mixerTrack == id) it.copy(mixerTrack = null) else it },
+                recordingTrackId = p.recordingTrackId.takeIf { it != id },
+            )
+        }
+        sentEffects.clear()
+        undoSnapshot = before
+        undoLabel = "Deleted $name"
+    }
+
+    fun renameMixerTrack(id: Long, name: String) {
+        val clean = name.trim().ifEmpty { return }
+        updateMixerTrack(id) { it.copy(name = clean) }
+    }
+
+    fun routeChannel(channelId: Long, trackId: Long?) = updateMixer { p ->
+        p.copy(channels = p.channels.map { if (it.id == channelId) it.copy(mixerTrack = trackId) else it })
+    }
+
+    /** Where recorded audio plays through: a mixer track, or null for straight to the master. */
+    fun setRecordingTrack(trackId: Long?) = update { it.copy(recordingTrackId = trackId) }
+
+    fun addEffect(trackId: Long, type: EffectType) {
+        val track = project.mixerTrack(trackId) ?: return
+        if (track.effects.size >= MAX_EFFECTS) return
+        val id = project.nextEffectId()
+        val fx = when (type) {
+            EffectType.EQ -> Effect(id, type, eq = EqSettings.flat())
+            EffectType.PITCH -> Effect(id, type, pitch = PitchSettings())
+        }
+        updateMixerTrack(trackId) { it.copy(effects = it.effects + fx) }
+        openEffect = trackId to id
+    }
+
+    fun removeEffect(trackId: Long, effectId: Long) {
+        if (openEffect == trackId to effectId) openEffect = null
+        updateMixerTrack(trackId) { t -> t.copy(effects = t.effects.filter { it.id != effectId }) }
+    }
+
+    /** Moves an effect one place earlier (-1) or later (+1) in the chain. */
+    fun moveEffect(trackId: Long, effectId: Long, by: Int) = updateMixerTrack(trackId) { t ->
+        val i = t.effects.indexOfFirst { it.id == effectId }
+        val j = i + by
+        if (i < 0 || j !in t.effects.indices) return@updateMixerTrack t
+        val list = t.effects.toMutableList()
+        list.add(j, list.removeAt(i))
+        t.copy(effects = list)
+    }
+
+    fun updateEffect(trackId: Long, effectId: Long, transform: (Effect) -> Effect) = updateMixerTrack(trackId) { t ->
+        t.copy(effects = t.effects.map { if (it.id == effectId) transform(it) else it })
+    }
+
+    fun openEffect(trackId: Long, effectId: Long) {
+        openEffect = trackId to effectId
+    }
+
+    fun closeEffect() {
+        openEffect = null
+    }
+
+    /** Fills [out] with the newest output of a mixer track, for the EQ's spectrum. */
+    fun readTrackSignal(trackId: Long, out: FloatArray) {
+        val i = insertIndex(trackId)
+        if (i >= 0) NativeEngine.readInsertSignal(i, out) else out.fill(0f)
+    }
+
+    /** Detected and corrected pitch (Hz) of a pitch corrector, 0 when nothing is sung. */
+    fun readPitch(trackId: Long, effectId: Long, out: FloatArray) {
+        val i = insertIndex(trackId)
+        val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
+        if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
+    }
+
     override fun onCleared() {
+        if (recorder.isRunning) recorder.stop()
         saveNow()
     }
 
     companion object {
         const val SCOPE_BINS = 96
+        const val PLAYLIST_LANES = 8
+        const val RECORDINGS_DIR = "recordings"
+        /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
+        private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT
     }
 }

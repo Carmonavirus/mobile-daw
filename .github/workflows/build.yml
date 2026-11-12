@@ -13,9 +13,16 @@ jobs:
         run: |
           mkdir -p engine-test/out
           g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/main.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/wavesynth/*.cpp \
+            engine-test/main.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
             -o engine-test/out/enginetest -pthread
           cd engine-test && ./out/enginetest
+      - name: Build and run the mixer effects test (EQ, pitch correction, mixer tracks)
+        run: |
+          mkdir -p engine-test/out
+          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
+            engine-test/fx_test.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
+            -o engine-test/out/fxtest -pthread
+          cd engine-test && ./out/fxtest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
           mkdir -p engine-test/out
@@ -70,8 +77,8 @@ jobs:
   publish:
     needs: launch-test
     runs-on: ubuntu-latest
-    # Feature branches (synth, chords) are merged into the main work branch before release, so they never publish.
-    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-e7wj3k'
+    # Feature branches are merged into the main work branch before release, so they never publish.
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy' && github.ref_name != 'claude/project-thread-hr3nbu'
     # Pushes to different branches must not update the release at the same time.
     concurrency: publish-apk
     permissions:

@@ -2,11 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <thread>
 
 namespace daw {
 
-Core::Core() {
+Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts>>()) {
     for (auto& l : levels_) l.store(0.0f);
     for (int i = 0; i < kSampleSlots; ++i) {
         pendingSample_[i].store(nullptr);
@@ -80,6 +81,9 @@ SampleShape Core::shapeFor(int channel) const {
     shape.start = a * n;
     shape.end = b * n;
     shape.attack = std::max(0.0f, p.attack.load()) * data->sampleRate;
+    shape.hold = std::max(0.0f, p.hold.load()) * data->sampleRate;
+    shape.decay = std::max(0.0f, p.decay.load()) * data->sampleRate;
+    shape.sustain = std::clamp(p.sustain.load(), 0.0f, 1.0f);
     shape.release = std::max(0.0f, p.release.load()) * data->sampleRate;
     return shape;
 }
@@ -90,23 +94,43 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
         return 0.0f;
     }
     const auto& f = data->frames;
-    const double end = shape ? std::min(shape->end, static_cast<double>(f.size())) : static_cast<double>(f.size());
+    const double lo = shape ? shape->start : 0.0;
+    const double hi = shape ? std::min(shape->end, static_cast<double>(f.size())) : static_cast<double>(f.size());
     const double pos = v.phase1;
-    const size_t i = static_cast<size_t>(pos);
-    if (pos + 1.0 >= end || i + 1 >= f.size()) {
+    const bool forward = v.phase2 >= 0.0;
+    // Stop at whichever edge we are travelling towards (flips for reverse playback).
+    const bool reachedEdge = forward ? (pos + 1.0 >= hi) : (pos <= lo);
+    if (reachedEdge || pos < lo || pos >= hi) {
         v.active = false;
         return 0.0f;
     }
+    const size_t i = static_cast<size_t>(pos);
+    if (i + 1 >= f.size()) { v.active = false; return 0.0f; }
     const float frac = static_cast<float>(pos - static_cast<double>(i));
     float s = f[i] + (f[i + 1] - f[i]) * frac;
     if (shape) {
-        // Attack fades in from the trim start, release fades out before the trim end.
-        double env = 1.0;
-        if (shape->attack > 1.0) env = std::min(env, (pos - shape->start) / shape->attack);
-        if (shape->release > 1.0) env = std::min(env, (end - pos) / shape->release);
+        // Time-based attack / hold / decay / sustain from the trigger, plus a position-based
+        // release that fades the tail before the end edge (edges flip for reverse playback).
+        const double t = static_cast<double>(v.age);
+        const double a = shape->attack;
+        const double h = shape->hold;
+        const double d = shape->decay;
+        double env;
+        if (a > 1.0 && t < a) {
+            env = t / a;  // attack ramp 0 -> 1
+        } else if (t < a + h) {
+            env = 1.0;  // hold at full
+        } else if (d > 1.0 && t < a + h + d) {
+            env = 1.0 - (1.0 - shape->sustain) * ((t - a - h) / d);  // decay 1 -> sustain
+        } else {
+            env = shape->sustain;  // held at the sustain level
+        }
+        const double toEnd = forward ? (hi - pos) : (pos - lo);
+        if (shape->release > 1.0) env = std::min(env, toEnd / shape->release);
         s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
     }
-    v.phase1 += v.phase2;  // phase2 holds the playback rate for sample voices
+    v.phase1 += v.phase2;  // phase2 holds the signed playback rate for sample voices
+    v.age++;               // envelope time advances even though samples bypass Synth::tick
     return s * v.velocity;
 }
 
@@ -147,14 +171,42 @@ void Core::jumpTo(int64_t tick) {
         current_->events.begin()) : 0;
 }
 
-void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release) {
+void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
+                             float decay, float sustain, float release, int pitchSemis, bool reverse) {
     if (index < 0 || index >= kMaxChannels) return;
     auto& p = params_[index];
     p.cutItself.store(cutItself);
     p.trimStart.store(trimStart);
     p.trimEnd.store(trimEnd);
     p.attack.store(attack);
+    p.hold.store(hold);
+    p.decay.store(decay);
+    p.sustain.store(sustain);
     p.release.store(release);
+    p.pitchSemis.store(pitchSemis);
+    p.reverse.store(reverse);
+}
+
+void Core::setChannelClip(int index, bool resumeMidway) {
+    if (index < 0 || index >= kMaxChannels) return;
+    params_[index].resumeMidway.store(resumeMidway);
+}
+
+// Audio thread: after a jump, starts any audio-clip sample that should already be sounding
+// at tick_, from the matching point inside it.
+void Core::resumeLongSamples() {
+    if (!current_) return;
+    const double samplesPerTick = sampleRate_ * 60.0 / (std::max(bpm_.load(), 20.0f) * kTicksPerBeat);
+    const auto& ev = current_->events;
+    for (size_t i = 0; i < ev.size() && ev[i].start < tick_; ++i) {
+        const auto& e = ev[i];
+        if (e.channel < 0 || e.channel >= kMaxChannels) continue;
+        if (!params_[e.channel].resumeMidway.load()) continue;
+        if (tick_ >= e.start + e.length) continue;
+        if (Voice* v = trigger(e.channel, e.pitch, e.velocity, 0)) {
+            v->phase1 += static_cast<double>(tick_ - e.start) * samplesPerTick * v->phase2;
+        }
+    }
 }
 
 void Core::setChannelCount(int count) {
@@ -169,6 +221,52 @@ void Core::setChannel(int index, int instrument, float volume, float pan, bool m
     p.pan.store(pan);
     p.mute.store(mute);
     p.solo.store(solo);
+}
+
+void Core::setChannelInsert(int channel, int insert) {
+    if (channel < 0 || channel >= kMaxChannels) return;
+    params_[channel].insert.store(insert >= 0 && insert < fx::kMaxInserts ? insert : -1);
+}
+
+void Core::setInsert(int index, float volume, float pan, bool mute) {
+    if (index < 0 || index >= fx::kMaxInserts) return;
+    auto& ins = (*inserts_)[static_cast<size_t>(index)];
+    ins.volume.store(volume);
+    ins.pan.store(pan);
+    ins.mute.store(mute);
+}
+
+void Core::setInsertEffect(int index, int slot, int type, bool bypass) {
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
+    s.type.store(type);
+    s.bypass.store(bypass);
+}
+
+void Core::setEffectParam(int index, int slot, int param, float value) {
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
+    (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].params[static_cast<size_t>(param)].store(value);
+}
+
+void Core::readInsertLevels(float* out, int count) const {
+    for (int i = 0; i < count && i < fx::kMaxInserts; ++i) out[i] = (*inserts_)[static_cast<size_t>(i)].level.load();
+}
+
+void Core::readInsertSignal(int index, float* out, int count) const {
+    if (index < 0 || index >= fx::kMaxInserts) return;
+    const auto& ins = (*inserts_)[static_cast<size_t>(index)];
+    count = std::min(count, fx::kSpectrumSize);
+    const int end = ins.spectrumWrite.load();
+    for (int i = 0; i < count; ++i)
+        out[i] = ins.spectrum[static_cast<size_t>((end - count + i + fx::kSpectrumSize) % fx::kSpectrumSize)];
+}
+
+void Core::readPitch(int index, int slot, float* out) const {
+    out[0] = out[1] = 0.0f;
+    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    const auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
+    out[0] = s.pitch.detectedHz();
+    out[1] = s.pitch.targetHz();
 }
 
 void Core::previewNote(int channel, int pitch, float velocity) { pushPreview({channel, pitch, velocity, 0}); }
@@ -208,8 +306,8 @@ void Core::readScope(float* out, int count) const {
     }
 }
 
-void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) {
-    if (channel < 0 || channel >= kMaxChannels) return;
+Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) {
+    if (channel < 0 || channel >= kMaxChannels) return nullptr;
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
     const bool cut = params_[channel].cutItself.load();
@@ -217,7 +315,7 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
         auto& synth = synths_[static_cast<size_t>(channel)];
         if (cut) synth.choke();
         synth.noteOn(pitch, velocity, gateSamples);
-        return;
+        return nullptr;
     }
     Voice* target = nullptr;
     if (cut) {
@@ -241,9 +339,20 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     if (instrument == kSample) {
         const SampleData* data = sample_[channel];
         const float rate = data ? data->sampleRate : static_cast<float>(sampleRate_);
-        target->phase2 = rate / sampleRate_ * std::pow(2.0, (pitch - 60) / 12.0);
-        target->phase1 = shapeFor(channel).start;
+        const int transpose = params_[channel].pitchSemis.load();
+        const double step = rate / sampleRate_ * std::pow(2.0, (pitch - 60 + transpose) / 12.0);
+        const SampleShape shape = shapeFor(channel);
+        if (params_[channel].reverse.load()) {
+            // Start just inside the trim end so interpolation still has a next sample.
+            const double last = data ? static_cast<double>(data->frames.size()) - 2.0 : shape.end - 2.0;
+            target->phase1 = std::max(shape.start, std::min(shape.end - 1.0, last));
+            target->phase2 = -step;  // walk backwards from the trim end
+        } else {
+            target->phase1 = shape.start;
+            target->phase2 = step;
+        }
     }
+    return target;
 }
 
 void Core::releaseAll() {
@@ -265,6 +374,15 @@ void Core::advanceTick(const Sequence* seq) {
 }
 
 void Core::render(float* out, int frames) {
+    while (frames > 0) {
+        const int n = std::min(frames, kBlock);
+        renderBlock(out, n);
+        out += 2 * n;
+        frames -= n;
+    }
+}
+
+void Core::renderBlock(float* out, int frames) {
     // Adopt a newly published sequence, but only once the UI has freed the last retired one,
     // so the audio thread never frees memory.
     if (retired_.load() == nullptr) {
@@ -307,10 +425,14 @@ void Core::render(float* out, int frames) {
     if (restart_.exchange(false)) {
         seek_.store(-1);
         jumpTo(startTick_.exchange(0));
-        if (playing) advanceTick(current_);
+        if (playing) {
+            resumeLongSamples();
+            advanceTick(current_);
+        }
     } else if (const int64_t s = seek_.exchange(-1); s >= 0 && playing) {
         releaseAll();
         jumpTo(s);
+        resumeLongSamples();
         advanceTick(current_);
     }
     if (wasPlaying_ && !playing) releaseAll();
@@ -343,6 +465,16 @@ void Core::render(float* out, int frames) {
         } else if (synth.anyActive()) {
             synth.silence();  // the channel switched to another instrument
         }
+    }
+    const int insertCount = insertCount_.load();
+    int routes[kMaxChannels];
+    for (int c = 0; c < channelCount; ++c) {
+        const int r = params_[c].insert.load();
+        routes[c] = r < insertCount ? r : -1;
+    }
+    for (int b = 0; b < insertCount; ++b) {
+        std::fill(busL_[static_cast<size_t>(b)].begin(), busL_[static_cast<size_t>(b)].begin() + frames, 0.0f);
+        std::fill(busR_[static_cast<size_t>(b)].begin(), busR_[static_cast<size_t>(b)].begin() + frames, 0.0f);
     }
     SampleShape shapes[kMaxChannels];
     for (int c = 0; c < channelCount; ++c) {
@@ -389,16 +521,51 @@ void Core::render(float* out, int frames) {
             float l = sumL * gains[c][0];
             float rr = sumR * gains[c][1];
             peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(rr)));
-            left += l;
-            right += rr;
+            if (routes[c] >= 0) {
+                busL_[static_cast<size_t>(routes[c])][static_cast<size_t>(i)] += l;
+                busR_[static_cast<size_t>(routes[c])][static_cast<size_t>(i)] += rr;
+            } else {
+                left += l;
+                right += rr;
+            }
         }
         if (auditionVoice_.active) {
             const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot]) * 0.8f;
             left += a;
             right += a;
         }
-        left = std::tanh(left * master);
-        right = std::tanh(right * master);
+        out[2 * i] = left;
+        out[2 * i + 1] = right;
+    }
+
+    // Mixer tracks: run each bus through its effects and add it to the master.
+    for (int b = 0; b < insertCount; ++b) {
+        auto& ins = (*inserts_)[static_cast<size_t>(b)];
+        float* bl = busL_[static_cast<size_t>(b)].data();
+        float* br = busR_[static_cast<size_t>(b)].data();
+        for (auto& slot : ins.slots) slot.process(bl, br, frames, sr);
+        const float pan = std::clamp(ins.pan.load(), -1.0f, 1.0f);
+        const float angle = (pan + 1.0f) * 0.25f * 3.14159265f;
+        const float vol = ins.mute.load() ? 0.0f : ins.volume.load();
+        const float gl = std::cos(angle) * vol * 1.414f, gr = std::sin(angle) * vol * 1.414f;
+        int w = ins.spectrumWrite.load(std::memory_order_relaxed);
+        float peak = 0.0f;
+        for (int i = 0; i < frames; ++i) {
+            ins.spectrum[static_cast<size_t>(w)] = 0.5f * (bl[i] + br[i]);
+            w = (w + 1) % fx::kSpectrumSize;
+            const float l = bl[i] * gl, r = br[i] * gr;
+            peak = std::max(peak, std::max(std::fabs(l), std::fabs(r)));
+            out[2 * i] += l;
+            out[2 * i + 1] += r;
+        }
+        ins.spectrumWrite.store(w, std::memory_order_relaxed);
+        ins.level.store(std::max(std::min(peak, 1.0f), ins.level.load() * 0.85f));
+    }
+    for (int b = insertCount; b < fx::kMaxInserts; ++b) (*inserts_)[static_cast<size_t>(b)].level.store(0.0f);
+
+    for (int i = 0; i < frames; ++i) {
+        const float left = std::tanh(out[2 * i] * master);
+        const float right = std::tanh(out[2 * i + 1] * master);
         out[2 * i] = left;
         out[2 * i + 1] = right;
         float mono = 0.5f * (left + right);

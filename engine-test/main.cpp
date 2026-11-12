@@ -36,7 +36,8 @@ int main() {
     for (size_t n = 0; n < tom.size(); ++n)
         tom[n] = std::sin(2 * 3.14159 * 110 * n / 44100.0) * std::exp(-double(n) / 4000.0);
     core.setSample(8, tom, 44100.0f);
-    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.03f);  // cut itself, trimmed, short fades
+    // cut itself, trimmed, short attack/hold/decay, sustain 0.6, short release.
+    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.001f, 0.01f, 0.6f, 0.03f, 0, false);
     core.setChannel(8, 8, 1.6f, 0.0f, false, false);              // boosted above unity
     core.setSample(kAuditionSlot, tom, 44100.0f);
     core.audition();
@@ -102,6 +103,69 @@ int main() {
         std::printf("FAIL seek\n");
         return 1;
     }
+    // Amplitude envelope on a steady sample: attack ramps in, sustain holds below peak.
+    auto sampleLevel = [&](float attack, float hold, float decay, float sustain, int atSample) {
+        Core c2;
+        c2.setSampleRate(sr);
+        c2.setMasterVolume(1.0f);
+        c2.setChannelCount(1);
+        c2.setChannel(0, 8, 1.0f, 0.0f, false, false);
+        std::vector<float> flat(sr, 0.5f);  // 1 s of constant 0.5
+        c2.setSample(0, flat, static_cast<float>(sr));
+        c2.setChannelSampler(0, false, 0.0f, 1.0f, attack, hold, decay, sustain, 0.0f, 0, false);
+        c2.previewNote(0, 60, 1.0f);
+        std::vector<float> mono;
+        std::vector<float> b2(block * 2);
+        for (int done = 0; done < sr; done += block) {
+            c2.render(b2.data(), block);
+            for (int i = 0; i < block; ++i) mono.push_back(b2[i * 2]);
+        }
+        return std::fabs(mono[static_cast<size_t>(atSample)]);
+    };
+    const float envEarly = sampleLevel(0.2f, 0.0f, 0.0f, 1.0f, sr / 100);  // ~10 ms into a 200 ms attack
+    const float envFull = sampleLevel(0.2f, 0.0f, 0.0f, 1.0f, sr / 2);     // well past the attack
+    const float susLevel = sampleLevel(0.0f, 0.0f, 0.02f, 0.4f, sr / 2);   // held at sustain 0.4
+    const float susPeak = sampleLevel(0.0f, 0.0f, 0.02f, 0.4f, sr / 500);  // during the brief full part
+    std::printf("env: early=%.3f full=%.3f susLevel=%.3f susPeak=%.3f\n", envEarly, envFull, susLevel, susPeak);
+    if (envEarly > 0.15f || envFull < 0.45f ||               // attack keeps the start quiet, then opens up
+        susLevel > 0.26f || susLevel < 0.14f ||              // ~0.5 * 0.4 = 0.20
+        susPeak < 0.40f) {                                   // peaks near full before decaying
+        std::printf("FAIL envelope\n");
+        return 1;
+    }
+
+    // Audio clip: a long recording on its own channel starts mid-way when playback starts
+    // inside it, and stays silent on a normal sample channel.
+    {
+        Core clip;
+        clip.setSampleRate(sr);
+        clip.setBpm(120.0f);
+        clip.setChannelCount(1);
+        clip.setChannel(0, 8 /* sample */, 1.0f, 0.0f, false, false);
+        std::vector<float> tone(static_cast<size_t>(sr) * 8);
+        for (size_t i = 0; i < tone.size(); ++i) tone[i] = 0.5f * std::sin(0.05f * static_cast<float>(i));
+        clip.setSample(0, tone, static_cast<float>(sr));
+        const int64_t len = kTicksPerBeat * 16;  // 8 s at 120 BPM
+        clip.setSequence({NoteEvent{0, 0, static_cast<int32_t>(len), 60, 1.0f}}, len * 2);
+        auto loudness = [&](bool resume) {
+            clip.setChannelClip(0, resume);
+            clip.setPlaying(false);
+            clip.render(buf.data(), block);
+            clip.seek(kTicksPerBeat * 4);
+            clip.setPlaying(true);
+            double sum = 0;
+            for (int b = 0; b < 8; ++b) {
+                clip.render(buf.data(), block);
+                for (int i = 0; i < block * 2; ++i) sum += buf[i] * buf[i];
+            }
+            return std::sqrt(sum / (block * 16));
+        };
+        const double off = loudness(false);
+        const double on = loudness(true);
+        std::printf("clip resume: off=%.3f on=%.3f\n", off, on);
+        if (off > 0.001 || on < 0.05) { std::printf("FAIL clip resume\n"); return 1; }
+    }
+
     std::printf("OK\n");
     return 0;
 }
