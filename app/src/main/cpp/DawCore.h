@@ -63,6 +63,9 @@ struct ChannelParams {
     std::atomic<float> release{0.0f};
     std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
     std::atomic<bool> reverse{false};   // play the sample backwards
+    // Audio clips on the playlist: when playback starts or seeks into the middle of one of
+    // this channel's notes, the sample starts from that point instead of staying silent.
+    std::atomic<bool> resumeMidway{false};
     // Mixer track (fx::Insert) this channel plays through, or -1 for straight to the master.
     std::atomic<int> insert{-1};
 };
@@ -95,6 +98,8 @@ public:
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
                            float decay, float sustain, float release, int pitchSemis, bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
+    // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
+    void setChannelClip(int index, bool resumeMidway);
 
     // ---- mixer tracks (control thread)
     // Routes a channel to mixer track `insert` (0..fx::kMaxInserts-1), or -1 for the master.
@@ -138,10 +143,12 @@ public:
 private:
     void renderBlock(float* interleavedStereo, int frames);
     void advanceTick(const Sequence* seq);
-    void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
+    // Returns the voice it started, or nullptr (wavetable channels, bad index).
+    Voice* trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
     void adoptSamples();
     void jumpTo(int64_t tick);
+    void resumeLongSamples();
     float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
     SampleShape shapeFor(int channel) const;
 

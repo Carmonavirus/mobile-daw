@@ -86,6 +86,24 @@ data class Clip(
     val patternId: Long,
 )
 
+/**
+ * A recorded (or imported) piece of audio placed on the playlist.
+ * [path] is relative to the app's files folder, e.g. "recordings/take-1731412345.wav".
+ * Its length on the timeline follows the tempo, so it is stored in seconds.
+ */
+@Serializable
+data class AudioClip(
+    val id: Long,
+    val lane: Int,
+    val startTick: Int,
+    val path: String,
+    val seconds: Float,
+    val name: String = "Audio",
+) {
+    fun lengthTicks(bpm: Int): Int = maxOf(1, (seconds * bpm / 60f * TICKS_PER_BEAT).toInt())
+    fun endTick(bpm: Int): Int = startTick + lengthTicks(bpm)
+}
+
 @Serializable
 data class Project(
     val name: String,
@@ -96,6 +114,7 @@ data class Project(
     val channels: List<Channel>,
     val patterns: List<Pattern>,
     val clips: List<Clip> = emptyList(),
+    val audioClips: List<AudioClip> = emptyList(),
     /** Mixer tracks with effect chains. Every project starts with a generic "Vocals" track. */
     val mixerTracks: List<MixerTrack> = listOf(MixerTrack.vocals()),
     /** Mixer track recorded audio plays through (the Vocals track unless changed); null = master. */
@@ -108,7 +127,16 @@ data class Project(
     val keyLabel: String get() = NOTE_NAMES[key] + if (minor) "m" else ""
 
     /** Bars in the arrangement, at least one. */
-    val songBars: Int get() = maxOf(1, clips.maxOfOrNull { it.bar + clipBars(it) } ?: 1)
+    val songBars: Int get() = maxOf(
+        1,
+        clips.maxOfOrNull { it.bar + clipBars(it) } ?: 1,
+        audioClips.maxOfOrNull { (it.endTick(bpm) + TICKS_PER_BAR - 1) / TICKS_PER_BAR } ?: 1,
+    )
+
+    /** True when [lane] has nothing between the two ticks (pattern or audio clips). */
+    fun laneFree(lane: Int, fromTick: Int, toTick: Int, ignoreAudioId: Long? = null): Boolean =
+        clips.none { it.lane == lane && fromTick < (it.bar + clipBars(it)) * TICKS_PER_BAR && it.bar * TICKS_PER_BAR < toTick } &&
+            audioClips.none { it.id != ignoreAudioId && it.lane == lane && fromTick < it.endTick(bpm) && it.startTick < toTick }
 
     fun mixerTrack(id: Long?): MixerTrack? = id?.let { t -> mixerTracks.firstOrNull { it.id == t } }
 
@@ -117,7 +145,7 @@ data class Project(
     fun nextEffectId(): Long = (mixerTracks.flatMap { it.effects }.maxOfOrNull { it.id } ?: 0L) + 1
 
     fun nextId(): Long =
-        (channels.map { it.id } + patterns.map { it.id }).maxOrNull()?.plus(1) ?: 1L
+        (channels.map { it.id } + patterns.map { it.id } + audioClips.map { it.id }).maxOrNull()?.plus(1) ?: 1L
 }
 
 val NOTE_NAMES = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")

@@ -187,6 +187,28 @@ void Core::setChannelSampler(int index, bool cutItself, float trimStart, float t
     p.reverse.store(reverse);
 }
 
+void Core::setChannelClip(int index, bool resumeMidway) {
+    if (index < 0 || index >= kMaxChannels) return;
+    params_[index].resumeMidway.store(resumeMidway);
+}
+
+// Audio thread: after a jump, starts any audio-clip sample that should already be sounding
+// at tick_, from the matching point inside it.
+void Core::resumeLongSamples() {
+    if (!current_) return;
+    const double samplesPerTick = sampleRate_ * 60.0 / (std::max(bpm_.load(), 20.0f) * kTicksPerBeat);
+    const auto& ev = current_->events;
+    for (size_t i = 0; i < ev.size() && ev[i].start < tick_; ++i) {
+        const auto& e = ev[i];
+        if (e.channel < 0 || e.channel >= kMaxChannels) continue;
+        if (!params_[e.channel].resumeMidway.load()) continue;
+        if (tick_ >= e.start + e.length) continue;
+        if (Voice* v = trigger(e.channel, e.pitch, e.velocity, 0)) {
+            v->phase1 += static_cast<double>(tick_ - e.start) * samplesPerTick * v->phase2;
+        }
+    }
+}
+
 void Core::setChannelCount(int count) {
     channelCount_.store(std::clamp(count, 0, kMaxChannels));
 }
@@ -284,8 +306,8 @@ void Core::readScope(float* out, int count) const {
     }
 }
 
-void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) {
-    if (channel < 0 || channel >= kMaxChannels) return;
+Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) {
+    if (channel < 0 || channel >= kMaxChannels) return nullptr;
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
     const bool cut = params_[channel].cutItself.load();
@@ -293,7 +315,7 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
         auto& synth = synths_[static_cast<size_t>(channel)];
         if (cut) synth.choke();
         synth.noteOn(pitch, velocity, gateSamples);
-        return;
+        return nullptr;
     }
     Voice* target = nullptr;
     if (cut) {
@@ -330,6 +352,7 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
             target->phase2 = step;
         }
     }
+    return target;
 }
 
 void Core::releaseAll() {
@@ -402,10 +425,14 @@ void Core::renderBlock(float* out, int frames) {
     if (restart_.exchange(false)) {
         seek_.store(-1);
         jumpTo(startTick_.exchange(0));
-        if (playing) advanceTick(current_);
+        if (playing) {
+            resumeLongSamples();
+            advanceTick(current_);
+        }
     } else if (const int64_t s = seek_.exchange(-1); s >= 0 && playing) {
         releaseAll();
         jumpTo(s);
+        resumeLongSamples();
         advanceTick(current_);
     }
     if (wasPlaying_ && !playing) releaseAll();

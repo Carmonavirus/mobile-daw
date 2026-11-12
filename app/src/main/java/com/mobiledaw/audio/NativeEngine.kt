@@ -22,6 +22,9 @@ object NativeEngine {
     /** Cut itself, trim (0..1 of the sample) and attack/release fades in seconds. */
     external fun setChannelSampler(index: Int, cutItself: Boolean, trimStart: Float, trimEnd: Float, attack: Float, hold: Float, decay: Float, sustain: Float, release: Float, pitchSemis: Int, reverse: Boolean)
 
+    /** Marks a slot as an audio-clip lane: starting playback inside one of its notes plays from there. */
+    external fun setChannelClip(index: Int, resumeMidway: Boolean)
+
     /** [events] is flat: channel, startTick, lengthTicks, pitch, velocity (0..127) per note. */
     external fun setSequence(events: IntArray, loopTicks: Int)
     external fun previewNote(channel: Int, pitch: Int, velocity: Int)
