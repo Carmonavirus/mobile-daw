@@ -75,22 +75,6 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
                 }
 
-                // ---------------------------------------------------------------- gestures
-                SectionTitle("How to get around")
-                GUIDE.forEach { (screen, tips) ->
-                    SectionCard {
-                        Text(screen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-                        Spacer(Modifier.height(6.dp))
-                        tips.forEach { (gesture, action) ->
-                            Row(Modifier.padding(vertical = 4.dp)) {
-                                Text(gesture, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.InkSoft, modifier = Modifier.width(132.dp))
-                                Text(action, fontSize = 13.sp, color = DawColors.InkSoft, modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
                 // ---------------------------------------------------------------- editing
                 SectionTitle("Editing")
                 SectionCard {
@@ -169,6 +153,22 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                     Spacer(Modifier.height(8.dp))
                 }
+                // ---------------------------------------------------------------- gestures
+                SectionTitle("How to get around")
+                GUIDE.forEach { (screen, tips) ->
+                    SectionCard {
+                        Text(screen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                        Spacer(Modifier.height(6.dp))
+                        tips.forEach { (gesture, action) ->
+                            Row(Modifier.padding(vertical = 4.dp)) {
+                                Text(gesture, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.InkSoft, modifier = Modifier.width(132.dp))
+                                Text(action, fontSize = 13.sp, color = DawColors.InkSoft, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 Spacer(Modifier.height(24.dp))
             }
         }
