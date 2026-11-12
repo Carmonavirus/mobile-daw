@@ -31,6 +31,7 @@ import com.mobiledaw.model.Project
 import com.mobiledaw.model.ProjectStore
 import com.mobiledaw.model.SequenceCompiler
 import com.mobiledaw.model.TICKS_PER_BAR
+import com.mobiledaw.model.TICKS_PER_BEAT
 import com.mobiledaw.model.TICKS_PER_STEP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -133,6 +134,87 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         labelAllNotes = all
         prefs.edit().putBoolean("label_all_notes", all).apply()
     }
+
+    // ---------------------------------------------------------------- output latency (Bluetooth sync)
+    // Declared before init{}: the engine polling loop reads them.
+
+    private val visualDelay = com.mobiledaw.audio.VisualDelay()
+    private val latencyMeter = com.mobiledaw.audio.LatencyMeter()
+
+    /** What the app is playing through right now (speaker, wired, or the earbuds' name). */
+    var outputDevice by mutableStateOf(com.mobiledaw.audio.OutputDevice("speaker", "Phone speaker", false))
+        private set
+    /** Delay the phone reports for that output, in ms; null until it has been measured. */
+    var measuredLatencyMs by mutableStateOf<Int?>(null)
+        private set
+    /** Auto: follow the measured delay. Off: only [latencyOffsetMs]. Remembered per output. */
+    var latencyAuto by mutableStateOf(true)
+        private set
+    /** Manual ms added to the measured delay (Auto), or the whole delay (Auto off). Per output. */
+    var latencyOffsetMs by mutableIntStateOf(0)
+        private set
+
+    /** True when Auto is on but the phone gave no reading, so [estimatedLatencyMs] stands in. */
+    val latencyEstimated: Boolean get() = latencyAuto && measuredLatencyMs == null
+
+    private val estimatedLatencyMs: Int get() = if (outputDevice.wireless) 200 else 30
+
+    /** How far the screen runs behind the engine, in ms: what you hear vs. what is drawn. */
+    val uiDelayMs: Int
+        get() = ((if (latencyAuto) measuredLatencyMs ?: estimatedLatencyMs else 0) + latencyOffsetMs)
+            .coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+
+    fun changeLatencyAuto(on: Boolean) {
+        latencyAuto = on
+        // Keep the total where it was when switching, so the slider doesn't jump the playhead.
+        val measured = measuredLatencyMs ?: estimatedLatencyMs
+        latencyOffsetMs = if (on) (latencyOffsetMs - measured).coerceIn(LATENCY_OFFSET_MIN, LATENCY_OFFSET_MAX)
+        else (latencyOffsetMs + measured).coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+        saveLatency()
+    }
+
+    fun changeLatencyOffset(ms: Int) {
+        latencyOffsetMs = if (latencyAuto) ms.coerceIn(LATENCY_OFFSET_MIN, LATENCY_OFFSET_MAX)
+        else ms.coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+        saveLatency()
+    }
+
+    private fun saveLatency() {
+        val key = outputDevice.key
+        prefs.edit()
+            .putBoolean("latency_auto:$key", latencyAuto)
+            .putInt("latency_offset:$key", latencyOffsetMs)
+            .apply()
+    }
+
+    private fun loadLatency() {
+        val key = outputDevice.key
+        latencyAuto = prefs.getBoolean("latency_auto:$key", true)
+        latencyOffsetMs = prefs.getInt("latency_offset:$key", 0)
+    }
+
+    /** Re-reads which output is in use and how late it is. Called about once a second. */
+    private fun refreshOutputLatency() {
+        val device = com.mobiledaw.audio.OutputDevices.describe(getApplication<Application>(), NativeEngine.outputDeviceId())
+        if (device.key != outputDevice.key) {
+            outputDevice = device
+            latencyMeter.reset()
+            measuredLatencyMs = null
+            loadLatency()
+        } else if (device != outputDevice) {
+            outputDevice = device
+        }
+        // Never report less than the buffer alone adds.
+        val floor = NativeEngine.bufferLatencyMs()
+        val reading = NativeEngine.outputLatencyMs().let { if (it > 0 && floor > 0) maxOf(it, floor) else it }
+        latencyMeter.add(reading)?.let { if (it != measuredLatencyMs) measuredLatencyMs = it }
+    }
+
+    /** Shows the engine's state right away (no delay), e.g. after a jump while stopped. */
+    private fun showLive(tick: Long) {
+        visualDelay.clear()
+        positionTicks = tick
+    }
     var mode by mutableStateOf(PlayMode.PATTERN)
         private set
     var playing by mutableStateOf(false)
@@ -165,9 +247,19 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var takeState by mutableStateOf(TakeState.IDLE)
         private set
-    /** Count-in shown over the playlist: 1, 2, 3, then 4 means "GO". Null when hidden. */
+    /** Count-in shown over the playlist: 1..4 while counting, then [COUNT_IN_GO]. Null when hidden. */
     var countIn by mutableStateOf<Int?>(null)
         private set
+
+    /** Metronome click on every beat (accented on beat 1), made in the engine. Never bounced. Remembered. */
+    var metronomeOn by mutableStateOf(prefs.getBoolean("metronome", false))
+        private set
+
+    fun toggleMetronome() {
+        metronomeOn = !metronomeOn
+        prefs.edit().putBoolean("metronome", metronomeOn).apply()
+        NativeEngine.setMetronome(metronomeOn, BEATS_PER_BAR)
+    }
     /** Where the current take starts and which lane it lands on. */
     var takeStartTick by mutableIntStateOf(0)
         private set
@@ -190,12 +282,32 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         syncEngine()
+        loadLatency()
         viewModelScope.launch {
+            var polls = 0
             while (isActive) {
-                positionTicks = NativeEngine.positionTicks()
-                levels = FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) }
-                scope = FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) }
-                trackLevels = FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) }
+                if (polls++ % 30 == 0) refreshOutputLatency()
+                val now = System.nanoTime()
+                val frame = com.mobiledaw.audio.VisualDelay.Frame(
+                    now,
+                    NativeEngine.positionTicks(),
+                    FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) },
+                    FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) },
+                    FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) },
+                )
+                // While playing, draw what is being heard now: the engine reading from uiDelayMs ago.
+                // Stopped, show it live so taps and jumps answer at once.
+                val shown = if (playing && uiDelayMs > 0) {
+                    visualDelay.push(frame)
+                    visualDelay.at(now, uiDelayMs) ?: frame
+                } else {
+                    visualDelay.clear()
+                    frame
+                }
+                positionTicks = shown.tick
+                levels = shown.levels
+                scope = shown.scope
+                trackLevels = shown.trackLevels
                 delay(33)
             }
         }
@@ -223,6 +335,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private fun syncEngine() {
         val p = project
         NativeEngine.setBpm(p.bpm.toFloat())
+        NativeEngine.setMetronome(metronomeOn, BEATS_PER_BAR)
         NativeEngine.setMasterVolume(p.masterVolume)
         val audioSlots = SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS)
         NativeEngine.setChannelCount((p.channels.size + audioSlots.size).coerceAtMost(NativeEngine.MAX_CHANNELS))
@@ -241,8 +354,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         }
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
-            NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
-            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, 0, false)
+            NativeEngine.setChannel(slot, Instrument.SAMPLE.id, clip.gain, 0f, clip.muted, false)
+            val (trimA, trimB) = com.mobiledaw.model.ClipEdit.trimFractions(clip)
+            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, clip.pitchSemis, clip.reverse)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
@@ -296,18 +410,31 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (takeState != TakeState.IDLE) stopTake() else applyPlaying(!playing)
     }
 
+    /** The "stop all sound" button: stops playback (and a take in progress) and cuts every sound. */
+    fun stopAllSound() {
+        if (takeState != TakeState.IDLE) stopTake()
+        playing = false
+        NativeEngine.panic()
+    }
+
     /** Moves the playhead to a fraction (0..1) of the pattern or song, snapped to a step. */
     fun seekTo(fraction: Float) {
         val raw = (fraction.coerceIn(0f, 1f) * loopTicks).toInt()
         val tick = ((raw / TICKS_PER_STEP) * TICKS_PER_STEP).coerceIn(0, maxOf(0, loopTicks - TICKS_PER_STEP))
         NativeEngine.seek(tick.toLong())
-        positionTicks = tick.toLong()
+        // Playing: hold the playhead here while the earbuds finish what was already sent, then go on in sync.
+        showLive(tick.toLong())
     }
 
     private fun applyPlaying(value: Boolean) {
         playing = value
         NativeEngine.setPlaying(value)
+        visualDelay.clear()
+        if (value) playStartNanos = System.nanoTime()
     }
+
+    /** When playback last started (System.nanoTime), for lining recordings up with what was heard. */
+    private var playStartNanos = 0L
 
     fun switchMode(value: PlayMode) {
         if (mode == value) return
@@ -554,9 +681,26 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: run {
-            val max = if (path.startsWith(RECORDINGS_DIR)) WavDecoder.MAX_RECORDING_SECONDS else 60
-            WavDecoder.decode(kits.file(path), max)?.also { sampleCache[path] = it }
+            val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
+            val max = if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
+            WavDecoder.decode(kits.file(path), max)?.also {
+                sampleCache[path] = it
+                trimSampleCache()
+            }
         }
+
+    /**
+     * Keeps decoded sounds under ~24M frames (about 100 MB of floats): a few long imported loops
+     * would otherwise fill memory. The engine keeps its own copy, so dropping one here is safe.
+     */
+    private fun trimSampleCache() {
+        var total = sampleCache.values.sumOf { it.frames.size.toLong() }
+        val iter = sampleCache.entries.iterator()
+        while (total > MAX_CACHED_FRAMES && sampleCache.size > 1 && iter.hasNext()) {
+            total -= iter.next().value.frames.size
+            iter.remove()
+        }
+    }
 
     /** Peak values (0..1) across a sample, for drawing its waveform. */
     fun samplePeaks(path: String, bins: Int): FloatArray {
@@ -922,19 +1066,82 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val before = project
         update { p -> p.copy(audioClips = p.audioClips.filter { it.id != id }) }
         undoSnapshot = before
-        undoLabel = "Deleted recording"
+        undoLabel = "Deleted audio clip"
     }
 
-    fun toggleClip(lane: Int, bar: Int) {
+    // ---------------------------------------------------------------- playlist editing
+
+    /** Playlist tool, like FL's pencil / slice / mute tools. */
+    var playlistTool by mutableStateOf(PlaylistTool.PENCIL)
+
+    /** Grid that moving, resizing, cutting and placing snap to, in ticks (0 = no snap). */
+    var playlistSnap by mutableIntStateOf(TICKS_PER_BEAT)
+
+    fun snapTick(tick: Int): Int {
+        val g = playlistSnap
+        if (g <= 1) return tick.coerceAtLeast(0)
+        return (Math.round(tick.toFloat() / g) * g).coerceAtLeast(0)
+    }
+
+    /** Index of the pattern clip at [tick] on [lane], topmost (last drawn) first. */
+    fun patternClipAt(lane: Int, tick: Int): Int =
+        project.clips.indexOfLast { it.lane == lane && tick >= it.startTick && tick < project.clipEnd(it) }
+
+    /** Pencil on an empty spot: places the selected pattern there, on the snap grid. */
+    fun addPatternClip(lane: Int, tick: Int) {
+        val g = playlistSnap.coerceAtLeast(1)
+        val start = (tick / g) * g
+        update { it.copy(clips = it.clips + Clip(lane, 0, selectedPatternId).movedTo(lane, start)) }
+    }
+
+    fun deletePatternClip(index: Int) {
+        if (index !in project.clips.indices) return
+        val before = project
+        update { p -> p.copy(clips = p.clips.filterIndexed { i, _ -> i != index }) }
+        undoSnapshot = before
+        undoLabel = "Deleted pattern clip"
+    }
+
+    fun setPatternClip(index: Int, clip: Clip) {
+        if (index !in project.clips.indices) return
+        update { p -> p.copy(clips = p.clips.mapIndexed { i, c -> if (i == index) clip else c }) }
+    }
+
+    fun updateAudioClip(id: Long, transform: (AudioClip) -> AudioClip) {
+        update { p -> p.copy(audioClips = p.audioClips.map { if (it.id == id) transform(it) else it }) }
+    }
+
+    /** Cut tool: splits the clip under [tick] (snapped) in two. Returns false when nothing was cut. */
+    fun cutAt(lane: Int, tick: Int): Boolean {
         val p = project
-        val hit = p.clips.firstOrNull { it.lane == lane && bar >= it.bar && bar < it.bar + p.clipBars(it) }
-        if (hit != null) {
-            update { it.copy(clips = it.clips - hit) }
+        val at = snapTick(tick)
+        val audio = audioClipAt(lane, tick)
+        if (audio != null) {
+            val (a, b) = com.mobiledaw.model.ClipEdit.split(audio, at, p.bpm, p.nextId())
+                ?: com.mobiledaw.model.ClipEdit.split(audio, tick, p.bpm, p.nextId())
+                ?: return false
+            update { q -> q.copy(audioClips = q.audioClips.flatMap { if (it.id == audio.id) listOf(a, b) else listOf(it) }) }
+            return true
+        }
+        val index = patternClipAt(lane, tick)
+        if (index < 0) return false
+        val clip = p.clips[index]
+        val (a, b) = com.mobiledaw.model.ClipEdit.split(p, clip, at)
+            ?: com.mobiledaw.model.ClipEdit.split(p, clip, tick)
+            ?: return false
+        update { q -> q.copy(clips = q.clips.flatMapIndexed { i, c -> if (i == index) listOf(a, b) else listOf(c) }) }
+        return true
+    }
+
+    /** Mute tool: mutes or unmutes the clip under [tick]. */
+    fun toggleMuteAt(lane: Int, tick: Int) {
+        val audio = audioClipAt(lane, tick)
+        if (audio != null) {
+            updateAudioClip(audio.id) { it.copy(muted = !it.muted) }
             return
         }
-        val bars = selectedPattern.bars
-        val overlaps = p.clips.any { it.lane == lane && bar < it.bar + p.clipBars(it) && it.bar < bar + bars }
-        if (!overlaps) update { it.copy(clips = it.clips + Clip(lane, bar, selectedPatternId)) }
+        val index = patternClipAt(lane, tick)
+        if (index >= 0) setPatternClip(index, project.clips[index].let { it.copy(muted = !it.muted) })
     }
 
     // ---------------------------------------------------------------- recording
@@ -968,18 +1175,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         takeState = TakeState.COUNTING
         recordMessage = null
         takeJob = viewModelScope.launch {
-            val beatMs = 60_000L / project.bpm.coerceAtLeast(1)
-            for (n in 1..3) {
-                countIn = n
-                click(high = false)
-                delay(beatMs)
-            }
-            countIn = 4
-            click(high = true)
+            // Open the mic first, so it is already listening when the count-in ends.
             val file = recordingFile("take-${System.currentTimeMillis()}.wav")
             val ok = withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { recorder.start(file) }
             if (!isActive) {
-                // Stopped during the count-in while the mic was opening.
+                // Stopped while the mic was opening.
                 recorder.stop()?.file?.delete()
                 return@launch
             }
@@ -989,16 +1189,34 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 recordMessage = "Couldn't open the microphone."
                 return@launch
             }
-            takeState = TakeState.RECORDING
             syncEngine() // longer loop so the song doesn't wrap under the take
             NativeEngine.seek(start.toLong())
-            applyPlaying(true)
+            // The engine clicks one bar in and starts the song on the exact sample after it,
+            // so the count-in and the take are sample-accurate (no UI timers involved).
+            val beats = BEATS_PER_BAR
+            val beatNanos = 60_000_000_000L / project.bpm.coerceAtLeast(1)
+            val expectedStart = System.nanoTime() + beats * beatNanos
+            playStartNanos = expectedStart // so the lead-in trim skips the count-in from the first peak
+            NativeEngine.startCountIn(beats)
+            while (isActive && !NativeEngine.isPlaying()) {
+                countIn = NativeEngine.countInBeat().takeIf { it > 0 }
+                micLevel = recorder.level
+                delay(10)
+            }
+            if (!isActive) return@launch
+            takeState = TakeState.RECORDING
+            countIn = COUNT_IN_GO
+            applyPlaying(true) // the engine is already playing; this just catches the UI up
+            playStartNanos = expectedStart
             launch {
-                delay(beatMs.coerceAtMost(700))
-                if (countIn == 4) countIn = null
+                delay((beatNanos / 1_000_000L).coerceAtMost(700))
+                if (countIn == COUNT_IN_GO) countIn = null
             }
             while (isActive && recorder.isRunning) {
-                takePeaks = recorder.peaksSnapshot()
+                // Drop the lead-in the take will lose when it's lined up (see takeLeadInFrames).
+                val peaks = recorder.peaksSnapshot()
+                val skip = (takeLeadInFrames() / maxOf(1, recorder.sampleRate * Recorder.PEAK_MS / 1000)).toInt()
+                takePeaks = if (skip <= 0) peaks else if (skip >= peaks.size) FloatArray(0) else peaks.copyOfRange(skip, peaks.size)
                 micLevel = recorder.level
                 delay(50)
             }
@@ -1016,10 +1234,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         takeState = TakeState.IDLE
         applyPlaying(false)
         if (state != TakeState.RECORDING) {
+            // Stopped during the count-in: the mic was already open, so throw that audio away.
+            if (state == TakeState.COUNTING) recorder.stop()?.file?.delete()
             syncEngine()
             return
         }
-        val take = recorder.stop()
+        val leadIn = takeLeadInFrames()
+        val take = recorder.stop()?.let { recorder.trimStart(it, leadIn) }
         takePeaks = FloatArray(0)
         val start = takeStartTick
         if (take == null) {
@@ -1032,30 +1253,120 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         positionTicks = start.toLong()
     }
 
+    /**
+     * Mic frames to cut from the front of the take so it lines up with the song. The mic opens
+     * before playback starts, and you sing along to what you hear, which arrives [uiDelayMs] after
+     * the engine plays it: the moment the first beat reached your ears is where the take begins.
+     * The recorder's timestamps also take out the mic's own delay.
+     */
+    private fun takeLeadInFrames(): Long {
+        if (playStartNanos == 0L) return 0L
+        return recorder.frameAt(playStartNanos + uiDelayMs * 1_000_000L).coerceAtLeast(0L)
+    }
+
     /** Puts a finished recording (a WAV in the app's files folder) on the playlist. */
     fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int) {
         val path = file.relativeTo(getApplication<Application>().filesDir).path
         val number = project.audioClips.size + 1
         update { p ->
-            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number"))
+            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number", fileSeconds = seconds))
+        }
+    }
+
+    // ---------------------------------------------------------------- imported audio files
+
+    private val audioImport = com.mobiledaw.model.AudioImport(app)
+
+    /** True while an audio file is being copied and converted. */
+    var importingAudio by mutableStateOf(false)
+        private set
+
+    /** A short note after an import ("Added …", or why it failed). */
+    var audioImportMessage by mutableStateOf<String?>(null)
+
+    /** Files that came in through Share / Open with, waiting for the user to pick a playlist row. */
+    var sharedAudio by mutableStateOf<List<com.mobiledaw.model.AudioImport.Imported>>(emptyList())
+        private set
+
+    /** Imports audio files and puts them on playlist row [lane], each on its own new mixer track. */
+    fun importAudioToLane(uris: List<android.net.Uri>, lane: Int) {
+        if (uris.isEmpty()) return
+        importAudio(uris) { placeImported(it, lane) }
+    }
+
+    /** Called with every intent the activity receives; ignores ones that carry no audio. */
+    fun receiveShared(intent: android.content.Intent?) {
+        val uris = audioImport.urisFrom(intent)
+        if (uris.isEmpty()) return
+        // Copy straight away: the permission to read a shared file doesn't last.
+        importAudio(uris) { sharedAudio = it }
+    }
+
+    private fun importAudio(uris: List<android.net.Uri>, then: (List<com.mobiledaw.model.AudioImport.Imported>) -> Unit) {
+        importingAudio = true
+        audioImportMessage = null
+        viewModelScope.launch {
+            val imported = withContext(Dispatchers.IO) {
+                uris.take(MAX_MIXER_TRACKS).mapNotNull { runCatching { audioImport.import(it) }.getOrNull() }
+            }
+            importingAudio = false
+            if (imported.isEmpty()) {
+                audioImportMessage = "Couldn't read that file as audio."
+                return@launch
+            }
+            if (imported.size < uris.size) audioImportMessage = "Skipped ${uris.size - imported.size} file(s) that weren't readable audio."
+            then(imported)
+        }
+    }
+
+    /** Puts the files waiting from a share on playlist row [lane]. */
+    fun placeShared(lane: Int) {
+        val files = sharedAudio
+        sharedAudio = emptyList()
+        if (files.isNotEmpty()) placeImported(files, lane)
+    }
+
+    fun dismissShared() {
+        sharedAudio = emptyList()
+    }
+
+    /**
+     * Each file goes on [lane] after whatever is already on that row (or at bar 1 if it is empty),
+     * with a new mixer track named after it. Nothing is added to the channel rack.
+     */
+    private fun placeImported(files: List<com.mobiledaw.model.AudioImport.Imported>, lane: Int) {
+        var full = false
+        update { start ->
+            var p = start
+            files.forEach { f ->
+                val trackId = if (p.mixerTracks.size < MAX_MIXER_TRACKS) p.nextMixerTrackId() else null
+                if (trackId == null) full = true
+                val laneEnd = maxOf(
+                    p.clips.filter { it.lane == lane }.maxOfOrNull { p.clipEnd(it) } ?: 0,
+                    p.audioClips.filter { it.lane == lane }.maxOfOrNull { it.endTick(p.bpm) } ?: 0,
+                )
+                // Start on a bar line.
+                val startTick = (laneEnd + TICKS_PER_BAR - 1) / TICKS_PER_BAR * TICKS_PER_BAR
+                p = p.copy(
+                    mixerTracks = if (trackId != null) p.mixerTracks + MixerTrack(trackId, f.name.take(24)) else p.mixerTracks,
+                    audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, f.path, f.seconds, f.name, trackId, fileSeconds = f.seconds),
+                )
+            }
+            p
+        }
+        sentEffects.clear()
+        tab = Tab.PLAYLIST
+        // Audio clips play in song mode.
+        if (mode != PlayMode.SONG) switchMode(PlayMode.SONG)
+        val what = if (files.size == 1) "\"${files[0].name}\"" else "${files.size} files"
+        audioImportMessage = when {
+            full -> "Added $what to row ${lane + 1}. The mixer is full ($MAX_MIXER_TRACKS tracks), so it plays through the recordings track."
+            else -> "Added $what to row ${lane + 1} with its own mixer track."
         }
     }
 
     /** Where recordings are saved. */
     fun recordingFile(name: String): java.io.File = kits.file("$RECORDINGS_DIR/$name")
-
-    /** A short count-in blip through the audition voice. */
-    private fun click(high: Boolean) {
-        val sr = 48000
-        val freq = if (high) 1760.0 else 1175.0
-        val n = sr / 20
-        val frames = FloatArray(n) { i ->
-            val t = i.toDouble() / sr
-            (kotlin.math.sin(2 * Math.PI * freq * t) * kotlin.math.exp(-t * 60) * 0.8).toFloat()
-        }
-        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, frames, sr.toFloat())
-        NativeEngine.audition()
-    }
 
     // ---------------------------------------------------------------- projects
 
@@ -1132,10 +1443,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
         }
-        // Recorded audio clips play through the recording track (the Vocals track by default).
-        val recordingInsert = insertIndex(p.recordingTrackId)
-        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, _) ->
-            NativeEngine.setChannelInsert(slot, recordingInsert)
+        // Recordings play through the recording track (the Vocals track by default);
+        // imported audio files through the mixer track made for them.
+        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, clip) ->
+            NativeEngine.setChannelInsert(slot, insertIndex(clip.trackId ?: p.recordingTrackId))
         }
     }
 
@@ -1166,6 +1477,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             p.copy(
                 mixerTracks = p.mixerTracks.filter { it.id != id },
                 channels = p.channels.map { if (it.mixerTrack == id) it.copy(mixerTrack = null) else it },
+                audioClips = p.audioClips.map { if (it.trackId == id) it.copy(trackId = null) else it },
                 recordingTrackId = p.recordingTrackId.takeIf { it != id },
             )
         }
@@ -1247,7 +1559,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** The app is in 4/4: metronome accents and the record count-in use this. */
+        const val BEATS_PER_BAR = com.mobiledaw.model.TICKS_PER_BAR / com.mobiledaw.model.TICKS_PER_BEAT
+        /** [countIn] value for the "GO" shown as the take starts. */
+        const val COUNT_IN_GO = 0
+        /** Fine-tune range around the measured delay (Auto), in ms. */
+        const val LATENCY_OFFSET_MIN = -300
+        const val LATENCY_OFFSET_MAX = 500
+        private const val MAX_CACHED_FRAMES = 24_000_000L
         /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT
     }
 }
+
+/** Playlist tools: pencil adds, moves and resizes clips; cut slices them; mute silences them. */
+enum class PlaylistTool { PENCIL, CUT, MUTE }

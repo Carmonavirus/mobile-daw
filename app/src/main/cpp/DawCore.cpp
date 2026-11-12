@@ -167,6 +167,7 @@ void Core::setSequence(std::vector<NoteEvent> events, int64_t loopTicks) {
 }
 
 void Core::setPlaying(bool playing) {
+    if (!playing) countInRequest_.store(-1);
     if (playing && !playing_.load()) restart_.store(true);
     if (!playing) startTick_.store(0);
     playing_.store(playing);
@@ -384,10 +385,32 @@ Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples
 }
 
 void Core::releaseAll() {
-    for (auto& pool : voices_)
-        for (auto& v : pool) Synth::release(v);
+    // Synth voices go into their release; sample voices (one-shots and audio clips) don't use
+    // that envelope, so they get a short fade instead, or a long clip would keep playing on stop.
+    const float step = 1.0f / (0.01f * static_cast<float>(sampleRate_));
+    for (int c = 0; c < kMaxChannels; ++c) {
+        const bool sample = params_[c].instrument.load() == kSample;
+        for (auto& v : voices_[c]) {
+            if (!v.active) continue;
+            if (sample) {
+                if (v.fadeStep == 0.0f) v.fadeStep = step;
+            } else {
+                Synth::release(v);
+            }
+        }
+    }
     for (auto& s : synths_) s.releaseAll();
     engines_.releaseAll();
+}
+
+void Core::silenceAll(float seconds) {
+    const float step = 1.0f / (std::max(seconds, 0.0005f) * static_cast<float>(sampleRate_));
+    for (auto& pool : voices_)
+        for (auto& v : pool)
+            if (v.active) v.fadeStep = std::max(v.fadeStep, step);
+    for (auto& s : synths_) s.choke();
+    auditionVoice_.active = false;
+    clickEnv_ = 0.0f;
 }
 
 void Core::advanceTick(const Sequence* seq) {
@@ -405,13 +428,42 @@ void Core::advanceTick(const Sequence* seq) {
 void Core::render(float* out, int frames) {
     while (frames > 0) {
         const int n = std::min(frames, kBlock);
-        renderBlock(out, n);
+        renderBlock(out, n, true);
         out += 2 * n;
         frames -= n;
     }
 }
 
-void Core::renderBlock(float* out, int frames) {
+void Core::renderMix(float* out, int frames) {
+    while (frames > 0) {
+        const int n = std::min(frames, kBlock);
+        renderBlock(out, n, false);
+        out += 2 * n;
+        frames -= n;
+    }
+}
+
+// Audio thread: a short pitched blip, higher and louder on the downbeat.
+void Core::startClick(bool accent) {
+    clickPhase_ = 0.0;
+    clickFreq_ = accent ? 1760.0 : 1175.0;
+    clickGain_ = accent ? 0.55f : 0.35f;
+    clickEnv_ = 1.0f;
+    // About 40 ms to fade to -60 dB.
+    clickDecay_ = std::exp(-6.9f / (0.04f * static_cast<float>(sampleRate_)));
+}
+
+float Core::clickTick() {
+    if (clickEnv_ < 1e-4f) return 0.0f;
+    // A 1 ms ramp-in keeps the attack from popping.
+    const float ramp = std::min(1.0f, static_cast<float>(clickPhase_) * 1000.0f);
+    const float s = std::sin(static_cast<float>(2.0 * 3.14159265358979 * clickFreq_ * clickPhase_)) * clickEnv_ * clickGain_ * ramp;
+    clickPhase_ += 1.0 / sampleRate_;
+    clickEnv_ *= clickDecay_;
+    return s;
+}
+
+void Core::renderBlock(float* out, int frames, bool withClick) {
     // Adopt a newly published sequence, but only once the UI has freed the last retired one,
     // so the audio thread never frees memory.
     if (retired_.load() == nullptr) {
@@ -450,22 +502,37 @@ void Core::renderBlock(float* out, int frames) {
         previewRead_.store(r, std::memory_order_release);
     }
 
-    const bool playing = playing_.load();
+    // Count-in requests: start a fresh one, or drop the running one.
+    if (const int req = countInRequest_.exchange(0); req != 0) {
+        countInBeats_ = req > 0 && !playing_.load() ? req : 0;
+        countInDone_ = 0;
+        countInSamples_ = 0.0;
+        countInBeat_.store(0);
+    }
+    if (countInBeats_ > 0 && playing_.load()) {  // play pressed during the count-in
+        countInBeats_ = 0;
+        countInBeat_.store(0);
+    }
+
+    bool playing = playing_.load();
     if (restart_.exchange(false)) {
         seek_.store(-1);
         jumpTo(startTick_.exchange(0));
         if (playing) {
             resumeLongSamples();
             advanceTick(current_);
+            clickPending_ = tick_ % kTicksPerBeat == 0;
         }
     } else if (const int64_t s = seek_.exchange(-1); s >= 0 && playing) {
         releaseAll();
         jumpTo(s);
         resumeLongSamples();
         advanceTick(current_);
+        clickPending_ = tick_ % kTicksPerBeat == 0;
     }
     if (wasPlaying_ && !playing) releaseAll();
     wasPlaying_ = playing;
+    if (panic_.exchange(false)) silenceAll(0.003f);
 
     const double ticksPerSample = std::max(bpm_.load(), 20.0f) * kTicksPerBeat / (60.0 * sampleRate_);
     const int channelCount = channelCount_.load();
@@ -514,7 +581,36 @@ void Core::renderBlock(float* out, int frames) {
     float masterPeak = 0.0f;
     int scopeW = scopeWrite_.load();
 
+    const bool metronome = metronome_.load();
+    const int beatsPerBar = beatsPerBar_.load();
+    const double samplesPerBeat = 60.0 * sampleRate_ / std::max(bpm_.load(), 20.0f);
+    // Playback that was already running clicks on beats it crosses; a fresh start clicks on its first tick.
+    bool clickNow = playing && metronome && clickPending_;
+    clickPending_ = false;
+
     for (int i = 0; i < frames; ++i) {
+        if (countInBeats_ > 0) {
+            if (countInSamples_ >= countInDone_ * samplesPerBeat) {
+                if (countInDone_ < countInBeats_) {
+                    startClick(countInDone_ == 0);
+                    ++countInDone_;
+                    countInBeat_.store(countInDone_);
+                } else {
+                    // The count-in is over: play from here, on this exact sample.
+                    countInBeats_ = 0;
+                    countInBeat_.store(0);
+                    restart_.store(false);
+                    playing_.store(true);
+                    playing = true;
+                    wasPlaying_ = true;
+                    jumpTo(startTick_.exchange(0));
+                    resumeLongSamples();
+                    advanceTick(current_);
+                    clickNow = metronome;
+                }
+            }
+            countInSamples_ += 1.0;
+        }
         if (playing) {
             tickFraction_ += ticksPerSample;
             while (tickFraction_ >= 1.0) {
@@ -525,8 +621,14 @@ void Core::renderBlock(float* out, int frames) {
                     eventIndex_ = 0;
                 }
                 advanceTick(current_);
+                if (metronome && tick_ % kTicksPerBeat == 0) clickNow = true;
             }
         }
+        if (clickNow) {
+            startClick((tick_ / kTicksPerBeat) % beatsPerBar == 0);
+            clickNow = false;
+        }
+        clickBuf_[static_cast<size_t>(i)] = clickTick();
         float left = 0.0f, right = 0.0f;
         for (int c = 0; c < channelCount; ++c) {
             float sumL = 0.0f, sumR = 0.0f;
@@ -606,6 +708,12 @@ void Core::renderBlock(float* out, int frames) {
         masterPeak = std::max(masterPeak, std::fabs(mono));
         scope_[scopeW] = mono;
         scopeW = (scopeW + 1) % kScopeSize;
+        // The click goes on top of the finished mix: not metered, not in the scope, not in a bounce.
+        if (withClick) {
+            const float c = clickBuf_[static_cast<size_t>(i)];
+            out[2 * i] = left + c;
+            out[2 * i + 1] = right + c;
+        }
     }
     scopeWrite_.store(scopeW);
     // Stopped: show where the next play will start.

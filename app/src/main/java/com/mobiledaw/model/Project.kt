@@ -1,5 +1,6 @@
 package com.mobiledaw.model
 
+import kotlin.math.pow
 import kotlinx.serialization.Serializable
 
 const val TICKS_PER_BEAT = 96
@@ -101,13 +102,29 @@ data class Pattern(
     fun notesFor(channelId: Long): List<Note> = notes[channelId].orEmpty()
 }
 
-/** A pattern placed on the playlist. */
+/**
+ * A pattern placed on the playlist. It starts [nudge] ticks after bar [bar] and shows the part of
+ * the pattern from [trim] for [length] ticks (0 = to the end of the pattern), so its edges can be
+ * dragged in and it can be cut in two. A clip never runs past the end of its pattern.
+ */
 @Serializable
 data class Clip(
     val lane: Int,
     val bar: Int,
     val patternId: Long,
-)
+    val nudge: Int = 0,
+    val trim: Int = 0,
+    val length: Int = 0,
+    val muted: Boolean = false,
+) {
+    val startTick: Int get() = bar * TICKS_PER_BAR + nudge
+
+    /** Same clip moved to start at [tick] on [lane]. */
+    fun movedTo(lane: Int, tick: Int): Clip {
+        val t = maxOf(0, tick)
+        return copy(lane = lane, bar = t / TICKS_PER_BAR, nudge = t % TICKS_PER_BAR)
+    }
+}
 
 /**
  * A recorded (or imported) piece of audio placed on the playlist.
@@ -122,8 +139,29 @@ data class AudioClip(
     val path: String,
     val seconds: Float,
     val name: String = "Audio",
+    /** Mixer track this clip plays through; null = the project's recording track. */
+    val trackId: Long? = null,
+    /** Where the used part starts in the file, in seconds; [seconds] is how much of the file is used. */
+    val offset: Float = 0f,
+    /** Length of the whole file in seconds; 0 in older projects, where the clip used the whole file. */
+    val fileSeconds: Float = 0f,
+    val reverse: Boolean = false,
+    /** Transpose in semitones (-12..12). Like a turntable, higher also plays faster (shorter clip). */
+    val pitchSemis: Int = 0,
+    /** Clip volume, 0..2 (1 = as recorded). */
+    val gain: Float = 1f,
+    val muted: Boolean = false,
 ) {
-    fun lengthTicks(bpm: Int): Int = maxOf(1, (seconds * bpm / 60f * TICKS_PER_BEAT).toInt())
+    /** Playback speed from the pitch change. */
+    val rate: Float get() = 2.0.pow(pitchSemis / 12.0).toFloat()
+
+    /** Length of the whole source file in seconds. */
+    val sourceSeconds: Float get() = if (fileSeconds > 0f) fileSeconds else offset + seconds
+
+    /** How long the clip plays, in seconds of real time. */
+    val playSeconds: Float get() = seconds / rate
+
+    fun lengthTicks(bpm: Int): Int = maxOf(1, (playSeconds * bpm / 60f * TICKS_PER_BEAT).toInt())
     fun endTick(bpm: Int): Int = startTick + lengthTicks(bpm)
 }
 
@@ -145,20 +183,31 @@ data class Project(
 ) {
     fun pattern(id: Long): Pattern? = patterns.firstOrNull { it.id == id }
 
-    fun clipBars(clip: Clip): Int = pattern(clip.patternId)?.bars ?: 1
+    /** Ticks a pattern clip lasts: the shown part of its pattern, never past the pattern's end. */
+    fun clipLength(clip: Clip): Int {
+        val patternTicks = pattern(clip.patternId)?.lengthTicks ?: TICKS_PER_BAR
+        val rest = patternTicks - clip.trim
+        val len = if (clip.length > 0) minOf(clip.length, rest) else rest
+        return maxOf(TICKS_PER_STEP, len)
+    }
+
+    fun clipEnd(clip: Clip): Int = clip.startTick + clipLength(clip)
+
+    /** Bars from the clip's bar line to (at least) its end, so `bar + clipBars` is a bar past the clip. */
+    fun clipBars(clip: Clip): Int = maxOf(1, (clip.nudge + clipLength(clip) + TICKS_PER_BAR - 1) / TICKS_PER_BAR)
 
     val keyLabel: String get() = NOTE_NAMES[key] + if (minor) "m" else ""
 
     /** Bars in the arrangement, at least one. */
     val songBars: Int get() = maxOf(
         1,
-        clips.maxOfOrNull { it.bar + clipBars(it) } ?: 1,
+        clips.maxOfOrNull { (clipEnd(it) + TICKS_PER_BAR - 1) / TICKS_PER_BAR } ?: 1,
         audioClips.maxOfOrNull { (it.endTick(bpm) + TICKS_PER_BAR - 1) / TICKS_PER_BAR } ?: 1,
     )
 
     /** True when [lane] has nothing between the two ticks (pattern or audio clips). */
     fun laneFree(lane: Int, fromTick: Int, toTick: Int, ignoreAudioId: Long? = null): Boolean =
-        clips.none { it.lane == lane && fromTick < (it.bar + clipBars(it)) * TICKS_PER_BAR && it.bar * TICKS_PER_BAR < toTick } &&
+        clips.none { it.lane == lane && fromTick < clipEnd(it) && it.startTick < toTick } &&
             audioClips.none { it.id != ignoreAudioId && it.lane == lane && fromTick < it.endTick(bpm) && it.startTick < toTick }
 
     fun mixerTrack(id: Long?): MixerTrack? = id?.let { t -> mixerTracks.firstOrNull { it.id == t } }

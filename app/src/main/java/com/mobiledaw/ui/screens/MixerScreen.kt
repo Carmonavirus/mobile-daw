@@ -150,6 +150,7 @@ private fun TrackCard(vm: DawViewModel, p: Project, track: MixerTrack, level: Fl
     val inputs = buildList {
         if (p.recordingTrackId == track.id) add("Recordings")
         addAll(p.channels.filter { it.mixerTrack == track.id }.map { it.name })
+        addAll(p.audioClips.filter { it.trackId == track.id }.map { it.name })
     }
     var menu by remember { mutableStateOf(false) }
     Strip(

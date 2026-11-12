@@ -114,6 +114,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                 }
 
+                // ---------------------------------------------------------------- audio sync
+                SectionTitle("Audio sync (Bluetooth delay)")
+                SectionCard { AudioSyncSection(vm) }
+
                 // ---------------------------------------------------------------- sounds
                 SectionTitle("Sounds")
                 SectionCard {
@@ -212,9 +216,11 @@ private val GUIDE = listOf(
     "Everywhere" to listOf(
         "Tap the song name" to "Open, rename or start a project.",
         "Tap BPM · key" to "Change tempo and key.",
+        "Metronome (top left)" to "Click on every beat, higher on beat 1. Only you hear it; it's never exported.",
         "PAT / SONG (left of play)" to "Loop the current pattern, or play the whole playlist.",
         "Play button" to "Start / stop (just above the tabs).",
         "Progress bar" to "Shows where you are. Tap or drag it to jump.",
+        "Settings → Audio sync" to "Earbuds sound late? The playhead waits for the sound. Auto measures it; fine-tune with the slider.",
     ),
     "Rack" to listOf(
         "Tap a step" to "Turn it on or off.",
@@ -250,7 +256,7 @@ private val GUIDE = listOf(
         "Tap a clip" to "Remove it.",
         "Swipe sideways" to "Move along the song (time runs left to right).",
         "Record (right of play)" to "Record mode: big play and record buttons. Close goes back.",
-        "Red record button" to "1, 2, 3, GO, then it records the mic. Tap again to stop; the take lands at the playhead.",
+        "Red record button" to "One bar of clicks (1, 2, 3, 4, GO), then it records the mic. Tap again to stop; the take lands at the playhead.",
         "Tap a recording" to "Remove it. Tap Undo to bring it back.",
     ),
     "Mixer" to listOf(

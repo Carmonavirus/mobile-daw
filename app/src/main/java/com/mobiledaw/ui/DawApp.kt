@@ -102,6 +102,7 @@ fun DawApp(vm: DawViewModel) {
     vm.synthEditorChannelId?.let { com.mobiledaw.ui.synth.SynthEditor(vm, it) }
     vm.openEffect?.let { (track, effect) -> com.mobiledaw.ui.fx.EffectEditor(vm, track, effect) }
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
+    SharedAudioDialog(vm)
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
     if (vm.settingsOpen) {
         SettingsScreen(
@@ -134,7 +135,40 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onTempo).padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
+        MetronomeToggle(vm.metronomeOn, vm::toggleMetronome, Modifier.align(Alignment.CenterStart))
         MenuGlyph(onMenu, Modifier.align(Alignment.CenterEnd))
+    }
+}
+
+/** Metronome on/off, top left: a small pendulum-and-base glyph that fills in when it's on. */
+@Composable
+private fun MetronomeToggle(on: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    val ink = if (on) Color.White else DawColors.Ink
+    Box(
+        modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(if (on) DawColors.Accent else DawColors.Chip)
+            .clickable(onClickLabel = if (on) "Turn metronome off" else "Turn metronome on", onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = 1.8.dp.toPx()
+            // Body: a tapered trapezoid.
+            val body = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w * 0.36f, h * 0.06f)
+                lineTo(w * 0.64f, h * 0.06f)
+                lineTo(w * 0.88f, h * 0.94f)
+                lineTo(w * 0.12f, h * 0.94f)
+                close()
+            }
+            drawPath(body, ink, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            // Pendulum arm, leaning right, with its weight.
+            drawLine(ink, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.8f), androidx.compose.ui.geometry.Offset(w * 0.82f, h * 0.18f), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+            drawCircle(ink, radius = stroke * 1.1f, center = androidx.compose.ui.geometry.Offset(w * 0.66f, h * 0.49f))
+        }
     }
 }
 
@@ -142,12 +176,14 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
 @Composable
 private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            StopAllButton(vm::stopAllSound)
+            Spacer(Modifier.weight(1f))
             Segmented(
                 options = listOf(PlayMode.PATTERN to "PAT", PlayMode.SONG to "SONG"),
                 selected = vm.mode,
                 onSelect = vm::switchMode,
-                modifier = Modifier.padding(end = 14.dp),
+                modifier = Modifier.padding(start = 4.dp, end = 8.dp),
             )
         }
         PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
@@ -223,6 +259,21 @@ private fun RecordTransport(vm: DawViewModel, onRecord: () -> Unit) {
     }
 }
 
+/** "Stop all sound": a square in a ring, far left of the transport. Cuts every sound at once. */
+@Composable
+private fun StopAllButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(DawColors.Chip)
+            .clickable(onClickLabel = "Stop all sound", onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(11.dp).clip(RoundedCornerShape(2.dp)).background(DawColors.Ink))
+    }
+}
+
 @Composable
 private fun RecordButton(active: Boolean, onClick: () -> Unit) {
     Box(
@@ -240,10 +291,11 @@ private fun RecordButton(active: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Big 1, 2, 3, GO over the screen while counting in. */
+/** Big 1, 2, 3, 4, GO over the screen while counting in (the engine clicks each beat). */
 @Composable
 private fun CountInOverlay(count: Int?, modifier: Modifier = Modifier) {
     if (count == null) return
+    val go = count == DawViewModel.COUNT_IN_GO
     Box(
         modifier
             .size(140.dp)
@@ -252,10 +304,10 @@ private fun CountInOverlay(count: Int?, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            if (count >= 4) "GO" else "$count",
-            fontSize = if (count >= 4) 52.sp else 64.sp,
+            if (go) "GO" else "$count",
+            fontSize = if (go) 52.sp else 64.sp,
             fontWeight = FontWeight.Bold,
-            color = if (count >= 4) RecordRed else DawColors.Ink,
+            color = if (go) RecordRed else DawColors.Ink,
         )
     }
 }

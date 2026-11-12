@@ -273,7 +273,7 @@ private fun Card(content: @Composable () -> Unit) {
 
 /** Slider with a label and value; it sticks to [snapTo] (e.g. 100% or centre) when close. */
 @Composable
-private fun LabeledSlider(
+internal fun LabeledSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,

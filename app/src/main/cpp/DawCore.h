@@ -96,6 +96,12 @@ public:
     void setSampleRate(int sampleRate);
     void setSequence(std::vector<NoteEvent> events, int64_t loopTicks);
     void setPlaying(bool playing);
+    // "Stop all sound": stops playback and silences every voice, synth tail, audio clip and
+    // audition within a few milliseconds.
+    void panic() {
+        setPlaying(false);
+        panic_.store(true);
+    }
     // Moves the playhead. While stopped, the next play starts there instead of at 0.
     void seek(int64_t tick);
     void setBpm(float bpm) { bpm_.store(bpm); }
@@ -105,6 +111,20 @@ public:
                            float hold, float decay, float sustain, float release, float tension, int pitchSemis,
                            bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
+
+    // ---- metronome (control thread)
+    // The click is generated here, on the exact sample of each beat, accented on beat 1 of the bar.
+    // It is mixed after the master, so it never reaches the meters, the scope or an offline bounce
+    // (renderMix), only what you hear from render().
+    void setMetronome(bool on) { metronome_.store(on); }
+    bool metronome() const { return metronome_.load(); }
+    void setBeatsPerBar(int beats) { beatsPerBar_.store(beats < 1 ? 1 : (beats > 16 ? 16 : beats)); }
+    // Counts in `beats` clicks at the current tempo (first one accented, whether or not the metronome
+    // is on), then starts playback from the start tick on the sample the next beat would fall on.
+    // setPlaying(false) or panic() cancels it.
+    void startCountIn(int beats) { countInRequest_.store(beats < 1 ? 1 : (beats > 16 ? 16 : beats)); }
+    // 1..beats while counting in (the beat just clicked), 0 otherwise.
+    int countInBeat() const { return countInBeat_.load(); }
     // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
     void setChannelClip(int index, bool resumeMidway);
 
@@ -145,17 +165,24 @@ public:
     SoundEngines& engines() { return engines_; }
 
     // ---- audio thread ----
+    // Live output: the mix plus the metronome / count-in click.
     void render(float* interleavedStereo, int frames);
+    // The mix alone, without any click: what a bounce or export must use.
+    void renderMix(float* interleavedStereo, int frames);
 
     // Largest block rendered in one go; render() splits bigger requests.
     static constexpr int kBlock = 256;
 
 private:
-    void renderBlock(float* interleavedStereo, int frames);
+    void renderBlock(float* interleavedStereo, int frames, bool withClick);
+    void startClick(bool accent);
+    float clickTick();
     void advanceTick(const Sequence* seq);
     // Returns the voice it started, or nullptr (wavetable channels, bad index).
     Voice* trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
+    // Fades every voice out over `seconds` (audio thread).
+    void silenceAll(float seconds);
     void adoptSamples();
     void jumpTo(int64_t tick);
     void resumeLongSamples();
@@ -167,6 +194,7 @@ private:
     std::atomic<float> master_{0.7f};
     std::atomic<bool> playing_{false};
     std::atomic<bool> restart_{false};
+    std::atomic<bool> panic_{false};
     std::atomic<int64_t> seek_{-1};       // pending seek while playing
     std::atomic<int64_t> startTick_{0};   // where the next play starts
     std::atomic<int> channelCount_{0};
@@ -214,6 +242,22 @@ private:
     std::atomic<int> insertCount_{0};
     std::array<std::array<float, kBlock>, fx::kMaxInserts> busL_{};
     std::array<std::array<float, kBlock>, fx::kMaxInserts> busR_{};
+
+    // Metronome and count-in (audio thread, except the atomics).
+    std::atomic<bool> metronome_{false};
+    std::atomic<int> beatsPerBar_{4};
+    std::atomic<int> countInRequest_{0};  // > 0: start a count-in of that many beats, -1: cancel
+    std::atomic<int> countInBeat_{0};
+    int countInBeats_ = 0;       // beats in the running count-in, 0 when not counting
+    int countInDone_ = 0;        // beats already clicked
+    double countInSamples_ = 0;  // samples since the count-in started
+    bool clickPending_ = false;  // playback (re)started exactly on a beat
+    double clickPhase_ = 0.0;
+    double clickFreq_ = 0.0;
+    float clickEnv_ = 0.0f;
+    float clickGain_ = 0.0f;
+    float clickDecay_ = 0.0f;
+    std::array<float, kBlock> clickBuf_{};
 
     // Metering
     std::array<std::atomic<float>, kMaxChannels> levels_{};

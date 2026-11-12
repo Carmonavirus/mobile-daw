@@ -13,6 +13,9 @@ object NativeEngine {
     external fun start(): Boolean
     external fun stop()
     external fun setPlaying(playing: Boolean)
+
+    /** Stop all sound: stops playback and silences every voice, synth tail and audio clip at once. */
+    external fun panic()
     external fun seek(tick: Long)
     external fun setBpm(bpm: Float)
     external fun setMasterVolume(volume: Float)
@@ -32,6 +35,21 @@ object NativeEngine {
     external fun setSample(slot: Int, frames: FloatArray?, sampleRate: Float)
     external fun audition()
     external fun positionTicks(): Long
+
+    /** Metronome click, made in the engine on each beat (beat 1 accented). Never in a bounce/export. */
+    external fun setMetronome(on: Boolean, beatsPerBar: Int)
+    /** Clicks [beats] beats (from stopped), then starts playback from the seek position on the next beat. */
+    external fun startCountIn(beats: Int)
+    /** The count-in beat just clicked (1..beats), or 0 when not counting in. */
+    external fun countInBeat(): Int
+    external fun isPlaying(): Boolean
+
+    /** Time from the engine writing audio to it leaving the speaker / earbuds, in ms (stream timestamps). < 0 = unknown. */
+    external fun outputLatencyMs(): Double
+    /** The output buffer alone, in ms. < 0 = no stream. */
+    external fun bufferLatencyMs(): Double
+    /** AudioDeviceInfo id of the output in use, 0 = unknown. */
+    external fun outputDeviceId(): Int
 
     /** Fills per-channel peaks; the last slot receives the master peak. */
     external fun readLevels(out: FloatArray)
