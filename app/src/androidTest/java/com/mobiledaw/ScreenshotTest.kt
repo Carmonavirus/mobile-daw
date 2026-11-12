@@ -32,6 +32,7 @@ class ScreenshotTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         device.wait(Until.hasObject(By.text("Rack")), 10_000)
         Thread.sleep(1500)
+        dismissSystemDialogs()
     }
 
     @After
@@ -41,15 +42,26 @@ class ScreenshotTest {
         scenario.onActivity { block(ViewModelProvider(it)[DawViewModel::class.java]) }
     }
 
+    /** Slow CI emulators sometimes show "System isn't responding"; keep waiting. */
+    private fun dismissSystemDialogs() {
+        repeat(3) {
+            val wait = device.findObject(By.text("Wait")) ?: return
+            wait.click()
+            Thread.sleep(500)
+        }
+    }
+
     /** Whole screen, including dialogs, saved as screenshots/<name>.png in the test output. */
     private fun shot(name: String) {
         Thread.sleep(800) // let the screen settle
+        dismissSystemDialogs()
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     /** Taps the first visible element showing exactly [text] (or containing it with [partial]). */
     private fun tap(text: String, partial: Boolean = false) {
+        dismissSystemDialogs()
         val selector = if (partial) By.textContains(text) else By.text(text)
         val obj = device.wait(Until.findObject(selector), 5_000) ?: error("\"$text\" not on screen")
         obj.click()
