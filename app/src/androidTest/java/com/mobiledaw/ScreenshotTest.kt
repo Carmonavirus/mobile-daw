@@ -31,10 +31,12 @@ class ScreenshotTest {
 
     /** Whole screen, including dialogs, saved as <name>.png in the test output. */
     private fun shot(name: String) {
+        android.util.Log.i("Shot", "taking $name")
         rule.waitForIdle()
         Thread.sleep(600) // let sounds start and animations settle
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        android.util.Log.i("Shot", "saved $name")
     }
 
     @Test

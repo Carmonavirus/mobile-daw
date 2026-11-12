@@ -57,6 +57,30 @@ private fun DawDialog(onDismiss: () -> Unit, title: String, content: @Composable
 }
 
 @Composable
+fun RenameChannelDialog(vm: DawViewModel, channelId: Long, onDismiss: () -> Unit) {
+    val channel = vm.project.channels.firstOrNull { it.id == channelId } ?: return
+    var name by remember { mutableStateOf(channel.name) }
+    DawDialog(onDismiss, "Rename channel") {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            label = { Text("Name") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextAction("Cancel", onClick = onDismiss)
+            TextAction("Rename", strong = true) {
+                val clean = name.trim()
+                if (clean.isNotEmpty()) vm.updateChannel(channelId) { it.copy(name = clean) }
+                onDismiss()
+            }
+        }
+    }
+}
+
+@Composable
 fun TextAction(label: String, modifier: Modifier = Modifier, strong: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier

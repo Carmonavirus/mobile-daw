@@ -28,10 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
@@ -64,6 +60,7 @@ import com.mobiledaw.ui.AddChannelDialog
 import com.mobiledaw.ui.ChannelSettingsSheet
 import com.mobiledaw.ui.DawChip
 import com.mobiledaw.ui.KitPicker
+import com.mobiledaw.ui.RenameChannelDialog
 import com.mobiledaw.ui.RoundToggle
 import com.mobiledaw.ui.TextAction
 import com.mobiledaw.ui.theme.DawColors
@@ -74,6 +71,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
     var browsing by remember { mutableStateOf(false) }
     var replaceId by remember { mutableStateOf<Long?>(null) }
     var settingsId by remember { mutableStateOf<Long?>(null) }
+    var renameId by remember { mutableStateOf<Long?>(null) }
     val pattern = vm.selectedPattern
     val currentStep = if (vm.playing && vm.mode == PlayMode.PATTERN) (vm.positionTicks / TICKS_PER_STEP).toInt() else -1
     // The rack shows 1-4 bars at a time (pinch to zoom); arrows and swipes page through the rest.
@@ -99,13 +97,14 @@ fun ChannelRackScreen(vm: DawViewModel) {
             },
         )
         LazyColumn(
-            Modifier.weight(1f).pinchBars(shown, vm::changeRackBars),
+            // Swipe (bars) and pinch (zoom) work anywhere in the rack area, including the
+            // empty space below the channels.
+            Modifier.weight(1f).barSwipe(swipePage).pinchBars(shown, vm::changeRackBars),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(vm.project.channels, key = { it.id }) { channel ->
                 val index = vm.project.channels.indexOf(channel)
-                SwipeToDelete(onDelete = { vm.deleteChannel(channel.id) }) {
                 ChannelRow(
                     vm = vm,
                     channel = channel,
@@ -118,9 +117,8 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     currentStep = currentStep,
                     onChangeSound = { replaceId = channel.id; browsing = true },
                     onSettings = { settingsId = channel.id },
-                    onSwipePage = swipePage,
+                    onRename = { renameId = channel.id },
                 )
-                }
             }
             item {
                 Row(
@@ -143,6 +141,9 @@ fun ChannelRackScreen(vm: DawViewModel) {
             onChangeSound = { replaceId = id; browsing = true },
             onDismiss = { settingsId = null },
         )
+    }
+    renameId?.let { id ->
+        RenameChannelDialog(vm, id, onDismiss = { renameId = null })
     }
     if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
     if (browsing) {
@@ -204,39 +205,6 @@ private fun Modifier.pinchBars(shown: Int, onChange: (Int) -> Unit): Modifier {
             }
         }
     }
-}
-
-/** Swipe a channel's name row to the right to delete it (an Undo bar appears). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
-    val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.StartToEnd) {
-                onDelete()
-                true
-            } else {
-                false
-            }
-        },
-        positionalThreshold = { total -> total * 0.4f },
-    )
-    SwipeToDismissBox(
-        state = state,
-        enableDismissFromEndToStart = false,
-        backgroundContent = {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(DawColors.Mute)
-                    .padding(start = 20.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-            }
-        },
-    ) { content() }
 }
 
 @Composable
@@ -481,7 +449,7 @@ private fun ChannelRow(
     currentStep: Int,
     onChangeSound: () -> Unit,
     onSettings: () -> Unit,
-    onSwipePage: (Int) -> Unit,
+    onRename: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Column(
@@ -493,44 +461,79 @@ private fun ChannelRow(
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                Row(
+            // The name area takes the space left after the buttons, so ♪ / ⋯ / M always show.
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .combinedClickable(
+                        onClick = {
+                            vm.selectChannel(channel.id)
+                            // Tapping the name picks a sound for this channel (synths open their editor).
+                            if (channel.instrument == com.mobiledaw.model.Instrument.WAVETABLE) vm.openSynth(channel.id) else onChangeSound()
+                        },
+                        onLongClick = { vm.selectChannel(channel.id); menu = true },
+                    )
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Activity light: brightens with the channel's output level.
+                Box(
                     Modifier
-                        .clip(RoundedCornerShape(50))
-                        .combinedClickable(
-                            onClick = {
-                                vm.selectChannel(channel.id)
-                                // Tapping the name picks a sound for this channel (synths open their editor).
-                                if (channel.instrument == com.mobiledaw.model.Instrument.WAVETABLE) vm.openSynth(channel.id) else onChangeSound()
-                            },
-                            onLongClick = { vm.selectChannel(channel.id); menu = true },
-                        )
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Activity light: brightens with the channel's output level.
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(lerpInk(level)),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(channel.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 170.dp))
-                    Spacer(Modifier.width(6.dp))
-                    // The sound actually playing, small and grey next to the channel's own name.
-                    val soundName = channel.sample?.substringAfterLast('/')?.substringBeforeLast('.')
-                        ?: channel.instrument.label.lowercase()
-                    Text(
-                        soundName,
-                        fontSize = 11.sp,
-                        color = DawColors.Muted,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 120.dp),
-                    )
-                }
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(lerpInk(level)),
+                )
+                Spacer(Modifier.width(8.dp))
+                // The channel's own name gets priority for space; both truncate with an ellipsis.
+                Text(
+                    channel.name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = DawColors.Ink,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // The sound actually playing, small and grey next to the channel's own name.
+                val soundName = channel.sample?.substringAfterLast('/')?.substringBeforeLast('.')
+                    ?: channel.instrument.label.lowercase()
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    soundName,
+                    fontSize = 11.sp,
+                    color = DawColors.Muted,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            Text(
+                "♪",
+                fontSize = 16.sp,
+                color = DawColors.Muted,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { vm.selectChannel(channel.id); vm.tab = Tab.PIANO }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+            )
+            // The ⋯ menu: channel settings, edit helpers and Delete.
+            Box {
+                Text(
+                    "⋯",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DawColors.InkSoft,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { vm.selectChannel(channel.id); menu = true }
+                        .padding(horizontal = 10.dp),
+                )
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = {
+                        menu = false
+                        onRename()
+                    })
                     DropdownMenuItem(text = { Text("Channel settings") }, onClick = {
                         menu = false
                         onSettings()
@@ -553,50 +556,29 @@ private fun ChannelRow(
                         menu = false
                         vm.clearSteps(channel)
                     })
-                    val bars = vm.selectedPattern.bars
-                    if (bars * 2 <= MAX_BARS) {
-                        DropdownMenuItem(text = { Text("Loop pattern to ${bars * 2} bars") }, onClick = {
+                    val patBars = vm.selectedPattern.bars
+                    if (patBars * 2 <= MAX_BARS) {
+                        DropdownMenuItem(text = { Text("Loop pattern to ${patBars * 2} bars") }, onClick = {
                             menu = false
                             vm.loopPattern()
                         })
                     }
-                    DropdownMenuItem(text = { Text("Delete channel") }, onClick = {
+                    DropdownMenuItem(text = { Text("Delete channel", color = DawColors.Mute) }, onClick = {
                         menu = false
                         vm.deleteChannel(channel.id)
                     })
                 }
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                "♪",
-                fontSize = 16.sp,
-                color = DawColors.Muted,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable { vm.selectChannel(channel.id); vm.tab = Tab.PIANO }
-                    .padding(horizontal = 10.dp, vertical = 2.dp),
-            )
-            // Channel settings: volume/boost, pan, cut itself, trim, attack/release.
-            Text(
-                "⋯",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = DawColors.InkSoft,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable(onClick = onSettings)
-                    .padding(horizontal = 10.dp),
-            )
             RoundToggle("M", channel.mute, DawColors.Mute) {
                 vm.updateChannel(channel.id) { it.copy(mute = !it.mute) }
             }
         }
         Spacer(Modifier.height(10.dp))
-        // The 16 steps of the bar currently shown. Swiping across them pages bars
-        // (the drag is consumed here, so it never reaches swipe-to-delete on the card).
+        // The steps of the bar(s) currently shown. Swiping (to page bars) is handled by the
+        // whole rack area, so the steps just handle taps.
         // With several bars shown the cells shrink to fit and bars get a small gap between them.
         val gap = if (shown == 1) 3.dp else if (shown == 2) 2.dp else 1.dp
-        Row(Modifier.barSwipe(onSwipePage), horizontalArrangement = Arrangement.spacedBy(if (shown == 1) 3.dp else 6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(if (shown == 1) 3.dp else 6.dp)) {
             for (b in page until page + shown) {
                 if (b >= bars) {
                     Spacer(Modifier.weight(1f))

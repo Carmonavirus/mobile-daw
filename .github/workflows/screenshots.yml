@@ -17,6 +17,7 @@ concurrency:
 jobs:
   screenshots:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -45,7 +46,8 @@ jobs:
           disable-animations: true
           disk-size: 3000M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.mobiledaw.ScreenshotTest
+          # One line (the runner uses sh). A hung test is stopped after 20 minutes, and the app's log is printed either way.
+          script: timeout 1200 ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.mobiledaw.ScreenshotTest; code=$?; adb logcat -d | grep -E "Shot|mobiledaw|AndroidRuntime|TestRunner|AudioRecord" | tail -300; exit $code
       - name: Collect screenshots
         if: always()
         run: |
