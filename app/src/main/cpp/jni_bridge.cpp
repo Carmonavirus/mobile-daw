@@ -37,6 +37,11 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setMasterVolume(JNI
     engine()->core().setMasterVolume(v);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelSampler(
+    JNIEnv*, jobject, jint index, jboolean cutItself, jfloat trimStart, jfloat trimEnd, jfloat attack, jfloat release) {
+    engine()->core().setChannelSampler(index, cutItself == JNI_TRUE, trimStart, trimEnd, attack, release);
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelCount(JNIEnv*, jobject, jint count) {
     engine()->core().setChannelCount(count);
 }

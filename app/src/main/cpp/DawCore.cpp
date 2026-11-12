@@ -58,20 +58,48 @@ void Core::adoptSamples() {
     }
 }
 
-float Core::sampleTick(Voice& v, const SampleData* data) {
+SampleShape Core::shapeFor(int channel) const {
+    SampleShape shape;
+    const SampleData* data = (channel >= 0 && channel < kSampleSlots) ? sample_[channel] : nullptr;
+    if (!data || data->frames.empty()) return shape;
+    const double n = static_cast<double>(data->frames.size());
+    if (channel >= kMaxChannels) {
+        shape.end = n;
+        return shape;
+    }
+    const auto& p = params_[channel];
+    float a = std::clamp(p.trimStart.load(), 0.0f, 1.0f);
+    float b = std::clamp(p.trimEnd.load(), 0.0f, 1.0f);
+    if (b - a < 0.001f) b = std::min(1.0f, a + 0.001f);
+    shape.start = a * n;
+    shape.end = b * n;
+    shape.attack = std::max(0.0f, p.attack.load()) * data->sampleRate;
+    shape.release = std::max(0.0f, p.release.load()) * data->sampleRate;
+    return shape;
+}
+
+float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shape) {
     if (!data || data->frames.empty()) {
         v.active = false;
         return 0.0f;
     }
     const auto& f = data->frames;
+    const double end = shape ? std::min(shape->end, static_cast<double>(f.size())) : static_cast<double>(f.size());
     const double pos = v.phase1;
     const size_t i = static_cast<size_t>(pos);
-    if (i + 1 >= f.size()) {
+    if (pos + 1.0 >= end || i + 1 >= f.size()) {
         v.active = false;
         return 0.0f;
     }
     const float frac = static_cast<float>(pos - static_cast<double>(i));
-    const float s = f[i] + (f[i + 1] - f[i]) * frac;
+    float s = f[i] + (f[i + 1] - f[i]) * frac;
+    if (shape) {
+        // Attack fades in from the trim start, release fades out before the trim end.
+        double env = 1.0;
+        if (shape->attack > 1.0) env = std::min(env, (pos - shape->start) / shape->attack);
+        if (shape->release > 1.0) env = std::min(env, (end - pos) / shape->release);
+        s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
+    }
     v.phase1 += v.phase2;  // phase2 holds the playback rate for sample voices
     return s * v.velocity;
 }
@@ -90,6 +118,16 @@ void Core::setSequence(std::vector<NoteEvent> events, int64_t loopTicks) {
 void Core::setPlaying(bool playing) {
     if (playing && !playing_.load()) restart_.store(true);
     playing_.store(playing);
+}
+
+void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release) {
+    if (index < 0 || index >= kMaxChannels) return;
+    auto& p = params_[index];
+    p.cutItself.store(cutItself);
+    p.trimStart.store(trimStart);
+    p.trimEnd.store(trimEnd);
+    p.attack.store(attack);
+    p.release.store(release);
 }
 
 void Core::setChannelCount(int count) {
@@ -136,8 +174,15 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     if (channel < 0 || channel >= kMaxChannels) return;
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
+    const bool cut = params_[channel].cutItself.load();
     Voice* target = nullptr;
-    if (isDrum(instrument)) {
+    if (cut) {
+        // "Cut itself": every hit chokes whatever this channel is still playing (4 ms fade).
+        const float step = 1.0f / (0.004f * static_cast<float>(sampleRate_));
+        for (auto& v : pool) {
+            if (v.active && v.fadeStep == 0.0f) v.fadeStep = step;
+        }
+    } else if (isDrum(instrument) && instrument != kSample) {
         // Drums are monophonic per pitch: retrigger the same voice for a tight sound.
         for (auto& v : pool) if (v.active && v.pitch == pitch) { target = &v; break; }
     }
@@ -153,6 +198,7 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
         const SampleData* data = sample_[channel];
         const float rate = data ? data->sampleRate : static_cast<float>(sampleRate_);
         target->phase2 = rate / sampleRate_ * std::pow(2.0, (pitch - 60) / 12.0);
+        target->phase1 = shapeFor(channel).start;
     }
 }
 
@@ -234,6 +280,10 @@ void Core::render(float* out, int frames) {
         instruments[c] = p.instrument.load();
         audible[c] = !p.mute.load() && (!anySolo || p.solo.load());
     }
+    SampleShape shapes[kMaxChannels];
+    for (int c = 0; c < channelCount; ++c) {
+        if (instruments[c] == kSample) shapes[c] = shapeFor(c);
+    }
     const float master = master_.load();
     const float sr = static_cast<float>(sampleRate_);
     float masterPeak = 0.0f;
@@ -257,7 +307,13 @@ void Core::render(float* out, int frames) {
             float sum = 0.0f;
             for (auto& v : voices_[c]) {
                 if (!v.active) continue;
-                sum += instruments[c] == kSample ? sampleTick(v, sample_[c]) : Synth::tick(v, instruments[c], sr);
+                float x = instruments[c] == kSample ? sampleTick(v, sample_[c], &shapes[c]) : Synth::tick(v, instruments[c], sr);
+                if (v.fadeStep > 0.0f) {
+                    x *= v.fade;
+                    v.fade -= v.fadeStep;
+                    if (v.fade <= 0.0f) v.active = false;
+                }
+                sum += x;
             }
             if (!audible[c]) continue;
             float l = sum * gains[c][0];

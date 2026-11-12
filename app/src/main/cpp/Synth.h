@@ -37,6 +37,8 @@ struct Voice {
     float hpState = 0.0f;       // noise high-pass memory
     float lastNoise = 0.0f;
     uint32_t noiseSeed = 22222;
+    float fade = 1.0f;      // choke fade-out multiplier ("cut itself")
+    float fadeStep = 0.0f;  // > 0 while the voice is being choked
 };
 
 class Synth {
@@ -53,6 +55,8 @@ public:
         v.filterLow = v.filterBand = 0.0f;
         v.hpState = v.lastNoise = 0.0f;
         v.noiseSeed = 22222u + static_cast<uint32_t>(pitch) * 7919u;
+        v.fade = 1.0f;
+        v.fadeStep = 0.0f;
     }
 
     static void release(Voice& v) {

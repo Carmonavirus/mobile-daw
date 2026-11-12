@@ -18,6 +18,9 @@ object NativeEngine {
     external fun setChannelCount(count: Int)
     external fun setChannel(index: Int, instrument: Int, volume: Float, pan: Float, mute: Boolean, solo: Boolean)
 
+    /** Cut itself, trim (0..1 of the sample) and attack/release fades in seconds. */
+    external fun setChannelSampler(index: Int, cutItself: Boolean, trimStart: Float, trimEnd: Float, attack: Float, release: Float)
+
     /** [events] is flat: channel, startTick, lengthTicks, pitch, velocity (0..127) per note. */
     external fun setSequence(events: IntArray, loopTicks: Int)
     external fun previewNote(channel: Int, pitch: Int, velocity: Int)

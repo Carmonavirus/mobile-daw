@@ -58,7 +58,8 @@ fun MixerScreen(vm: DawViewModel) {
                 subtitle = ch.instrument.label.lowercase(),
                 level = levels.getOrElse(index) { 0f },
                 volume = ch.volume,
-                onVolume = { v -> vm.updateChannel(ch.id) { it.copy(volume = v) } },
+                onVolume = { v -> vm.updateChannel(ch.id) { it.copy(volume = if (abs(v - 1f) < 0.04f) 1f else v) } },
+                maxVolume = 2f,
                 pan = ch.pan,
                 onPan = { v -> vm.updateChannel(ch.id) { it.copy(pan = if (abs(v) < 0.06f) 0f else v) } },
                 mute = ch.mute,
@@ -84,6 +85,7 @@ private fun Strip(
     solo: Boolean = false,
     onSolo: (() -> Unit)? = null,
     emphasized: Boolean = false,
+    maxVolume: Float = 1f,
 ) {
     Column(
         Modifier
@@ -112,7 +114,7 @@ private fun Strip(
         }
         Spacer(Modifier.height(6.dp))
         Meter(level)
-        Slider(value = volume, onValueChange = onVolume, valueRange = 0f..1f, colors = inkSliderColors())
+        Slider(value = volume, onValueChange = onVolume, valueRange = 0f..maxVolume, colors = inkSliderColors())
         if (pan != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("L", fontSize = 11.sp, color = DawColors.Muted)

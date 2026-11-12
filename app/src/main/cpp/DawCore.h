@@ -46,6 +46,21 @@ struct ChannelParams {
     std::atomic<float> pan{0.0f};  // -1..1
     std::atomic<bool> mute{false};
     std::atomic<bool> solo{false};
+    // Sampler-style options (FL's channel settings): "cut itself" chokes the previous hit,
+    // trim is a 0..1 fraction of the sample, attack/release are fade-in/out times in seconds.
+    std::atomic<bool> cutItself{false};
+    std::atomic<float> trimStart{0.0f};
+    std::atomic<float> trimEnd{1.0f};
+    std::atomic<float> attack{0.0f};
+    std::atomic<float> release{0.0f};
+};
+
+// Per-block snapshot of a sample channel's trim and envelope, in sample frames.
+struct SampleShape {
+    double start = 0.0;
+    double end = 0.0;
+    double attack = 0.0;
+    double release = 0.0;
 };
 
 class Core {
@@ -60,6 +75,7 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
     void setMasterVolume(float v) { master_.store(v); }
     void previewNote(int channel, int pitch, float velocity);
     // Replaces the sample a channel plays (slot 0..kMaxChannels-1) or the audition sample
@@ -84,7 +100,8 @@ private:
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
     void adoptSamples();
-    float sampleTick(Voice& v, const SampleData* data);
+    float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
+    SampleShape shapeFor(int channel) const;
 
     int sampleRate_ = 48000;
     std::atomic<float> bpm_{120.0f};

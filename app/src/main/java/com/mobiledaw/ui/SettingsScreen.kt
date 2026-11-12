@@ -122,6 +122,7 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Version $version", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                            Text("Built ${AppInfo.buildTime}", fontSize = 12.sp, color = DawColors.Muted)
                             Text("Update downloads the newest build. Open it and tap Install.", fontSize = 12.sp, color = DawColors.Muted)
                         }
                         Spacer(Modifier.width(8.dp))
@@ -140,7 +141,7 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                                 ) { Text("Latest", fontSize = 11.sp, color = DawColors.Ink) }
                             }
                             Spacer(Modifier.weight(1f))
-                            Text(release.date, fontSize = 12.sp, color = DawColors.Muted)
+                            Text(release.localTime, fontSize = 12.sp, color = DawColors.Muted)
                         }
                         Spacer(Modifier.height(6.dp))
                         release.changes.forEach { change ->
@@ -187,6 +188,7 @@ private val GUIDE = listOf(
         "Tap a step" to "Turn it on or off.",
         "Tap a channel's name" to "Choose its sound from your drum kits (any channel).",
         "Swipe a channel right" to "Delete it. Tap Undo to bring it back.",
+        "⋯ on a channel" to "Channel settings: volume/boost, pan, Cut itself, trim, attack, release.",
         "Long-press a name" to "Fill every 2/4/8 steps, clear, loop the pattern, open the piano roll, delete.",
         "‹  ›  and dots" to "Move between bars. + on the last bar adds one.",
         "Tap a pattern" to "Select it. Tap it again for Save as template, Loop, Delete.",

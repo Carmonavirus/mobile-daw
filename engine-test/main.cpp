@@ -36,6 +36,8 @@ int main() {
     for (size_t n = 0; n < tom.size(); ++n)
         tom[n] = std::sin(2 * 3.14159 * 110 * n / 44100.0) * std::exp(-double(n) / 4000.0);
     core.setSample(8, tom, 44100.0f);
+    core.setChannelSampler(8, true, 0.05f, 0.8f, 0.002f, 0.03f);  // cut itself, trimmed, short fades
+    core.setChannel(8, 8, 1.6f, 0.0f, false, false);              // boosted above unity
     core.setSample(kAuditionSlot, tom, 44100.0f);
     core.audition();
 
@@ -51,6 +53,7 @@ int main() {
     int chord[] = {55, 58, 62};
     for (int i = 0; i < 4; ++i) ev.push_back({5, i * kTicksPerStep * 8, kTicksPerStep * 6, 67 + i * 2, 0.7f});
     for (int i = 0; i < 8; ++i) ev.push_back({6, i * kTicksPerStep * 4 + kTicksPerStep * 2, kTicksPerStep, 74 + (i % 3) * 3, 0.6f});
+    for (int s = 0; s < 32; s += 1) ev.push_back({8, s * kTicksPerStep, kTicksPerStep, 60, 0.9f});  // rapid hits exercise choking
     for (int s = 0; s < 32; s += 6) ev.push_back({8, s * kTicksPerStep, kTicksPerStep, 55 + s % 12, 0.9f});
     for (int n : chord) ev.push_back({7, 0, kTicksPerStep * 32, n, 0.5f});
     core.setSequence(ev, kTicksPerStep * 32);

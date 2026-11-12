@@ -9,18 +9,32 @@ object AppInfo {
     /** Always points at the newest build CI published. */
     const val LATEST_APK_URL = "https://github.com/Carmonavirus/mobile-daw/releases/download/latest-build/mobile-daw.apk"
 
-    class Release(val version: String, val date: String, val changes: List<String>)
+    /** [utc] is when the update was made, e.g. "2026-11-12T11:20:00Z"; shown in the phone's time zone. */
+    class Release(val version: String, val utc: String, val changes: List<String>) {
+        val localTime: String
+            get() = runCatching { formatLocal(java.time.Instant.parse(utc).toEpochMilli()) }.getOrDefault(utc)
+    }
+
+    /** When this APK was built (stamped by Gradle), in the phone's time zone. */
+    val buildTime: String get() = formatLocal(BuildConfig.BUILD_TIME)
+
+    private fun formatLocal(epochMillis: Long): String =
+        java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy · HH:mm")
+            .withZone(java.time.ZoneId.systemDefault())
+            .format(java.time.Instant.ofEpochMilli(epochMillis))
 
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.3", "Nov 12, 2026",
+            "0.3", "2026-11-12T11:20:00Z",
             listOf(
                 "New Settings menu (the ≡ button, top right).",
                 "Themes: pick a preset or your own background, note/step and accent colours.",
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
                 "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Channel settings (⋯ on each channel, or long-press its name): volume with boost, pan, Cut itself, trim start/end on the waveform, attack and release.",
+                "Versions show the time of each update, and the exact build time of the app you have.",
                 "Rack: swipe a channel right to delete it (with Undo). Tap any channel's name to pick a kit sound; your name stays, the sound's file name shows small beside it.",
                 "Playlist now runs left to right like the rest of the app, with 8 tracks. Swipe sideways to move through the song.",
                 "Piano roll: two fingers now scroll freely (left/right and up/down); a clear pinch zooms.",
@@ -34,7 +48,7 @@ object AppInfo {
             ),
         ),
         Release(
-            "0.2", "Nov 12, 2026",
+            "0.2", "2026-11-12T10:37:00Z",
             listOf(
                 "Import drum kits from a .zip or a folder (WAV sounds).",
                 "Tap a drum channel's name to choose a sound from your kits.",
@@ -42,7 +56,7 @@ object AppInfo {
             ),
         ),
         Release(
-            "0.1", "Nov 9, 2026",
+            "0.1", "2026-11-09T21:40:00Z",
             listOf(
                 "First version: playlist, channel rack, piano roll and mixer.",
                 "Eight built-in instruments: kick, snare, hi-hat, clap, bass, lead, pluck and pad.",

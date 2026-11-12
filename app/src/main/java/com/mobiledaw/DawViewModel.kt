@@ -132,6 +132,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setChannelCount(p.channels.size.coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
                 val decoded = path?.let { decodeSample(it) }
@@ -337,6 +338,26 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: WavDecoder.decode(kits.file(path))?.also { sampleCache[path] = it }
+
+    /** Peak values (0..1) across a sample, for drawing its waveform. */
+    fun samplePeaks(path: String, bins: Int): FloatArray {
+        val frames = decodeSample(path)?.frames ?: return FloatArray(0)
+        if (frames.isEmpty()) return FloatArray(0)
+        val out = FloatArray(bins)
+        val per = maxOf(1, frames.size / bins)
+        for (b in 0 until bins) {
+            var peak = 0f
+            val from = b * frames.size / bins
+            for (i in from until minOf(frames.size, from + per)) peak = maxOf(peak, kotlin.math.abs(frames[i]))
+            out[b] = peak
+        }
+        val max = out.maxOrNull()?.takeIf { it > 0f } ?: 1f
+        for (i in out.indices) out[i] /= max
+        return out
+    }
+
+    fun sampleSeconds(path: String): Float =
+        decodeSample(path)?.let { it.frames.size / it.sampleRate } ?: 0f
 
     /** Plays a kit sound without adding it to the project. */
     fun audition(path: String) {

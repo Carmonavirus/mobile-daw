@@ -56,6 +56,7 @@ import com.mobiledaw.model.MAX_BARS
 import com.mobiledaw.model.STEPS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_STEP
 import com.mobiledaw.ui.AddChannelDialog
+import com.mobiledaw.ui.ChannelSettingsSheet
 import com.mobiledaw.ui.DawChip
 import com.mobiledaw.ui.KitPicker
 import com.mobiledaw.ui.RoundToggle
@@ -67,6 +68,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
     var adding by remember { mutableStateOf(false) }
     var browsing by remember { mutableStateOf(false) }
     var replaceId by remember { mutableStateOf<Long?>(null) }
+    var settingsId by remember { mutableStateOf<Long?>(null) }
     val pattern = vm.selectedPattern
     val currentStep = if (vm.playing && vm.mode == PlayMode.PATTERN) (vm.positionTicks / TICKS_PER_STEP).toInt() else -1
     // The rack shows one bar (16 steps) at a time; arrows page through longer patterns.
@@ -103,6 +105,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     page = page,
                     currentStep = currentStep,
                     onChangeSound = { replaceId = channel.id; browsing = true },
+                    onSettings = { settingsId = channel.id },
                 )
                 }
             }
@@ -119,6 +122,14 @@ fun ChannelRackScreen(vm: DawViewModel) {
     }
     vm.undoSnapshot?.let {
         UndoBar(vm.undoLabel, onUndo = vm::undoDelete, onDismiss = vm::dismissUndo)
+    }
+    settingsId?.let { id ->
+        ChannelSettingsSheet(
+            vm = vm,
+            channelId = id,
+            onChangeSound = { replaceId = id; browsing = true },
+            onDismiss = { settingsId = null },
+        )
     }
     if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
     if (browsing) {
@@ -402,6 +413,7 @@ private fun ChannelRow(
     page: Int,
     currentStep: Int,
     onChangeSound: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Column(
@@ -451,6 +463,10 @@ private fun ChannelRow(
                     )
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text("Channel settings") }, onClick = {
+                        menu = false
+                        onSettings()
+                    })
                     DropdownMenuItem(text = { Text("Open piano roll") }, onClick = {
                         menu = false
                         vm.tab = Tab.PIANO
@@ -491,6 +507,17 @@ private fun ChannelRow(
                     .clip(CircleShape)
                     .clickable { vm.selectChannel(channel.id); vm.tab = Tab.PIANO }
                     .padding(horizontal = 10.dp, vertical = 2.dp),
+            )
+            // Channel settings: volume/boost, pan, cut itself, trim, attack/release.
+            Text(
+                "⋯",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = DawColors.InkSoft,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onSettings)
+                    .padding(horizontal = 10.dp),
             )
             RoundToggle("M", channel.mute, DawColors.Mute) {
                 vm.updateChannel(channel.id) { it.copy(mute = !it.mute) }

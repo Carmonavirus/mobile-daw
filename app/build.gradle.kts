@@ -17,6 +17,7 @@ android {
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = build
         versionName = "0.3.$build"
+        buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
 
         externalNativeBuild {
             cmake {
@@ -56,6 +57,7 @@ android {
     buildFeatures {
         compose = true
         prefab = true
+        buildConfig = true
     }
 
     externalNativeBuild {

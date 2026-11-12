@@ -43,6 +43,14 @@ data class Channel(
     val solo: Boolean = false,
     /** For [Instrument.SAMPLE]: the sound's path relative to the app's files folder. */
     val sample: String? = null,
+    /** A new hit stops the previous one on this channel (FL's "cut itself"). */
+    val cutItself: Boolean = false,
+    /** Part of the sample that plays, as fractions 0..1. */
+    val trimStart: Float = 0f,
+    val trimEnd: Float = 1f,
+    /** Fade-in and fade-out (before the trim end) in seconds. */
+    val attack: Float = 0f,
+    val release: Float = 0f,
 )
 
 @Serializable
