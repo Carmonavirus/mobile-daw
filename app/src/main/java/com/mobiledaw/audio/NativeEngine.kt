@@ -20,7 +20,7 @@ object NativeEngine {
     external fun setChannel(index: Int, instrument: Int, volume: Float, pan: Float, mute: Boolean, solo: Boolean)
 
     /** Cut itself, trim (0..1 of the sample) and attack/release fades in seconds. */
-    external fun setChannelSampler(index: Int, cutItself: Boolean, trimStart: Float, trimEnd: Float, attack: Float, release: Float, pitchSemis: Int, reverse: Boolean)
+    external fun setChannelSampler(index: Int, cutItself: Boolean, trimStart: Float, trimEnd: Float, attack: Float, hold: Float, decay: Float, sustain: Float, release: Float, pitchSemis: Int, reverse: Boolean)
 
     /** [events] is flat: channel, startTick, lengthTicks, pitch, velocity (0..127) per note. */
     external fun setSequence(events: IntArray, loopTicks: Int)
