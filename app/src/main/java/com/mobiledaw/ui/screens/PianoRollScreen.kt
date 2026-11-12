@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -185,23 +186,31 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                         var total = Offset.Zero
                         var dragging = false
                         var pinched = false
+                        var zoomAccum = 1f
+                        var zooming = false
                         var lastApplied = original
                         while (true) {
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) break
                             if (pressed.size >= 2) {
-                                // Pinch zooms time, two-finger drag scrolls.
+                                // Two fingers: drag to scroll in any direction. Spreading or pinching
+                                // the fingers clearly apart zooms time around the fingers.
                                 pinched = true
                                 mode = DragMode.NONE
                                 val zoom = event.calculateZoom()
                                 val pan = event.calculatePan()
-                                val minZoom = (widthPx - gutter) / (TICKS_PER_BAR * 8f)
-                                val maxZoom = (widthPx - gutter) / (TICKS_PER_STEP * 4f)
-                                val newZoom = (pxPerTick * zoom).coerceIn(minZoom, maxZoom)
-                                val focusTick = tickAt(widthPx / 2f)
-                                pxPerTick = newZoom
-                                scrollX = focusTick * pxPerTick - (widthPx - gutter) / 2f - pan.x
+                                zoomAccum *= zoom
+                                if (!zooming && kotlin.math.abs(zoomAccum - 1f) > 0.12f) zooming = true
+                                if (zooming && zoom != 1f) {
+                                    val minZoom = (widthPx - gutter) / (TICKS_PER_BAR * 8f)
+                                    val maxZoom = (widthPx - gutter) / (TICKS_PER_STEP * 4f)
+                                    val focusX = event.calculateCentroid().x
+                                    val focusTick = tickAt(focusX)
+                                    pxPerTick = (pxPerTick * zoom).coerceIn(minZoom, maxZoom)
+                                    scrollX = focusTick * pxPerTick - (focusX - gutter)
+                                }
+                                scrollX -= pan.x
                                 scrollY -= pan.y
                                 clampScroll()
                                 event.changes.forEach { it.consume() }

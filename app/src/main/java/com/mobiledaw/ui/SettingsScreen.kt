@@ -75,6 +75,22 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
                 }
 
+                // ---------------------------------------------------------------- gestures
+                SectionTitle("How to get around")
+                GUIDE.forEach { (screen, tips) ->
+                    SectionCard {
+                        Text(screen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                        Spacer(Modifier.height(6.dp))
+                        tips.forEach { (gesture, action) ->
+                            Row(Modifier.padding(vertical = 4.dp)) {
+                                Text(gesture, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.InkSoft, modifier = Modifier.width(132.dp))
+                                Text(action, fontSize = 13.sp, color = DawColors.InkSoft, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 // ---------------------------------------------------------------- editing
                 SectionTitle("Editing")
                 SectionCard {
@@ -158,6 +174,43 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
         }
     }
 }
+
+/** Gesture guide shown in Settings, screen by screen. */
+private val GUIDE = listOf(
+    "Everywhere" to listOf(
+        "Tap the song name" to "Open, rename or start a project.",
+        "Tap BPM · key" to "Change tempo and key.",
+        "PAT / SONG" to "Loop the current pattern, or play the whole playlist.",
+        "Play button" to "Start / stop (just above the tabs).",
+    ),
+    "Rack" to listOf(
+        "Tap a step" to "Turn it on or off.",
+        "Tap a drum's name" to "Choose its sound from your drum kits.",
+        "Long-press a name" to "Fill every 2/4/8 steps, clear, loop the pattern, open the piano roll, delete.",
+        "‹  ›  and dots" to "Move between bars. + on the last bar adds one.",
+        "Tap a pattern" to "Select it. Tap it again for Save as template, Loop, Delete.",
+        "+ next to patterns" to "New empty pattern, or one from a template.",
+    ),
+    "Piano roll" to listOf(
+        "Tap empty space" to "Place a note (length = the Grid setting).",
+        "Tap a note" to "Remove it.",
+        "Drag a note" to "Move it in time and pitch.",
+        "Drag a note's end" to "Make it longer or shorter.",
+        "One-finger drag" to "Scroll (on empty space).",
+        "Two-finger drag" to "Scroll left/right and up/down.",
+        "Pinch / spread" to "Zoom time in or out.",
+        "Grid buttons" to "Set the grid lines, snapping and new note length.",
+        "Track chips" to "Switch which channel you edit; others show as faint notes.",
+    ),
+    "Playlist" to listOf(
+        "Tap an empty cell" to "Place the selected pattern.",
+        "Tap a clip" to "Remove it.",
+    ),
+    "Mixer" to listOf(
+        "Sliders" to "Volume and pan (pan snaps to centre).",
+        "M / S" to "Mute / solo a channel.",
+    ),
+)
 
 @Composable
 private fun SectionTitle(text: String) {

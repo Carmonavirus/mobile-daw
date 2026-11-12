@@ -21,6 +21,8 @@ object AppInfo {
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
                 "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Piano roll: two fingers now scroll freely (left/right and up/down); a clear pinch zooms.",
+                "Settings → How to get around: a guide to every gesture.",
                 "Long-press a channel name: Fill every 2 / 4 / 8 steps, Clear steps, or Loop the pattern (copies its bars to double the length).",
                 "Piano roll grid: vertical lines follow the Grid buttons (1/32 to 1/2), notes snap to it and new notes take its length.",
                 "No more double hits: placing steps or notes is silent while the beat plays (Settings → Editing to silence it always).",
