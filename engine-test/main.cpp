@@ -174,6 +174,45 @@ int main() {
         if (off > 0.001 || on < 0.05) { std::printf("FAIL clip resume\n"); return 1; }
     }
 
+    // Stopping playback stops a long audio clip (sample voices ignore the synth release),
+    // and panic() silences everything, including held synth notes, within a few ms.
+    {
+        Core c3;
+        c3.setSampleRate(sr);
+        c3.setBpm(120.0f);
+        c3.setChannelCount(2);
+        c3.setChannel(0, 8 /* sample */, 1.0f, 0.0f, false, false);
+        c3.setChannel(1, 4 /* bass synth */, 1.0f, 0.0f, false, false);
+        std::vector<float> tone(static_cast<size_t>(sr) * 8);
+        for (size_t i = 0; i < tone.size(); ++i) tone[i] = 0.5f * std::sin(0.05f * static_cast<float>(i));
+        c3.setSample(0, tone, static_cast<float>(sr));
+        const int64_t len = kTicksPerBeat * 16;
+        c3.setSequence({NoteEvent{0, 0, static_cast<int32_t>(len), 60, 1.0f}}, len * 2);
+        auto level = [&](int blocks) {
+            double sum = 0;
+            for (int b = 0; b < blocks; ++b) {
+                c3.render(buf.data(), block);
+                if (b < blocks - 4) continue;  // measure only the last few blocks
+                for (int i = 0; i < block * 2; ++i) sum += buf[i] * buf[i];
+            }
+            return std::sqrt(sum / (block * 8));
+        };
+        c3.setPlaying(true);
+        const double playingLevel = level(20);
+        c3.setPlaying(false);
+        const double stoppedLevel = level(20);  // ~80 ms later
+        c3.previewHold(1, 48, 1.0f, true);       // a held synth note keeps sounding...
+        c3.setPlaying(true);
+        const double before = level(20);
+        c3.panic();                               // ...until stop all
+        const double after = level(20);
+        std::printf("stop: playing=%.3f stopped=%.4f beforePanic=%.3f afterPanic=%.4f\n", playingLevel, stoppedLevel, before, after);
+        if (playingLevel < 0.05 || stoppedLevel > 0.001 || before < 0.01 || after > 0.001 || c3.isPlaying()) {
+            std::printf("FAIL stop\n");
+            return 1;
+        }
+    }
+
     std::printf("OK\n");
     return 0;
 }

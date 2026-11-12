@@ -95,6 +95,12 @@ public:
     void setSampleRate(int sampleRate);
     void setSequence(std::vector<NoteEvent> events, int64_t loopTicks);
     void setPlaying(bool playing);
+    // "Stop all sound": stops playback and silences every voice, synth tail, audio clip and
+    // audition within a few milliseconds.
+    void panic() {
+        setPlaying(false);
+        panic_.store(true);
+    }
     // Moves the playhead. While stopped, the next play starts there instead of at 0.
     void seek(int64_t tick);
     void setBpm(float bpm) { bpm_.store(bpm); }
@@ -152,6 +158,8 @@ private:
     // Returns the voice it started, or nullptr (wavetable channels, bad index).
     Voice* trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
+    // Fades every voice out over `seconds` (audio thread).
+    void silenceAll(float seconds);
     void adoptSamples();
     void jumpTo(int64_t tick);
     void resumeLongSamples();
@@ -163,6 +171,7 @@ private:
     std::atomic<float> master_{0.7f};
     std::atomic<bool> playing_{false};
     std::atomic<bool> restart_{false};
+    std::atomic<bool> panic_{false};
     std::atomic<int64_t> seek_{-1};       // pending seek while playing
     std::atomic<int64_t> startTick_{0};   // where the next play starts
     std::atomic<int> channelCount_{0};

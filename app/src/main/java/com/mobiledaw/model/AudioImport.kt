@@ -1,12 +1,20 @@
 package com.mobiledaw.model
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import com.mobiledaw.sound.AudioFiles
+import com.mobiledaw.audio.WavDecoder
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.roundToInt
 
 /**
@@ -45,15 +53,136 @@ class AudioImport(private val context: Context) {
                 tmp.outputStream().use { input.copyTo(it) }
             } ?: return null
             if (copied <= 0) return null
-            val decoded = AudioFiles.decode(tmp) ?: return null
-            if (decoded.frames.isEmpty() || decoded.sampleRate <= 0f) return null
             dir.mkdirs()
             val name = cleanName(display)
             val target = uniqueFile(name)
-            AudioFiles.writeWav(target, decoded.frames, decoded.sampleRate.roundToInt())
-            return Imported(target.relativeTo(context.filesDir).path, name, decoded.frames.size / decoded.sampleRate)
+            val seconds = convert(tmp, target)
+            if (seconds == null || seconds <= 0f) {
+                target.delete()
+                return null
+            }
+            return Imported(target.relativeTo(context.filesDir).path, name, seconds)
         } finally {
             tmp.delete()
+        }
+    }
+
+    /**
+     * Writes [source] as mono 16-bit WAV to [target], up to [MAX_SECONDS]. Compressed formats are
+     * decoded straight to the file block by block, so a long MP3 never sits in memory as floats.
+     * Returns the length in seconds, or null if it can't be read.
+     */
+    private fun convert(source: File, target: File): Float? {
+        if (source.extension.equals("wav", ignoreCase = true)) {
+            WavDecoder.decode(source, MAX_SECONDS)?.let { d ->
+                if (d.frames.isEmpty() || d.sampleRate <= 0f) return null
+                AudioFiles.writeWav(target, d.frames, d.sampleRate.roundToInt())
+                return d.frames.size / d.sampleRate
+            }
+        }
+        return runCatching { streamToWav(source, target) }.getOrNull()
+    }
+
+    private fun streamToWav(source: File, target: File): Float? {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        try {
+            extractor.setDataSource(source.path)
+            val track = (0 until extractor.trackCount).firstOrNull {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: return null
+            extractor.selectTrack(track)
+            val format = extractor.getTrackFormat(track)
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+            var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            var encoding = AudioFormat.ENCODING_PCM_16BIT
+            val c = MediaCodec.createDecoderByType(mime).also { codec = it }
+            c.configure(format, null, null, 0)
+            c.start()
+            var frames = 0L
+            RandomAccessFile(target, "rw").use { raf ->
+                raf.setLength(0)
+                raf.write(ByteArray(44)) // header, filled in at the end
+                val out = ByteBuffer.allocate(64 * 1024).order(ByteOrder.LITTLE_ENDIAN)
+                fun flush() {
+                    raf.write(out.array(), 0, out.position())
+                    out.clear()
+                }
+                val info = MediaCodec.BufferInfo()
+                var inputDone = false
+                var outputDone = false
+                while (!outputDone) {
+                    val full = frames >= rate.toLong() * MAX_SECONDS
+                    if (!inputDone) {
+                        val inIndex = c.dequeueInputBuffer(10_000)
+                        if (inIndex >= 0) {
+                            val buffer = c.getInputBuffer(inIndex)!!
+                            val size = extractor.readSampleData(buffer, 0)
+                            if (size < 0 || full) {
+                                c.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                c.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+                    val outIndex = c.dequeueOutputBuffer(info, 10_000)
+                    when {
+                        outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            val f = c.outputFormat
+                            rate = f.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                            channels = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                            if (f.containsKey(MediaFormat.KEY_PCM_ENCODING)) encoding = f.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                        }
+                        outIndex >= 0 -> {
+                            val buffer = c.getOutputBuffer(outIndex)!!.order(ByteOrder.nativeOrder())
+                            buffer.position(info.offset)
+                            buffer.limit(info.offset + info.size)
+                            val ch = channels.coerceAtLeast(1)
+                            val limit = rate.toLong() * MAX_SECONDS
+                            if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
+                                val fb = buffer.asFloatBuffer()
+                                while (fb.remaining() >= ch && frames < limit) {
+                                    var sum = 0f
+                                    repeat(ch) { sum += fb.get() }
+                                    if (out.remaining() < 2) flush()
+                                    out.putShort(((sum / ch).coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+                                    frames++
+                                }
+                            } else {
+                                val sb = buffer.asShortBuffer()
+                                while (sb.remaining() >= ch && frames < limit) {
+                                    var sum = 0
+                                    repeat(ch) { sum += sb.get() }
+                                    if (out.remaining() < 2) flush()
+                                    out.putShort((sum / ch).toShort())
+                                    frames++
+                                }
+                            }
+                            c.releaseOutputBuffer(outIndex, false)
+                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                        }
+                    }
+                }
+                flush()
+                if (frames == 0L || rate <= 0) return null
+                val dataBytes = (frames * 2).toInt()
+                val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
+                    put("RIFF".toByteArray()); putInt(36 + dataBytes); put("WAVE".toByteArray())
+                    put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
+                    putInt(rate); putInt(rate * 2); putShort(2); putShort(16)
+                    put("data".toByteArray()); putInt(dataBytes)
+                }
+                raf.seek(0)
+                raf.write(header.array())
+            }
+            return frames.toFloat() / rate
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            extractor.release()
         }
     }
 
@@ -91,5 +220,8 @@ class AudioImport(private val context: Context) {
 
     companion object {
         const val DIR = "imports"
+
+        /** Longest audio file we import (5 minutes), the same as a recording. */
+        const val MAX_SECONDS = WavDecoder.MAX_RECORDING_SECONDS
     }
 }
