@@ -203,19 +203,17 @@ fun PlaylistScreen(vm: DawViewModel) {
             vm.importingAudio -> "Importing audio…"
             else -> vm.audioImportMessage
         }
-        val toolHint = if (vm.recordMode) "Recordings land on the first free track at the playhead." else when (vm.playlistTool) {
-            PlaylistTool.PENCIL -> "Tap to add the selected pattern, tap a clip to edit it. Drag a clip to move it, drag its round handles to make it shorter or longer."
-            PlaylistTool.CUT -> "Tap a clip where you want to cut it in two."
-            PlaylistTool.MUTE -> "Tap a clip to mute it, tap again to bring it back."
+        // Only status notes (e.g. an audio import) show here; tool hints were dropped to save space.
+        if (importNote != null) {
+            Text(
+                importNote,
+                fontSize = 11.sp,
+                color = DawColors.Ink,
+                modifier = Modifier
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .clickable(enabled = vm.audioImportMessage != null) { vm.audioImportMessage = null },
+            )
         }
-        Text(
-            importNote ?: toolHint,
-            fontSize = 11.sp,
-            color = if (importNote != null) DawColors.Ink else DawColors.Muted,
-            modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 4.dp)
-                .clickable(enabled = vm.audioImportMessage != null) { vm.audioImportMessage = null },
-        )
         Row(
             Modifier
                 .weight(1f)
