@@ -6,6 +6,7 @@ const val TICKS_PER_BEAT = 96
 const val TICKS_PER_STEP = TICKS_PER_BEAT / 4
 const val STEPS_PER_BAR = 16
 const val TICKS_PER_BAR = TICKS_PER_STEP * STEPS_PER_BAR
+const val MAX_BARS = 16
 
 /** Built-in instruments. The id must match the enum in app/src/main/cpp/Synth.h. */
 enum class Instrument(val id: Int, val label: String, val isDrum: Boolean, val defaultPitch: Int) {

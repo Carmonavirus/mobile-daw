@@ -185,8 +185,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         selectPattern(id)
     }
 
-    fun setPatternBars(bars: Int) = updatePattern(selectedPatternId) { pat ->
-        pat.copy(bars = bars, notes = pat.notes.mapValues { (_, list) -> list.filter { it.start < bars * com.mobiledaw.model.TICKS_PER_BAR } })
+    fun setPatternBars(count: Int) = updatePattern(selectedPatternId) { pat ->
+        val bars = count.coerceIn(1, com.mobiledaw.model.MAX_BARS)
+        // Notes past the end are kept (just not played), so shortening by accident loses nothing.
+        pat.copy(bars = bars)
     }
 
     fun deletePattern(id: Long) {

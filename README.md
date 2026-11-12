@@ -7,7 +7,7 @@ playlist / channel rack / piano roll / mixer layout, with its own light, paper-l
 
 | Screen | What you do there |
 | --- | --- |
-| **Rack** | Each channel gets a 16-step row per bar. Tap steps to toggle them, tap a channel name to hear it, long-press it for more. |
+| **Rack** | One bar of 16 steps per channel; use the arrows (or dots) to move between bars, and `+` on the last bar to make the pattern longer (up to 16 bars). Tap a drum channel's name to pick a sound from your kits, long-press it for more. |
 | **Piano** | Edit the selected channel's notes. Tap to draw, tap a note to delete it, drag a note to move it, drag its right end to resize, pinch to zoom, drag empty space to scroll. Other channels show as faint ghost notes. |
 | **Playlist** | Arrange patterns. Time runs down the screen (one row per bar), four lanes across. |
 | **Mixer** | Volume, pan, mute and solo per channel, plus the master level. |
