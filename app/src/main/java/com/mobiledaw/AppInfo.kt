@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.5", "2026-11-12T17:30:00Z",
+            listOf(
+                "Channel settings: a graphical envelope — drag the dots for attack, hold, decay, sustain and release.",
+            ),
+        ),
+        Release(
             "0.4.4", "2026-11-12T17:20:00Z",
             listOf(
                 "Channel settings: Pitch slider to move a sample up or down 12 semitones.",
