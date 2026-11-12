@@ -70,6 +70,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("preview_on_edit", on).apply()
     }
 
+    /** How many bars the channel rack shows side by side (pinch to change), 1..4. */
+    var rackBars by mutableIntStateOf(prefs.getInt("rack_bars", 1).coerceIn(1, 4))
+        private set
+
+    fun changeRackBars(n: Int) {
+        rackBars = n.coerceIn(1, 4)
+        prefs.edit().putInt("rack_bars", rackBars).apply()
+    }
+
     /** Piano roll row labels: every note, or only notes in the project's key. */
     var labelAllNotes by mutableStateOf(prefs.getBoolean("label_all_notes", false))
         private set

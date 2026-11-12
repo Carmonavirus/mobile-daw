@@ -44,6 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -73,19 +76,22 @@ fun ChannelRackScreen(vm: DawViewModel) {
     var settingsId by remember { mutableStateOf<Long?>(null) }
     val pattern = vm.selectedPattern
     val currentStep = if (vm.playing && vm.mode == PlayMode.PATTERN) (vm.positionTicks / TICKS_PER_STEP).toInt() else -1
-    // The rack shows one bar (16 steps) at a time; arrows page through longer patterns.
+    // The rack shows 1-4 bars at a time (pinch to zoom); arrows and swipes page through the rest.
+    // `page` is the first bar shown, always a multiple of the number of bars shown.
+    val shown = vm.rackBars
     var page by remember(pattern.id) { mutableIntStateOf(0) }
-    if (page >= pattern.bars) page = pattern.bars - 1
+    page = (page.coerceIn(0, pattern.bars - 1) / shown) * shown
     val playingBar = if (currentStep >= 0) currentStep / STEPS_PER_BAR else -1
-    val swipePage: (Int) -> Unit = { delta -> page = (page + delta).coerceIn(0, pattern.bars - 1) }
+    val swipePage: (Int) -> Unit = { delta -> page = (page + delta * shown).coerceIn(0, pattern.bars - 1) }
 
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
         BarPager(
             page = page,
+            shown = shown,
             bars = pattern.bars,
             playingBar = playingBar,
-            onPage = { page = it },
+            onPage = { page = (it.coerceIn(0, pattern.bars - 1) / shown) * shown },
             modifier = Modifier.barSwipe(swipePage),
             onAddBar = {
                 vm.setPatternBars(pattern.bars + 1)
@@ -93,7 +99,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
             },
         )
         LazyColumn(
-            Modifier.weight(1f),
+            Modifier.weight(1f).pinchBars(shown, vm::changeRackBars),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -107,6 +113,8 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     selected = channel.id == vm.selectedChannelId,
                     activeSteps = pattern.notesFor(channel.id).map { it.start / TICKS_PER_STEP }.toSet(),
                     page = page,
+                    shown = shown,
+                    bars = pattern.bars,
                     currentStep = currentStep,
                     onChangeSound = { replaceId = channel.id; browsing = true },
                     onSettings = { settingsId = channel.id },
@@ -166,6 +174,35 @@ private fun Modifier.barSwipe(onPage: (Int) -> Unit): Modifier {
         change.consume()
         total += dx
     }
+    }
+}
+
+/**
+ * Two-finger pinch: spread to show fewer bars (zoom in), squeeze to show more (zoom out), 1..4.
+ * Watches in the Initial pass and consumes two-finger moves so the list doesn't scroll meanwhile.
+ */
+@Composable
+private fun Modifier.pinchBars(shown: Int, onChange: (Int) -> Unit): Modifier {
+    val latestShown = androidx.compose.runtime.rememberUpdatedState(shown)
+    val latest = androidx.compose.runtime.rememberUpdatedState(onChange)
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var baseline = 0f
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.isEmpty()) break
+                if (pressed.size < 2) { baseline = 0f; continue }
+                val span = (pressed[0].position - pressed[1].position).getDistance()
+                if (baseline == 0f) baseline = span
+                val ratio = span / baseline
+                val now = latestShown.value
+                if (ratio < 0.7f && now < 4) { latest.value(now + 1); baseline = span }
+                else if (ratio > 1.4f && now > 1) { latest.value(now - 1); baseline = span }
+                event.changes.forEach { it.consume() }
+            }
+        }
     }
 }
 
@@ -368,14 +405,15 @@ private fun StepperButton(label: String, enabled: Boolean, onClick: () -> Unit) 
  * last bar the right arrow becomes "+" and adds a new bar.
  */
 @Composable
-private fun BarPager(page: Int, bars: Int, playingBar: Int, onPage: (Int) -> Unit, modifier: Modifier = Modifier, onAddBar: () -> Unit) {
+private fun BarPager(page: Int, shown: Int, bars: Int, playingBar: Int, onPage: (Int) -> Unit, modifier: Modifier = Modifier, onAddBar: () -> Unit) {
     Row(
         modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PagerArrow("‹", enabled = page > 0) { onPage(page - 1) }
+        PagerArrow("‹", enabled = page > 0) { onPage(page - shown) }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Bar ${page + 1} of $bars", fontSize = 12.sp, color = DawColors.Muted, letterSpacing = 1.sp)
+            val last = minOf(page + shown, bars)
+            Text(if (last - page > 1) "Bars ${page + 1}–$last of $bars" else "Bar ${page + 1} of $bars", fontSize = 12.sp, color = DawColors.Muted, letterSpacing = 1.sp)
             Spacer(Modifier.height(4.dp))
             Row(
                 Modifier.horizontalScroll(rememberScrollState()),
@@ -392,11 +430,11 @@ private fun BarPager(page: Int, bars: Int, playingBar: Int, onPage: (Int) -> Uni
                     ) {
                         Box(
                             Modifier
-                                .size(if (b == page) 8.dp else 6.dp)
+                                .size(if (b in page until page + shown) 8.dp else 6.dp)
                                 .clip(CircleShape)
                                 .background(
                                     when {
-                                        b == page -> DawColors.Ink
+                                        b in page until page + shown -> DawColors.Ink
                                         b == playingBar -> DawColors.Accent
                                         else -> DawColors.LineStrong
                                     },
@@ -406,8 +444,8 @@ private fun BarPager(page: Int, bars: Int, playingBar: Int, onPage: (Int) -> Uni
                 }
             }
         }
-        if (page < bars - 1) {
-            PagerArrow("›", enabled = true) { onPage(page + 1) }
+        if (page + shown < bars) {
+            PagerArrow("›", enabled = true) { onPage(page + shown) }
         } else {
             PagerArrow("+", enabled = bars < MAX_BARS, onClick = onAddBar)
         }
@@ -438,6 +476,8 @@ private fun ChannelRow(
     selected: Boolean,
     activeSteps: Set<Int>,
     page: Int,
+    shown: Int,
+    bars: Int,
     currentStep: Int,
     onChangeSound: () -> Unit,
     onSettings: () -> Unit,
@@ -554,27 +594,39 @@ private fun ChannelRow(
         Spacer(Modifier.height(10.dp))
         // The 16 steps of the bar currently shown. Swiping across them pages bars
         // (the drag is consumed here, so it never reaches swipe-to-delete on the card).
-        Row(Modifier.barSwipe(onSwipePage), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            for (col in 0 until STEPS_PER_BAR) {
-                val step = page * STEPS_PER_BAR + col
-                StepCell(
-                    on = step in activeSteps,
-                    beatShade = (col / 4) % 2 == 1,
-                    playing = step == currentStep,
-                    modifier = Modifier.weight(1f),
-                ) { vm.toggleStep(channel, step) }
+        // With several bars shown the cells shrink to fit and bars get a small gap between them.
+        val gap = if (shown == 1) 3.dp else if (shown == 2) 2.dp else 1.dp
+        Row(Modifier.barSwipe(onSwipePage), horizontalArrangement = Arrangement.spacedBy(if (shown == 1) 3.dp else 6.dp)) {
+            for (b in page until page + shown) {
+                if (b >= bars) {
+                    Spacer(Modifier.weight(1f))
+                    continue
+                }
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    for (col in 0 until STEPS_PER_BAR) {
+                        val step = b * STEPS_PER_BAR + col
+                        StepCell(
+                            on = step in activeSteps,
+                            beatShade = (col / 4) % 2 == 1,
+                            playing = step == currentStep,
+                            compact = shown > 1,
+                            modifier = Modifier.weight(1f),
+                        ) { vm.toggleStep(channel, step) }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StepCell(on: Boolean, beatShade: Boolean, playing: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun StepCell(on: Boolean, beatShade: Boolean, playing: Boolean, compact: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val base = if (beatShade) DawColors.Chip else DawColors.Paper
+    val shape = RoundedCornerShape(if (compact) 2.dp else 6.dp)
     Box(
         modifier
-            .aspectRatio(0.62f)
-            .clip(RoundedCornerShape(6.dp))
+            .then(if (compact) Modifier.height(34.dp) else Modifier.aspectRatio(0.62f))
+            .clip(shape)
             .background(
                 when {
                     on -> DawColors.Note
@@ -582,7 +634,7 @@ private fun StepCell(on: Boolean, beatShade: Boolean, playing: Boolean, modifier
                     else -> base
                 },
             )
-            .border(1.dp, if (playing) DawColors.Accent else Color.Transparent, RoundedCornerShape(6.dp))
+            .border(1.dp, if (playing) DawColors.Accent else Color.Transparent, shape)
             .clickable(onClick = onClick),
     )
 }

@@ -31,6 +31,7 @@ object AppInfo {
                 "Progress bar above the play button: shows where the pattern or song is (bar.beat) and its length.",
                 "Tap or drag the progress bar to jump; while stopped, play starts from there.",
                 "Piano roll NOTES switch: label only the notes in the project key, or every note.",
+                "Rack: pinch to show 1, 2, 3 or 4 bars at once.",
                 "Rack: swipe across the steps to go to the next/previous bar. Swipe a channel's name row right to delete.",
             ),
         ),

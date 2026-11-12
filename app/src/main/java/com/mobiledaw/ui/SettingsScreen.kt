@@ -188,7 +188,8 @@ private val GUIDE = listOf(
     "Rack" to listOf(
         "Tap a step" to "Turn it on or off.",
         "Tap a channel's name" to "Choose its sound from your drum kits (any channel).",
-        "Swipe across the steps" to "Next bar (swipe left) or previous bar (swipe right).",
+        "Pinch the rack" to "Squeeze to see up to 4 bars at once, spread to go back to 1.",
+        "Swipe across the steps" to "Next bars (swipe left) or previous bars (swipe right).",
         "Swipe a channel's name right" to "Delete it. Tap Undo to bring it back.",
         "⋯ on a channel" to "Channel settings: volume/boost, pan, Cut itself, trim, attack, release.",
         "Long-press a name" to "Fill every 2/4/8 steps, clear, loop the pattern, open the piano roll, delete.",
