@@ -53,15 +53,25 @@ struct ChannelParams {
     std::atomic<bool> cutItself{false};
     std::atomic<float> trimStart{0.0f};
     std::atomic<float> trimEnd{1.0f};
+    // Amplitude envelope (FL sampler-style): attack, hold and decay are times in seconds,
+    // sustain is the 0..1 level the decay falls to, release fades the tail before the end edge.
     std::atomic<float> attack{0.0f};
+    std::atomic<float> hold{0.0f};
+    std::atomic<float> decay{0.0f};
+    std::atomic<float> sustain{1.0f};
     std::atomic<float> release{0.0f};
+    std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
+    std::atomic<bool> reverse{false};   // play the sample backwards
 };
 
-// Per-block snapshot of a sample channel's trim and envelope, in sample frames.
+// Per-block snapshot of a sample channel's trim and envelope, in sample frames (times) / 0..1 (level).
 struct SampleShape {
     double start = 0.0;
     double end = 0.0;
     double attack = 0.0;
+    double hold = 0.0;
+    double decay = 0.0;
+    double sustain = 1.0;
     double release = 0.0;
 };
 
@@ -79,7 +89,8 @@ public:
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
-    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
+    void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
+                           float decay, float sustain, float release, int pitchSemis, bool reverse);
     void setMasterVolume(float v) { master_.store(v); }
     void previewNote(int channel, int pitch, float velocity);
     // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.

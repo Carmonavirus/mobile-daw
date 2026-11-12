@@ -97,6 +97,21 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                             ),
                         )
                     }
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("One-finger scroll (piano roll)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                            Text("Drag with one finger to scroll; tap to place a note. Off: one finger edits notes, two scroll.", fontSize = 12.sp, color = DawColors.Muted)
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = vm.oneFingerScroll,
+                            onCheckedChange = vm::changeOneFingerScroll,
+                            colors = androidx.compose.material3.SwitchDefaults.colors(
+                                checkedTrackColor = DawColors.Note,
+                                checkedThumbColor = DawColors.OnNote,
+                            ),
+                        )
+                    }
                 }
 
                 // ---------------------------------------------------------------- sounds
@@ -206,10 +221,9 @@ private val GUIDE = listOf(
         "Tap a channel's name" to "Choose its sound: Kits, Instruments (SoundFont), Synths, SFZ or online (Freesound, Commons, Archive).",
         "+ Add sound" to "Same picker; the sound becomes a new channel.",
         "Pinch the rack" to "Squeeze to see up to 4 bars at once, spread to go back to 1.",
-        "Swipe across the steps" to "Next bars (swipe left) or previous bars (swipe right).",
-        "Swipe a channel's name right" to "Delete it. Tap Undo to bring it back.",
-        "⋯ on a channel" to "Channel settings: volume/boost, pan, Cut itself, trim, attack, release.",
-        "Long-press a name" to "Fill every 2/4/8 steps, clear, loop the pattern, open the piano roll, delete.",
+        "Swipe anywhere in the rack" to "Next bars (swipe left) or previous bars (swipe right).",
+        "⋯ on a channel" to "Rename, channel settings, change sound, fill, clear, loop, open piano roll, delete.",
+        "Long-press a name" to "Same menu as the ⋯ button.",
         "‹  ›  and dots" to "Move between bars. + on the last bar adds one.",
         "Tap a pattern" to "Select it. Tap it again for Save as template, Loop, Delete.",
         "+ next to patterns" to "New empty pattern, or one from a template.",
@@ -222,11 +236,12 @@ private val GUIDE = listOf(
     "Piano roll" to listOf(
         "Tap empty space" to "Place a note (length = the Grid setting).",
         "Tap a note" to "Remove it.",
-        "Drag a note" to "Move it in time and pitch.",
+        "Drag a note" to "Move it in time and pitch (unless One-finger scroll is on).",
         "Drag a note's end" to "Make it longer or shorter.",
-        "One-finger drag" to "Scroll (on empty space).",
         "Two-finger drag" to "Scroll left/right and up/down.",
+        "One-finger scroll" to "Turn on in Settings to scroll with one finger; tap still places notes.",
         "Pinch / spread" to "Zoom time in or out.",
+        "Note labels" to "Key = only the project's scale (in-scale rows light); All = every note.",
         "Grid buttons" to "Set the grid lines, snapping and new note length.",
         "Track chips" to "Switch which channel you edit; others show as faint notes.",
     ),

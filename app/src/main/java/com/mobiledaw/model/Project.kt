@@ -63,9 +63,15 @@ data class Channel(
     /** Part of the sample that plays, as fractions 0..1. */
     val trimStart: Float = 0f,
     val trimEnd: Float = 1f,
-    /** Fade-in and fade-out (before the trim end) in seconds. */
+    /** Amplitude envelope: attack/hold/decay/release in seconds, sustain as a 0..1 level. */
     val attack: Float = 0f,
+    val hold: Float = 0f,
+    val decay: Float = 0f,
+    val sustain: Float = 1f,
     val release: Float = 0f,
+    /** Transpose in semitones (-12..12) and reverse playback, for sample channels. */
+    val pitchSemis: Int = 0,
+    val reverse: Boolean = false,
     /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
     val synth: SynthPatch? = null,
     /** Extra engines: preset index (SoundFont preset, Macro/Modeled preset). */

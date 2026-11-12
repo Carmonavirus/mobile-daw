@@ -26,6 +26,36 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.5", "2026-11-12T17:30:00Z",
+            listOf(
+                "Channel settings: a graphical envelope — drag the dots for attack, hold, decay, sustain and release.",
+            ),
+        ),
+        Release(
+            "0.4.4", "2026-11-12T17:20:00Z",
+            listOf(
+                "Channel settings: Pitch slider to move a sample up or down 12 semitones.",
+                "Channel settings: Reverse toggle to play a sample backwards.",
+            ),
+        ),
+        Release(
+            "0.4.3", "2026-11-12T13:15:00Z",
+            listOf(
+                "Piano roll: FL-style scale colouring — in Key mode, notes in your scale are light and the rest are dark.",
+                "Piano roll: optional one-finger scroll (Settings → Editing); tap still places notes.",
+                "Piano roll: the track chips no longer overlap the note grid.",
+            ),
+        ),
+        Release(
+            "0.4.2", "2026-11-12T13:05:00Z",
+            listOf(
+                "Rack: the ♪ / ⋯ / M buttons always stay visible; long names now shorten with …",
+                "Rack: swipe anywhere (not just the steps) to change bars.",
+                "Rack: Delete and a new Rename moved into the ⋯ menu; added sounds get a short name.",
+                "Audio: the sound engine now re-opens itself if the system interrupts it, so playback doesn't go quiet.",
+            ),
+        ),
+        Release(
             "0.4.1", "2026-11-12T12:20:00Z",
             listOf("Fix: the app crashed on launch after the last update. Fixed."),
         ),

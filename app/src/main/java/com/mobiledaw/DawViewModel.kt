@@ -82,6 +82,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var previewOnEdit by mutableStateOf(prefs.getBoolean("preview_on_edit", true))
         private set
 
+    /** Piano roll: one-finger drag scrolls (tap still edits). Off = one finger edits notes, two scroll. */
+    var oneFingerScroll by mutableStateOf(prefs.getBoolean("one_finger_scroll", false))
+        private set
+
+    fun changeOneFingerScroll(on: Boolean) {
+        oneFingerScroll = on
+        prefs.edit().putBoolean("one_finger_scroll", on).apply()
+    }
+
     fun changePreviewOnEdit(on: Boolean) {
         previewOnEdit = on
         prefs.edit().putBoolean("preview_on_edit", on).apply()
@@ -172,7 +181,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setChannelCount(p.channels.size.coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.hold, c.decay, c.sustain, c.release, c.pitchSemis, c.reverse)
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -508,8 +517,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun addSampleChannel(sound: KitLibrary.Sound) {
         if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
         val id = project.nextId()
-        update { it.copy(channels = it.channels + Channel(id, sound.name, Instrument.SAMPLE, sample = sound.path)) }
+        update { it.copy(channels = it.channels + Channel(id, shortName(sound.name), Instrument.SAMPLE, sample = sound.path)) }
         selectedChannelId = id
+    }
+
+    /** A short channel name from a sound's filename, e.g. "808 - Christopher Spinza" -> "808". */
+    private fun shortName(full: String): String {
+        val head = full.substringBefore(" - ").substringBefore(" (").trim()
+        val name = head.ifEmpty { full.trim() }
+        return if (name.length > 16) name.take(16).trim() else name
     }
 
     fun setChannelSound(channelId: Long, sound: KitLibrary.Sound) {
