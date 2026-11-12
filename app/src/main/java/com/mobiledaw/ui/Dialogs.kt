@@ -168,8 +168,8 @@ fun AddChannelDialog(onPick: (Instrument) -> Unit, onDismiss: () -> Unit) {
 
 @Composable
 fun inkSliderColors() = SliderDefaults.colors(
-    thumbColor = DawColors.Ink,
-    activeTrackColor = DawColors.Ink,
+    thumbColor = DawColors.Note,
+    activeTrackColor = DawColors.Note,
     inactiveTrackColor = DawColors.Line,
     activeTickColor = DawColors.Ink,
     inactiveTickColor = DawColors.Line,

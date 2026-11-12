@@ -75,7 +75,7 @@ fun PianoRollScreen(vm: DawViewModel) {
                 DawChip(
                     ch.name,
                     selected = ch.id == vm.selectedChannelId,
-                    dotColor = if (hasNotes) DawColors.Ink else DawColors.Accent,
+                    dotColor = if (hasNotes) DawColors.Note else DawColors.Accent,
                 ) { vm.selectChannel(ch.id) }
             }
         }
@@ -319,7 +319,7 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                 val w = (n.length * pxPerTick - 2f).coerceAtLeast(4f)
                 if (x + w < gutter || x > size.width) return@forEach
                 val y = noteY(n.pitch) + (rowH - barH) / 2f
-                drawRoundRect(DawColors.Ink, Offset(x, y), Size(w, barH), CornerRadius(barH / 2f))
+                drawRoundRect(DawColors.Note, Offset(x, y), Size(w, barH), CornerRadius(barH / 2f))
 
                 val label = labels.getOrPut(n.pitch) { measurer.measure(noteName(n.pitch), labelStyle) }
                 val pillW = label.size.width + 8.dp.toPx()

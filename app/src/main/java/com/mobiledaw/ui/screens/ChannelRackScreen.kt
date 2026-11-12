@@ -341,7 +341,7 @@ private fun StepCell(on: Boolean, beatShade: Boolean, playing: Boolean, modifier
             .clip(RoundedCornerShape(6.dp))
             .background(
                 when {
-                    on -> DawColors.Ink
+                    on -> DawColors.Note
                     playing -> DawColors.AccentSoft
                     else -> base
                 },

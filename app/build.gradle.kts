@@ -13,14 +13,27 @@ android {
         applicationId = "com.mobiledaw"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI stamps each build with its run number, so every published APK is a newer version.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "0.3.$build"
 
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17", "-O2")
                 arguments += listOf("-DANDROID_STL=c++_shared")
             }
+        }
+    }
+
+    signingConfigs {
+        // A fixed debug key checked into the repo, so every CI build is signed the same way and
+        // Android installs new builds over the old one instead of refusing the update.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 

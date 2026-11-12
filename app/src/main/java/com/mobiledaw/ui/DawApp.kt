@@ -41,6 +41,7 @@ import com.mobiledaw.ui.theme.DawColors
 fun DawApp(vm: DawViewModel) {
     var showProjects by remember { mutableStateOf(false) }
     var showTempo by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -54,6 +55,7 @@ fun DawApp(vm: DawViewModel) {
             vm = vm,
             onTitle = { showProjects = true },
             onTempo = { showTempo = true },
+            onMenu = { showSettings = true },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (vm.tab) {
@@ -63,15 +65,26 @@ fun DawApp(vm: DawViewModel) {
                 Tab.MIXER -> MixerScreen(vm)
             }
         }
+        // Transport sits right above the tabs, within thumb reach.
+        Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
+            PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
+        }
         BottomTabs(vm.tab) { vm.tab = it }
     }
 
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
+    if (showSettings) {
+        SettingsScreen(
+            vm = vm,
+            onOpenProjects = { showSettings = false; showProjects = true },
+            onDismiss = { showSettings = false },
+        )
+    }
 }
 
 @Composable
-private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit) {
+private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, onMenu: () -> Unit) {
     val p = vm.project
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Segmented(
@@ -80,7 +93,7 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit) {
             onSelect = vm::switchMode,
             modifier = Modifier.align(Alignment.CenterStart),
         )
-        Column(Modifier.align(Alignment.Center).padding(horizontal = 92.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.align(Alignment.Center).padding(horizontal = 84.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 p.name,
                 fontSize = 20.sp,
@@ -98,10 +111,7 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit) {
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onTempo).padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
-        Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
-            PlayButton(vm.playing, vm::togglePlay)
-            MenuGlyph(onTitle)
-        }
+        MenuGlyph(onMenu, Modifier.align(Alignment.CenterEnd))
     }
 }
 

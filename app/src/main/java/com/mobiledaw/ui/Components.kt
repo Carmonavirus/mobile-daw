@@ -83,18 +83,18 @@ fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
 }
 
 @Composable
-fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, diameter: androidx.compose.ui.unit.Dp = 44.dp) {
     Box(
         modifier
-            .size(44.dp)
+            .size(diameter)
             .clip(CircleShape)
-            .background(DawColors.Ink)
+            .background(DawColors.Note)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(16.dp)) {
+        Canvas(Modifier.size(diameter * 0.36f)) {
             if (playing) {
-                drawRoundRect(DawColors.Paper, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f))
+                drawRoundRect(DawColors.OnNote, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f))
             } else {
                 val path = Path().apply {
                     moveTo(size.width * 0.12f, 0f)
@@ -102,7 +102,7 @@ fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modif
                     lineTo(size.width * 0.12f, size.height)
                     close()
                 }
-                drawPath(path, DawColors.Paper)
+                drawPath(path, DawColors.OnNote)
             }
         }
     }
