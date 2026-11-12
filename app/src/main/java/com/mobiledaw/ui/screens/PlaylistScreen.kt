@@ -660,6 +660,54 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
             colors = inkSliderColors(),
         )
 
+        // Timing: slide the sound earlier / later without moving the clip (line a take up by ear).
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Timing", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                Text(
+                    when {
+                        clip.timingMs == 0 -> "As recorded. Slide the sound if it's off the beat."
+                        clip.timingMs > 0 -> "${clip.timingMs} ms later"
+                        else -> "${-clip.timingMs} ms earlier"
+                    },
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Earlier", fontSize = 12.sp, color = DawColors.Muted)
+            StepButton("«", enabled = true) { vm.nudgeAudioTiming(id, -25) }
+            StepButton("−", enabled = true) { vm.nudgeAudioTiming(id, -5) }
+            Text(
+                if (clip.timingMs > 0) "+${clip.timingMs}" else "${clip.timingMs}",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DawColors.Ink,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clickable(enabled = clip.timingMs != 0) { vm.nudgeAudioTiming(id, -clip.timingMs) },
+            )
+            StepButton("+", enabled = true) { vm.nudgeAudioTiming(id, 5) }
+            StepButton("»", enabled = true) { vm.nudgeAudioTiming(id, 25) }
+            Text("Later", fontSize = 12.sp, color = DawColors.Muted)
+        }
+        if (clip.recorded && clip.takeTimingMs + clip.timingMs != vm.recordTimingMs) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Sounds right now? Use this timing for new takes on ${vm.outputDevice.label}.",
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                TextAction("Use for new takes") { vm.useTimingForNewTakes(clip) }
+            }
+        }
+
         LabeledSlider(
             label = "Volume",
             value = clip.gain,

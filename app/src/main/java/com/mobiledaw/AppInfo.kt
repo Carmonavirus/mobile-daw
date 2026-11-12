@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.6.5", "2026-11-12T23:45:00Z",
+            listOf(
+                "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",
+                "Use for new takes (in that window) saves the fix for your earbuds, so the next takes land right. Also in Settings → Audio sync → Recording timing.",
+                "Takes keep the count-in audio hidden before them, so they can be slid later as well as earlier.",
+            ),
+        ),
+        Release(
             "0.6.4", "2026-11-12T23:30:00Z",
             listOf(
                 "Metronome: tap the metronome button at the top left to turn the click on or off. It clicks every beat at the project's tempo, with a higher click on beat 1 of each bar. Remembered.",

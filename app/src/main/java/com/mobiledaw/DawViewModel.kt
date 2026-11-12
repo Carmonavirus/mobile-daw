@@ -141,6 +141,24 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var latencyOffsetMs by mutableIntStateOf(0)
         private set
 
+    /**
+     * Extra nudge for new recordings on this output, in ms: positive puts takes later, negative
+     * earlier. For when the automatic line-up is off for a phone / earbuds pair. Per output.
+     */
+    var recordTimingMs by mutableIntStateOf(0)
+        private set
+
+    fun changeRecordTiming(ms: Int) {
+        recordTimingMs = ms.coerceIn(-RECORD_TIMING_RANGE, RECORD_TIMING_RANGE)
+        saveLatency()
+    }
+
+    /** Nudges an audio clip's sound earlier (negative) or later (positive) by [ms], clip stays put. */
+    fun nudgeAudioTiming(id: Long, ms: Int) = updateAudioClip(id) { com.mobiledaw.model.ClipEdit.shiftTiming(it, ms, project.bpm) }
+
+    /** Makes a recording's total timing fix the default for new takes on the current output. */
+    fun useTimingForNewTakes(clip: AudioClip) = changeRecordTiming(clip.takeTimingMs + clip.timingMs)
+
     /** True when Auto is on but the phone gave no reading, so [estimatedLatencyMs] stands in. */
     val latencyEstimated: Boolean get() = latencyAuto && measuredLatencyMs == null
 
@@ -171,6 +189,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit()
             .putBoolean("latency_auto:$key", latencyAuto)
             .putInt("latency_offset:$key", latencyOffsetMs)
+            .putInt("record_timing:$key", recordTimingMs)
             .apply()
     }
 
@@ -178,6 +197,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val key = outputDevice.key
         latencyAuto = prefs.getBoolean("latency_auto:$key", true)
         latencyOffsetMs = prefs.getInt("latency_offset:$key", 0)
+        recordTimingMs = prefs.getInt("record_timing:$key", 0)
     }
 
     /** Re-reads which output is in use and how late it is. Called about once a second. */
@@ -1077,14 +1097,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val leadIn = takeLeadInFrames()
-        val take = recorder.stop()?.let { recorder.trimStart(it, leadIn) }
+        val rate = recorder.sampleRate
+        val take = recorder.stop()
         takePeaks = FloatArray(0)
         val start = takeStartTick
         if (take == null) {
             syncEngine()
             return
         }
-        placeRecording(take.file, take.seconds, takeLane, start)
+        // Keep the whole file (count-in included) and start playing it at the lead-in, so the
+        // take's Timing control can slide it later as well as earlier.
+        val lead = (leadIn.toFloat() / rate).coerceIn(0f, (take.seconds - 0.2f).coerceAtLeast(0f))
+        placeRecording(take.file, take.seconds, takeLane, start, lead)
         // Park the playhead at the start of the take so play replays it.
         NativeEngine.seek(start.toLong())
         positionTicks = start.toLong()
@@ -1098,15 +1122,21 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun takeLeadInFrames(): Long {
         if (playStartNanos == 0L) return 0L
-        return recorder.frameAt(playStartNanos + uiDelayMs * 1_000_000L).coerceAtLeast(0L)
+        val heard = playStartNanos + (uiDelayMs - recordTimingMs) * 1_000_000L
+        return recorder.frameAt(heard).coerceAtLeast(0L)
     }
 
     /** Puts a finished recording (a WAV in the app's files folder) on the playlist. */
-    fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int) {
+    fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int, leadIn: Float = 0f) {
         val path = file.relativeTo(getApplication<Application>().filesDir).path
         val number = project.audioClips.size + 1
         update { p ->
-            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number", fileSeconds = seconds))
+            p.copy(
+                audioClips = p.audioClips + AudioClip(
+                    p.nextId(), lane, startTick, path, seconds - leadIn, "Take $number",
+                    offset = leadIn, fileSeconds = seconds, takeTimingMs = recordTimingMs, recorded = true,
+                ),
+            )
         }
     }
 
@@ -1403,6 +1433,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         /** Fine-tune range around the measured delay (Auto), in ms. */
         const val LATENCY_OFFSET_MIN = -300
         const val LATENCY_OFFSET_MAX = 500
+        /** Recording timing range (each way), in ms. */
+        const val RECORD_TIMING_RANGE = 500
         private const val MAX_CACHED_FRAMES = 24_000_000L
         /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT
