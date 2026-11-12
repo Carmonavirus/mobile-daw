@@ -1,101 +1,39 @@
 package com.mobiledaw
 
 import android.graphics.Bitmap
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelProvider
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.services.storage.TestStorage
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import com.mobiledaw.model.Instrument
-import org.junit.After
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * Takes screenshots of the app on an emulator (see .github/workflows/screenshots.yml).
  * Add a test here for each new instrument or screen, so every change comes with pictures.
- *
- * The app redraws its meters ~30 times a second, so Compose never goes idle; this test therefore
- * uses UiAutomator (finds on-screen text) and plain waits instead of the Compose test rule.
  */
 @RunWith(AndroidJUnit4::class)
 class ScreenshotTest {
-    private lateinit var scenario: ActivityScenario<MainActivity>
-    private val device: UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    @get:Rule
+    val rule = createAndroidComposeRule<MainActivity>()
 
-    @Before
-    fun launch() {
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        device.wait(Until.hasObject(By.text("Rack")), 10_000)
-        Thread.sleep(1500)
-        dismissSystemDialogs()
-    }
+    private val vm: DawViewModel get() = ViewModelProvider(rule.activity)[DawViewModel::class.java]
 
-    @After
-    fun close() = scenario.close()
-
-    /**
-     * The emulator sometimes shows "Process system isn't responding" while it is still busy after boot.
-     * That dialog belongs to Android, not the app; tap "Wait" so it doesn't cover the screen.
-     */
-    private fun dismissSystemDialogs() {
-        repeat(3) {
-            if (device.findObject(By.textContains("isn't responding")) == null) return
-            if (!clickNow(By.text("Wait"))) clickNow(By.res("android:id/aerr_wait"))
-            Thread.sleep(500)
-        }
-    }
-
-    private fun onVm(block: (DawViewModel) -> Unit) {
-        scenario.onActivity { block(ViewModelProvider(it)[DawViewModel::class.java]) }
-    }
-
-    /** Whole screen, including dialogs, saved as screenshots/<name>.png in the test output. */
+    /** Whole screen, including dialogs, saved as <name>.png in the test output. */
     private fun shot(name: String) {
-        dismissSystemDialogs()
-        Thread.sleep(800) // let the screen settle
+        rule.waitForIdle()
+        Thread.sleep(600) // let sounds start and animations settle
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    /**
-     * Taps the element's centre. The app redraws constantly, so a found element can go stale before
-     * it is clicked; read its position right away and retry a few times.
-     */
-    private fun clickNow(selector: androidx.test.uiautomator.BySelector): Boolean {
-        repeat(4) {
-            val obj = device.findObject(selector) ?: return false
-            val point = runCatching { obj.visibleCenter }.getOrNull()
-            if (point != null) {
-                device.click(point.x, point.y)
-                return true
-            }
-            Thread.sleep(200)
-        }
-        return false
-    }
-
-    /** Taps the first visible element showing exactly [text] (or containing it with [partial]). */
-    private fun tap(text: String, partial: Boolean = false) {
-        dismissSystemDialogs()
-        val selector = if (partial) By.textContains(text) else By.text(text)
-        device.wait(Until.hasObject(selector), 5_000)
-        if (!clickNow(selector)) error("\"$text\" not on screen")
-    }
-
-    /** Like [tap], but scrolls down first when [text] is below the fold. */
-    private fun tapScrolling(text: String) {
-        repeat(8) {
-            dismissSystemDialogs()
-            if (clickNow(By.text(text))) return
-            device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 20)
-            Thread.sleep(400)
-        }
-        tap(text)
+    private fun tap(text: String) {
+        rule.onAllNodesWithText(text)[0].performClick()
     }
 
     @Test
@@ -105,13 +43,12 @@ class ScreenshotTest {
 
     @Test
     fun wavetableSynth() {
-        var id = 0L
-        onVm { vm ->
-            vm.addChannel(Instrument.WAVETABLE)
-            id = vm.synthEditorChannelId ?: error("synth editor did not open")
+        rule.runOnUiThread { vm.addChannel(Instrument.WAVETABLE) }
+        val id = vm.synthEditorChannelId ?: error("synth editor did not open")
+        fun load(name: String) = rule.runOnUiThread {
+            val preset = vm.synthPresets.factory.first { it.name == name }
+            vm.loadSynthPreset(id, preset)
         }
-        fun load(name: String) = onVm { vm -> vm.loadSynthPreset(id, vm.synthPresets.factory.first { it.name == name }) }
-        device.wait(Until.hasObject(By.text("Oscillators")), 5_000)
 
         load("Warm Strings")
         shot("10-synth-oscillators-warm-strings")
@@ -129,59 +66,64 @@ class ScreenshotTest {
         shot("21-synth-oscillators-growl-bass")
         tap("Movement")
         shot("22-synth-movement-growl-bass")
-        tap("Oscillators")
         load("Clear Bell")
+        tap("Oscillators")
         shot("23-synth-oscillators-clear-bell")
 
-        tap("tap to browse", partial = true)
+        rule.onAllNodesWithText("tap to browse", substring = true)[0].performClick()
         shot("30-synth-presets")
     }
 
-    @Test
-    fun soundLibrary() {
-        onVm { it.settingsOpen = true }
-        device.wait(Until.hasObject(By.text("Settings")), 5_000)
-        tapScrolling("Sound library")
-        device.wait(Until.hasObject(By.text("Credits & licences")), 5_000)
-        shot("40-library-home")
-        val pages = listOf(
-            "SoundFont instruments" to "41-library-instruments",
-            "Synth engines" to "42-library-synths",
-            "SFZ instruments" to "43-library-sfz",
-            "Freesound" to "44-library-freesound",
-            "Wikimedia Commons" to "45-library-commons",
-            "Internet Archive" to "46-library-archive",
-            "Free sample sites" to "47-library-free-sites",
-            "Credits & licences" to "48-library-credits",
-        )
-        for ((title, name) in pages) {
-            tapScrolling(title)
-            when (title) {
-                "SoundFont instruments" -> device.wait(Until.hasObject(By.textContains("Piano")), 10_000)
-                "Wikimedia Commons", "Internet Archive" -> Thread.sleep(4000)  // first search
-            }
-            shot(name)
-            device.pressBack()  // back to the list of sources
-            device.wait(Until.hasObject(By.text("Sound library")), 5_000)
-        }
+    /** Screenshot without waiting for Compose to go idle: while the song plays it never does. */
+    private fun liveShot(name: String, settleMs: Long = 900) {
+        Thread.sleep(settleMs)
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
+        TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    /** The mixer with the Vocals track, then its Parametric EQ and Pitch Correct editors, with music playing. */
     @Test
-    fun soundPicker() {
-        var firstName = ""
-        onVm { vm ->
-            // A Macro synth channel shows its preset name in the rack.
-            val macro = vm.sounds.macroPresets.first()
-            vm.applyChoice(null, com.mobiledaw.sound.SoundChoice.Engine(macro.instrument, macro.index, null, null, macro.name))
-            firstName = vm.project.channels.first().name
+    fun vocalChain() {
+        val trackId = com.mobiledaw.model.VOCALS_TRACK_ID
+        rule.runOnUiThread {
+            // Send the lead synth through the Vocals track so the plugins have something to show.
+            vm.project.channels.firstOrNull { it.instrument == Instrument.LEAD }?.let { vm.routeChannel(it.id, trackId) }
+            vm.tab = Tab.MIXER
         }
-        shot("50-rack-with-macro-synth")
-        tap(firstName)
-        shot("51-picker-kits")
-        tap("Instruments")
-        device.wait(Until.hasObject(By.textContains("Piano")), 10_000)
-        shot("52-picker-instruments")
-        tap("Synths")
-        shot("53-picker-synths")
+        rule.waitForIdle()
+        try {
+            rule.runOnUiThread { if (!vm.playing) vm.togglePlay() }
+            liveShot("40-mixer-vocals-track", 1500)
+
+            val track = vm.project.mixerTrack(trackId) ?: error("no Vocals track")
+            val eq = track.effects.first { it.type == com.mobiledaw.model.EffectType.EQ }
+            rule.runOnUiThread {
+                vm.updateEffect(trackId, eq.id) {
+                    it.copy(
+                        eq = com.mobiledaw.model.EqSettings(
+                            listOf(
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.LOW_CUT, 90f, 0f, 0.71f, slope = 2),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 320f, -4.5f, 1.4f),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.BELL, 3200f, 5f, 0.9f),
+                                com.mobiledaw.model.EqBand(com.mobiledaw.model.EqBandType.HIGH_SHELF, 11000f, 3f, 0.71f),
+                            ),
+                        ),
+                    )
+                }
+                vm.openEffect(trackId, eq.id)
+            }
+            liveShot("41-parametric-eq", 2000)
+            rule.runOnUiThread { vm.closeEffect() }
+
+            val pitch = track.effects.first { it.type == com.mobiledaw.model.EffectType.PITCH }
+            rule.runOnUiThread { vm.openEffect(trackId, pitch.id) }
+            liveShot("42-pitch-correct", 1500)
+            rule.runOnUiThread { vm.updateEffect(trackId, pitch.id) { it.copy(pitch = it.pitch?.copy(retuneMs = 0f, humanize = 0f)) } }
+            liveShot("43-pitch-correct-robot", 1200)
+            rule.runOnUiThread { vm.closeEffect() }
+        } finally {
+            // The engine outlives the activity: stop it so later tests can go idle.
+            rule.runOnUiThread { if (vm.playing) vm.togglePlay() }
+        }
     }
 }
