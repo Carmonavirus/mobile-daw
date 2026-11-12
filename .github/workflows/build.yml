@@ -62,20 +62,8 @@ jobs:
           api-level: 29
           arch: x86_64
           disable-animations: true
-          script: |
-            adb install -r app-debug.apk
-            adb logcat -c
-            adb shell am start -W -n com.mobiledaw/.MainActivity
-            # Give it a few seconds to settle, then check it's still alive and didn't crash.
-            sleep 8
-            if adb logcat -d | grep -E "FATAL EXCEPTION|AndroidRuntime.*com\.mobiledaw|Force finishing activity com\.mobiledaw"; then
-              echo "App crashed on launch"; exit 1
-            fi
-            pid=$(adb shell pidof com.mobiledaw | tr -d '\r')
-            if [ -z "$pid" ]; then
-              echo "App process is not running after launch"; adb logcat -d | tail -80; exit 1
-            fi
-            echo "App launched and is running (pid $pid)"
+          # Keep this a single command: the runner executes `script` with sh.
+          script: bash .github/scripts/launch-check.sh app-debug.apk
 
   # Keep one always-current APK on the "latest-build" release so it can be
   # installed straight from a phone browser. Only after the launch test passes.
