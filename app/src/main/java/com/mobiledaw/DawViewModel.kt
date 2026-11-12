@@ -43,6 +43,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Which sample path each engine channel slot currently holds. */
     private val loadedSamples = arrayOfNulls<String>(NativeEngine.MAX_CHANNELS)
+
+    // The patch each engine slot last received, so unchanged sounds aren't resent.
+    // Declared before init{} because syncEngine()/syncSynth() (run from init) reads it.
+    private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
@@ -377,9 +381,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** The channel whose synth editor is open, or null. */
     var synthEditorChannelId by mutableStateOf<Long?>(null)
         private set
-
-    /** The patch each engine slot last received, so unchanged sounds aren't resent. */
-    private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
 
     private fun syncSynth(slot: Int, c: Channel) {
         if (c.instrument != Instrument.WAVETABLE) {
