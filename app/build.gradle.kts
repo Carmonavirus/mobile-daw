@@ -1,3 +1,6 @@
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -101,7 +104,7 @@ val fetchGeneralUser = tasks.register("fetchGeneralUserGs") {
     outputs.file(generalUserFile)
     doLast {
         fun sha256(f: File): String {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val md = MessageDigest.getInstance("SHA-256")
             f.inputStream().use { input ->
                 val buf = ByteArray(1 shl 16)
                 while (true) {
@@ -110,12 +113,12 @@ val fetchGeneralUser = tasks.register("fetchGeneralUserGs") {
                     md.update(buf, 0, n)
                 }
             }
-            return md.digest().joinToString("") { "%02x".format(it) }
+            return md.digest().joinToString("") { b -> "%02x".format(b) }
         }
         if (generalUserFile.exists() && sha256(generalUserFile) == generalUserSha256) return@doLast
         generalUserFile.parentFile.mkdirs()
         val tmp = File(generalUserFile.path + ".part")
-        java.net.URI(generalUserUrl).toURL().openStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        URI(generalUserUrl).toURL().openStream().use { input -> tmp.outputStream().use { out -> input.copyTo(out) } }
         check(sha256(tmp) == generalUserSha256) { "GeneralUser GS download did not match its checksum" }
         tmp.renameTo(generalUserFile)
     }
