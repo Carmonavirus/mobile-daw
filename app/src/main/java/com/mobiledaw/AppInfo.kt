@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.6.4", "2026-11-12T23:30:00Z",
+            listOf(
+                "Metronome: tap the metronome button at the top left to turn the click on or off. It clicks every beat at the project's tempo, with a higher click on beat 1 of each bar. Remembered.",
+                "The click is made by the audio engine itself, so it stays exactly on the beat, and it is only in what you hear: it never ends up in your recordings' audio or a future export.",
+                "Recording now counts in one full bar (1, 2, 3, 4, GO) with the click, and the take starts exactly on the next beat. With the metronome on, it keeps clicking while you record.",
+            ),
+        ),
+        Release(
             "0.6.3", "2026-11-12T23:00:00Z",
             listOf(
                 "Bluetooth sync: the playhead, step lights and meters now wait for the sound, so with earbuds what you see matches what you hear.",

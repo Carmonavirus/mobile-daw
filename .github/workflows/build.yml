@@ -23,6 +23,13 @@ jobs:
             engine-test/fx_test.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
             -o engine-test/out/fxtest -pthread
           cd engine-test && ./out/fxtest
+      - name: Build and run the metronome and count-in test
+        run: |
+          mkdir -p engine-test/out
+          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
+            engine-test/metronome_test.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/fx/*.cpp app/src/main/cpp/wavesynth/*.cpp \
+            -o engine-test/out/metronometest -pthread
+          cd engine-test && ./out/metronometest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
           mkdir -p engine-test/out

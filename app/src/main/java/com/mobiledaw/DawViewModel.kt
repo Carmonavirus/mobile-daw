@@ -234,9 +234,19 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var takeState by mutableStateOf(TakeState.IDLE)
         private set
-    /** Count-in shown over the playlist: 1, 2, 3, then 4 means "GO". Null when hidden. */
+    /** Count-in shown over the playlist: 1..4 while counting, then [COUNT_IN_GO]. Null when hidden. */
     var countIn by mutableStateOf<Int?>(null)
         private set
+
+    /** Metronome click on every beat (accented on beat 1), made in the engine. Never bounced. Remembered. */
+    var metronomeOn by mutableStateOf(prefs.getBoolean("metronome", false))
+        private set
+
+    fun toggleMetronome() {
+        metronomeOn = !metronomeOn
+        prefs.edit().putBoolean("metronome", metronomeOn).apply()
+        NativeEngine.setMetronome(metronomeOn, BEATS_PER_BAR)
+    }
     /** Where the current take starts and which lane it lands on. */
     var takeStartTick by mutableIntStateOf(0)
         private set
@@ -312,6 +322,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private fun syncEngine() {
         val p = project
         NativeEngine.setBpm(p.bpm.toFloat())
+        NativeEngine.setMetronome(metronomeOn, BEATS_PER_BAR)
         NativeEngine.setMasterVolume(p.masterVolume)
         val audioSlots = SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS)
         NativeEngine.setChannelCount((p.channels.size + audioSlots.size).coerceAtMost(NativeEngine.MAX_CHANNELS))
@@ -1001,18 +1012,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         takeState = TakeState.COUNTING
         recordMessage = null
         takeJob = viewModelScope.launch {
-            val beatMs = 60_000L / project.bpm.coerceAtLeast(1)
-            for (n in 1..3) {
-                countIn = n
-                click(high = false)
-                delay(beatMs)
-            }
-            countIn = 4
-            click(high = true)
+            // Open the mic first, so it is already listening when the count-in ends.
             val file = recordingFile("take-${System.currentTimeMillis()}.wav")
             val ok = withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) { recorder.start(file) }
             if (!isActive) {
-                // Stopped during the count-in while the mic was opening.
+                // Stopped while the mic was opening.
                 recorder.stop()?.file?.delete()
                 return@launch
             }
@@ -1022,13 +1026,28 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 recordMessage = "Couldn't open the microphone."
                 return@launch
             }
-            takeState = TakeState.RECORDING
             syncEngine() // longer loop so the song doesn't wrap under the take
             NativeEngine.seek(start.toLong())
-            applyPlaying(true)
+            // The engine clicks one bar in and starts the song on the exact sample after it,
+            // so the count-in and the take are sample-accurate (no UI timers involved).
+            val beats = BEATS_PER_BAR
+            val beatNanos = 60_000_000_000L / project.bpm.coerceAtLeast(1)
+            val expectedStart = System.nanoTime() + beats * beatNanos
+            playStartNanos = expectedStart // so the lead-in trim skips the count-in from the first peak
+            NativeEngine.startCountIn(beats)
+            while (isActive && !NativeEngine.isPlaying()) {
+                countIn = NativeEngine.countInBeat().takeIf { it > 0 }
+                micLevel = recorder.level
+                delay(10)
+            }
+            if (!isActive) return@launch
+            takeState = TakeState.RECORDING
+            countIn = COUNT_IN_GO
+            applyPlaying(true) // the engine is already playing; this just catches the UI up
+            playStartNanos = expectedStart
             launch {
-                delay(beatMs.coerceAtMost(700))
-                if (countIn == 4) countIn = null
+                delay((beatNanos / 1_000_000L).coerceAtMost(700))
+                if (countIn == COUNT_IN_GO) countIn = null
             }
             while (isActive && recorder.isRunning) {
                 // Drop the lead-in the take will lose when it's lined up (see takeLeadInFrames).
@@ -1052,6 +1071,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         takeState = TakeState.IDLE
         applyPlaying(false)
         if (state != TakeState.RECORDING) {
+            // Stopped during the count-in: the mic was already open, so throw that audio away.
+            if (state == TakeState.COUNTING) recorder.stop()?.file?.delete()
             syncEngine()
             return
         }
@@ -1183,19 +1204,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Where recordings are saved. */
     fun recordingFile(name: String): java.io.File = kits.file("$RECORDINGS_DIR/$name")
-
-    /** A short count-in blip through the audition voice. */
-    private fun click(high: Boolean) {
-        val sr = 48000
-        val freq = if (high) 1760.0 else 1175.0
-        val n = sr / 20
-        val frames = FloatArray(n) { i ->
-            val t = i.toDouble() / sr
-            (kotlin.math.sin(2 * Math.PI * freq * t) * kotlin.math.exp(-t * 60) * 0.8).toFloat()
-        }
-        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, frames, sr.toFloat())
-        NativeEngine.audition()
-    }
 
     // ---------------------------------------------------------------- projects
 
@@ -1388,6 +1396,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** The app is in 4/4: metronome accents and the record count-in use this. */
+        const val BEATS_PER_BAR = com.mobiledaw.model.TICKS_PER_BAR / com.mobiledaw.model.TICKS_PER_BEAT
+        /** [countIn] value for the "GO" shown as the take starts. */
+        const val COUNT_IN_GO = 0
         /** Fine-tune range around the measured delay (Auto), in ms. */
         const val LATENCY_OFFSET_MIN = -300
         const val LATENCY_OFFSET_MAX = 500
