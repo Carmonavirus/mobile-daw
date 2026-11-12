@@ -33,6 +33,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
 import com.mobiledaw.PlayMode
+import com.mobiledaw.TakeState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.ui.theme.DawColors
 
@@ -49,14 +57,34 @@ private val GUTTER_W = 40.dp
 @Composable
 fun PlaylistScreen(vm: DawViewModel) {
     val project = vm.project
-    val bars = maxOf(32, project.songBars + 8)
+    val recording = vm.takeState == TakeState.RECORDING
+    val liveEndBar = if (recording) (vm.positionTicks / TICKS_PER_BAR).toInt() + 1 else 0
+    val bars = maxOf(32, project.songBars + 8, liveEndBar + 8)
     val measurer = rememberTextMeasurer()
     val projectState = rememberUpdatedState(project)
+    val hScroll = rememberScrollState()
+    var viewportPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    // Waveforms of the recordings, worked out once per clip list.
+    val audioPeaks = remember(project.audioClips) {
+        project.audioClips.associate { it.path to vm.samplePeaks(it.path, 400) }
+    }
 
+    // Keep the playhead in view while recording.
+    LaunchedEffect(vm.positionTicks, recording) {
+        if (!recording || viewportPx == 0) return@LaunchedEffect
+        val x = with(density) { (vm.positionTicks.toFloat() / TICKS_PER_BAR * BAR_W.toPx()).toInt() }
+        if (x > hScroll.value + viewportPx * 0.75f || x < hScroll.value) {
+            hScroll.animateScrollTo((x - viewportPx / 4).coerceAtLeast(0))
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
         Text(
-            "Tap a cell to place the selected pattern, tap a clip to remove it.",
+            if (vm.recordMode) "Recordings land on the first free track at the playhead. Tap one to remove it."
+            else "Tap a cell to place the selected pattern, tap a clip to remove it.",
             fontSize = 11.sp,
             color = DawColors.Muted,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -77,7 +105,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                     }
                 }
             }
-            Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+            Box(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
                 Canvas(
                     Modifier
                         .width(BAR_W * bars)
@@ -88,7 +116,10 @@ fun PlaylistScreen(vm: DawViewModel) {
                                 if (pos.y < header) return@detectTapGestures
                                 val lane = ((pos.y - header) / LANE_H.toPx()).toInt()
                                 val bar = (pos.x / BAR_W.toPx()).toInt()
-                                if (lane in 0 until LANES) vm.toggleClip(lane, bar)
+                                val tick = (pos.x / BAR_W.toPx() * TICKS_PER_BAR).toInt()
+                                if (lane !in 0 until LANES) return@detectTapGestures
+                                val audio = vm.audioClipAt(lane, tick)
+                                if (audio != null) vm.deleteAudioClip(audio.id) else vm.toggleClip(lane, bar)
                             }
                         },
                 ) {
@@ -139,13 +170,73 @@ fun PlaylistScreen(vm: DawViewModel) {
                         drawText(label, topLeft = Offset(x + 6.dp.toPx(), y + 6.dp.toPx()))
                     }
 
+                    // Recordings, with their waveform.
+                    val corner = CornerRadius(10.dp.toPx())
+                    p.audioClips.forEach { clip ->
+                        if (clip.lane >= LANES) return@forEach
+                        val x = clip.startTick.toFloat() / TICKS_PER_BAR * bw + gap
+                        val y = header + clip.lane * lh + gap
+                        val w = (clip.lengthTicks(p.bpm).toFloat() / TICKS_PER_BAR * bw - gap * 2).coerceAtLeast(4.dp.toPx())
+                        val h = lh - gap * 2
+                        drawRoundRect(DawColors.AccentSoft, Offset(x, y), Size(w, h), corner)
+                        drawWave(audioPeaks[clip.path], x, y + 16.dp.toPx(), w, h - 18.dp.toPx(), DawColors.Accent)
+                        val label = measurer.measure(
+                            clip.name,
+                            TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            constraints = androidx.compose.ui.unit.Constraints(maxWidth = (w - 12.dp.toPx()).toInt().coerceAtLeast(1)),
+                        )
+                        drawText(label, topLeft = Offset(x + 6.dp.toPx(), y + 3.dp.toPx()))
+                    }
+
+                    // The take being recorded grows from its start to the playhead.
+                    if (recording) {
+                        val x = vm.takeStartTick.toFloat() / TICKS_PER_BAR * bw + gap
+                        val y = header + vm.takeLane * lh + gap
+                        val endX = vm.positionTicks.toFloat() / TICKS_PER_BAR * bw
+                        val w = (endX - x).coerceAtLeast(4.dp.toPx())
+                        val h = lh - gap * 2
+                        drawRoundRect(RecordRed.copy(alpha = 0.22f), Offset(x, y), Size(w, h), corner)
+                        drawWave(vm.takePeaks, x, y + 6.dp.toPx(), w, h - 12.dp.toPx(), RecordRed, normalize = false)
+                    }
+
                     // Song playhead
                     if (vm.mode == PlayMode.SONG && (vm.playing || vm.positionTicks > 0)) {
                         val x = vm.positionTicks.toFloat() / TICKS_PER_BAR * bw
-                        drawLine(DawColors.Accent, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
+                        drawLine(if (recording) RecordRed else DawColors.Accent, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
                     }
                 }
             }
         }
+    }
+    vm.undoSnapshot?.let {
+        UndoBar(vm.undoLabel, onUndo = vm::undoDelete, onDismiss = vm::dismissUndo)
+    }
+    }
+}
+
+private val RecordRed = Color(0xFFE5484D)
+
+/** Mirrored peak bars across a box, one bar every 2 dp. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWave(
+    peaks: FloatArray?,
+    x: Float,
+    y: Float,
+    w: Float,
+    h: Float,
+    color: Color,
+    normalize: Boolean = true,
+) {
+    if (peaks == null || peaks.isEmpty() || w <= 0f || h <= 0f) return
+    val step = 2.dp.toPx()
+    val mid = y + h / 2f
+    val scale = if (normalize) 1f else 1f / (peaks.maxOrNull()?.coerceAtLeast(0.05f) ?: 1f)
+    var px = 0f
+    while (px < w) {
+        val i = (px / w * peaks.size).toInt().coerceIn(0, peaks.size - 1)
+        val a = (peaks[i] * scale).coerceIn(0.03f, 1f) * h / 2f
+        drawLine(color, Offset(x + px, mid - a), Offset(x + px, mid + a), 1.2.dp.toPx())
+        px += step
     }
 }

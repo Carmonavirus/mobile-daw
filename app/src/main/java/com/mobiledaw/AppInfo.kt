@@ -26,6 +26,16 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.5", "2026-11-12T17:40:00Z",
+            listOf(
+                "PAT / SONG moved from the top bar to the left of the play button.",
+                "Record on the playlist: tap Record (right of play). The bar switches to a big play button and a big red record button.",
+                "Tap the red button: 1, 2, 3, GO count-in, then it records the microphone. Tap again to stop. The take lands on the playlist at the playhead, on the first free track, with its waveform.",
+                "Recordings play back in SONG mode, also when you start playing in the middle of one. Tap a recording to remove it (Undo is there for a few seconds).",
+                "Close goes back to the normal play bar.",
+            ),
+        ),
+        Release(
             "0.4.5", "2026-11-12T17:30:00Z",
             listOf(
                 "Channel settings: a graphical envelope — drag the dots for attack, hold, decay, sustain and release.",
