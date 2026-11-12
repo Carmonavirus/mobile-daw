@@ -27,6 +27,8 @@ target_compile_options(dawengines PRIVATE -O2 -w)
 
 add_library(mobiledaw SHARED
         DawCore.cpp
+        fx/ParametricEq.cpp
+        fx/PitchCorrector.cpp
         wavesynth/WaveSynth.cpp
         wavesynth/Wavetables.cpp
         AudioEngine.cpp

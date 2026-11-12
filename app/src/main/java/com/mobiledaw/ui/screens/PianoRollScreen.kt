@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
@@ -93,6 +94,12 @@ fun PianoRollScreen(vm: DawViewModel) {
         // clipToBounds stops any note/label drawing from spilling up over the track chips.
         PianoRollCanvas(vm, Modifier.weight(1f).fillMaxWidth().clipToBounds())
 
+        // Chords panel: replaces the controls below while open.
+        if (vm.chordGen != null) {
+            com.mobiledaw.ui.ChordPanel(vm, Modifier.heightIn(max = 430.dp))
+            return@Column
+        }
+
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -124,6 +131,8 @@ fun PianoRollScreen(vm: DawViewModel) {
                 selected = vm.labelAllNotes,
                 onSelect = vm::changeLabelAllNotes,
             )
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
+            DawChip("Chords", selected = false, dotColor = DawColors.Note) { vm.openChordGen() }
         }
         WaveformStrip(
             vm.scope,
@@ -167,11 +176,17 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
         val contentHeight = (HIGHEST_PITCH - LOWEST_PITCH + 1) * rowH
 
         // Center the view on the selected channel's notes when it changes.
-        LaunchedEffect(channel.id) {
+        // Also when the Chords panel opens: fit the progression in view.
+        val chordsOpen = vm.chordGen != null
+        LaunchedEffect(channel.id, chordsOpen) {
             val notes = pattern.notesFor(channel.id)
             val center = if (notes.isEmpty()) channel.stepPitch else notes.map { it.pitch }.average().roundToInt()
             scrollY = ((HIGHEST_PITCH - center) * rowH - heightPx / 2f).coerceIn(0f, (contentHeight - heightPx).coerceAtLeast(0f))
             scrollX = 0f
+            vm.chordGen?.let { s ->
+                val span = (s.slots.size * vm.chordSettings.lengthTicks).coerceIn(TICKS_PER_BAR, TICKS_PER_BAR * 4)
+                pxPerTick = (widthPx - gutter) / span
+            }
         }
 
         val notesState = rememberUpdatedState(pattern.notesFor(channel.id))

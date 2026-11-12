@@ -17,6 +17,13 @@ import com.mobiledaw.model.AudioClip
 import com.mobiledaw.model.Channel
 import com.mobiledaw.model.Clip
 import com.mobiledaw.model.DemoProject
+import com.mobiledaw.model.Effect
+import com.mobiledaw.model.EffectType
+import com.mobiledaw.model.EqSettings
+import com.mobiledaw.model.MAX_EFFECTS
+import com.mobiledaw.model.MAX_MIXER_TRACKS
+import com.mobiledaw.model.MixerTrack
+import com.mobiledaw.model.PitchSettings
 import com.mobiledaw.model.Instrument
 import com.mobiledaw.model.Note
 import com.mobiledaw.model.Pattern
@@ -53,6 +60,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // The patch each engine slot last received, so unchanged sounds aren't resent.
     // Declared before init{} because syncEngine()/syncSynth() (run from init) reads it.
     private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
+
+    // What each engine effect slot last received, so unchanged effects aren't resent.
+    // Also declared before init{} (syncEngine() -> syncMixer() reads it).
+    private val sentEffects = HashMap<Int, Pair<Int, FloatArray>>()
+
+    /** Mixer track meters, by position in [Project.mixerTracks]. Before init{}: its loop writes it. */
+    var trackLevels by mutableStateOf(FloatArray(NativeEngine.MAX_INSERTS))
+        private set
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
@@ -180,6 +195,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 positionTicks = NativeEngine.positionTicks()
                 levels = FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) }
                 scope = FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) }
+                trackLevels = FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) }
                 delay(33)
             }
         }
@@ -213,7 +229,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.hold, c.decay, c.sustain, c.release, c.pitchSemis, c.reverse)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, c.pitchSemis, c.reverse)
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -226,7 +242,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
-            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 1f, 0.005f, 0, false)
+            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, 0, false)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
@@ -244,6 +260,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         else maxOf(compiled.loopTicks, takeStartTick + p.bpm * TICKS_PER_BEAT_PER_MINUTE * 5)
         NativeEngine.setSequence(compiled.events, loop)
         loopTicks = loop
+        syncMixer()
     }
 
     /** Project as it was before the last delete, while that delete can still be undone. */
@@ -382,6 +399,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- channel rack
 
     fun selectChannel(id: Long) {
+        // Switching channels keeps the chords written so far.
+        if (chordGen != null && chordGen?.channelId != id) closeChordGen(keep = true)
         selectedChannelId = id
     }
 
@@ -754,6 +773,130 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         kitsVersion++
     }
 
+    // ---------------------------------------------------------------- chord generator
+
+    /** The open Chords panel: which channel/pattern it writes into and what was there before. */
+    data class ChordGenSession(
+        val channelId: Long,
+        val patternId: Long,
+        val originalNotes: List<Note>,
+        val originalBars: Int,
+        val slots: List<com.mobiledaw.model.ChordSlot>,
+    )
+
+    var chordGen by mutableStateOf<ChordGenSession?>(null)
+        private set
+
+    /** Remembered between openings. */
+    var chordSettings by mutableStateOf(com.mobiledaw.model.ChordSettings())
+        private set
+
+    private val chordRandom = kotlin.random.Random(System.nanoTime())
+    private var chordAudition: Job? = null
+
+    /** Opens the Chords panel on the selected channel and writes a first progression. */
+    fun openChordGen() {
+        val channel = selectedChannel ?: return
+        val pattern = selectedPattern
+        if (chordGen == null) {
+            chordGen = ChordGenSession(channel.id, pattern.id, pattern.notesFor(channel.id), pattern.bars, emptyList())
+        }
+        if (mode != PlayMode.PATTERN) switchMode(PlayMode.PATTERN)
+        generateChords()
+    }
+
+    /** Keep = leave the chords in the pattern; otherwise put back what was there. */
+    fun closeChordGen(keep: Boolean) {
+        val s = chordGen ?: return
+        chordAudition?.cancel()
+        chordGen = null
+        if (!keep) {
+            updatePattern(s.patternId) { pat ->
+                pat.copy(bars = s.originalBars, notes = pat.notes + (s.channelId to s.originalNotes))
+            }
+        }
+    }
+
+    fun generateChords() {
+        val s = chordGen ?: return
+        setChordSlots(com.mobiledaw.model.ChordGen.generate(s.slots, chordSettings, project.minor, chordRandom))
+    }
+
+    fun rerollChord(index: Int) {
+        val s = chordGen ?: return
+        if (index !in s.slots.indices) return
+        setChordSlots(com.mobiledaw.model.ChordGen.reroll(s.slots, index, chordSettings, project.minor, chordRandom))
+        auditionChord(index)
+    }
+
+    fun toggleChordLock(index: Int) {
+        val s = chordGen ?: return
+        setChordSlots(s.slots.mapIndexed { i, c -> if (i == index) c.copy(locked = !c.locked) else c })
+    }
+
+    fun invertChord(index: Int, delta: Int) {
+        val s = chordGen ?: return
+        setChordSlots(s.slots.mapIndexed { i, c -> if (i == index) c.copy(inversion = (c.inversion + delta).coerceIn(-4, 4)) else c })
+        auditionChord(index)
+    }
+
+    /** Count, octave, length, bass and rhythm apply right away; the slider applies on the next Generate. */
+    fun changeChordSettings(transform: (com.mobiledaw.model.ChordSettings) -> com.mobiledaw.model.ChordSettings) {
+        val old = chordSettings
+        val new = transform(old).let {
+            it.copy(
+                count = it.count.coerceIn(com.mobiledaw.model.ChordGen.MIN_COUNT, com.mobiledaw.model.ChordGen.MAX_COUNT),
+                octave = it.octave.coerceIn(com.mobiledaw.model.ChordGen.MIN_OCTAVE, com.mobiledaw.model.ChordGen.MAX_OCTAVE),
+                adventure = it.adventure.coerceIn(0f, 1f),
+            )
+        }
+        chordSettings = new
+        val s = chordGen ?: return
+        when {
+            new.count > s.slots.size -> {
+                // Keep the chords we have and add new ones after them.
+                val kept = s.slots.map { it.copy(locked = true) }
+                val grown = com.mobiledaw.model.ChordGen.generate(kept, new, project.minor, chordRandom)
+                setChordSlots(grown.mapIndexed { i, c -> if (i < s.slots.size) s.slots[i] else c })
+            }
+            new.count < s.slots.size -> setChordSlots(s.slots.take(new.count))
+            new != old -> setChordSlots(s.slots)
+        }
+    }
+
+    private fun setChordSlots(slots: List<com.mobiledaw.model.ChordSlot>) {
+        val s = chordGen ?: return
+        chordGen = s.copy(slots = slots)
+        val settings = chordSettings
+        val span = slots.size * settings.lengthTicks
+        val chordNotes = com.mobiledaw.model.ChordGen.notes(slots, settings, project.key)
+        val neededBars = ((span + TICKS_PER_BAR - 1) / TICKS_PER_BAR).coerceAtMost(com.mobiledaw.model.MAX_BARS)
+        updatePattern(s.patternId) { pat ->
+            // The chords replace this channel's notes where they play; anything after them stays.
+            val rest = s.originalNotes.filter { it.start >= span }
+            val bars = maxOf(s.originalBars, neededBars)
+            val limit = bars * TICKS_PER_BAR
+            val notes = (chordNotes.filter { it.start < limit }.map { it.copy(length = minOf(it.length, limit - it.start)) } + rest)
+            pat.copy(bars = bars, notes = pat.notes + (s.channelId to notes))
+        }
+    }
+
+    /** Plays one chord of the progression on its channel (only while stopped). */
+    fun auditionChord(index: Int) {
+        val s = chordGen ?: return
+        if (playing) return
+        val pitches = com.mobiledaw.model.ChordGen.voice(s.slots, chordSettings, project.key).getOrNull(index) ?: return
+        chordAudition?.cancel()
+        chordAudition = viewModelScope.launch {
+            pitches.forEach { synthNote(s.channelId, it, true) }
+            try {
+                delay(700)
+            } finally {
+                pitches.forEach { synthNote(s.channelId, it, false) }
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- piano roll
 
     fun addNote(channelId: Long, note: Note) {
@@ -948,6 +1091,151 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         store.rename(project.name, clean)
         project = project.copy(name = clean)
         store.save(project)
+    }
+
+    // ---------------------------------------------------------------- mixer tracks & effects
+
+    /** The effect whose editor is open: (mixer track id, effect id). */
+    var openEffect by mutableStateOf<Pair<Long, Long>?>(null)
+        private set
+
+    /** Engine insert index of a mixer track, or -1 (master) when it doesn't exist. */
+    fun insertIndex(trackId: Long?): Int {
+        if (trackId == null) return -1
+        val i = project.mixerTracks.indexOfFirst { it.id == trackId }
+        return if (i in 0 until NativeEngine.MAX_INSERTS) i else -1
+    }
+
+    private fun syncMixer() {
+        val p = project
+        val tracks = p.mixerTracks.take(NativeEngine.MAX_INSERTS)
+        NativeEngine.setInsertCount(tracks.size)
+        tracks.forEachIndexed { t, track ->
+            NativeEngine.setInsert(t, track.volume, track.pan, track.mute)
+            for (slot in 0 until NativeEngine.MAX_SLOTS) {
+                val fx = track.effects.getOrNull(slot)
+                val key = t * NativeEngine.MAX_SLOTS + slot
+                val type = fx?.type?.id ?: 0
+                NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
+                if (fx == null) {
+                    sentEffects.remove(key)
+                    continue
+                }
+                val params = fx.params(p)
+                val last = sentEffects[key]
+                if (last == null || last.first != type || !last.second.contentEquals(params)) {
+                    NativeEngine.setEffectParams(t, slot, params)
+                    sentEffects[key] = type to params
+                }
+            }
+        }
+        p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
+            NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
+        }
+        // Recorded audio clips play through the recording track (the Vocals track by default).
+        val recordingInsert = insertIndex(p.recordingTrackId)
+        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, _) ->
+            NativeEngine.setChannelInsert(slot, recordingInsert)
+        }
+    }
+
+    /** Mixer-only edits (knobs, EQ drags) skip recompiling the song. */
+    private fun updateMixer(transform: (Project) -> Project) {
+        undoSnapshot = null
+        project = transform(project)
+        syncMixer()
+        scheduleSave()
+    }
+
+    fun updateMixerTrack(id: Long, transform: (MixerTrack) -> MixerTrack) = updateMixer { p ->
+        p.copy(mixerTracks = p.mixerTracks.map { if (it.id == id) transform(it) else it })
+    }
+
+    fun addMixerTrack(): Long? {
+        if (project.mixerTracks.size >= MAX_MIXER_TRACKS) return null
+        val id = project.nextMixerTrackId()
+        val name = "Track ${project.mixerTracks.size + 1}"
+        updateMixer { it.copy(mixerTracks = it.mixerTracks + MixerTrack(id, name)) }
+        return id
+    }
+
+    fun deleteMixerTrack(id: Long) {
+        val before = project
+        val name = before.mixerTrack(id)?.name ?: "track"
+        update { p ->
+            p.copy(
+                mixerTracks = p.mixerTracks.filter { it.id != id },
+                channels = p.channels.map { if (it.mixerTrack == id) it.copy(mixerTrack = null) else it },
+                recordingTrackId = p.recordingTrackId.takeIf { it != id },
+            )
+        }
+        sentEffects.clear()
+        undoSnapshot = before
+        undoLabel = "Deleted $name"
+    }
+
+    fun renameMixerTrack(id: Long, name: String) {
+        val clean = name.trim().ifEmpty { return }
+        updateMixerTrack(id) { it.copy(name = clean) }
+    }
+
+    fun routeChannel(channelId: Long, trackId: Long?) = updateMixer { p ->
+        p.copy(channels = p.channels.map { if (it.id == channelId) it.copy(mixerTrack = trackId) else it })
+    }
+
+    /** Where recorded audio plays through: a mixer track, or null for straight to the master. */
+    fun setRecordingTrack(trackId: Long?) = update { it.copy(recordingTrackId = trackId) }
+
+    fun addEffect(trackId: Long, type: EffectType) {
+        val track = project.mixerTrack(trackId) ?: return
+        if (track.effects.size >= MAX_EFFECTS) return
+        val id = project.nextEffectId()
+        val fx = when (type) {
+            EffectType.EQ -> Effect(id, type, eq = EqSettings.flat())
+            EffectType.PITCH -> Effect(id, type, pitch = PitchSettings())
+        }
+        updateMixerTrack(trackId) { it.copy(effects = it.effects + fx) }
+        openEffect = trackId to id
+    }
+
+    fun removeEffect(trackId: Long, effectId: Long) {
+        if (openEffect == trackId to effectId) openEffect = null
+        updateMixerTrack(trackId) { t -> t.copy(effects = t.effects.filter { it.id != effectId }) }
+    }
+
+    /** Moves an effect one place earlier (-1) or later (+1) in the chain. */
+    fun moveEffect(trackId: Long, effectId: Long, by: Int) = updateMixerTrack(trackId) { t ->
+        val i = t.effects.indexOfFirst { it.id == effectId }
+        val j = i + by
+        if (i < 0 || j !in t.effects.indices) return@updateMixerTrack t
+        val list = t.effects.toMutableList()
+        list.add(j, list.removeAt(i))
+        t.copy(effects = list)
+    }
+
+    fun updateEffect(trackId: Long, effectId: Long, transform: (Effect) -> Effect) = updateMixerTrack(trackId) { t ->
+        t.copy(effects = t.effects.map { if (it.id == effectId) transform(it) else it })
+    }
+
+    fun openEffect(trackId: Long, effectId: Long) {
+        openEffect = trackId to effectId
+    }
+
+    fun closeEffect() {
+        openEffect = null
+    }
+
+    /** Fills [out] with the newest output of a mixer track, for the EQ's spectrum. */
+    fun readTrackSignal(trackId: Long, out: FloatArray) {
+        val i = insertIndex(trackId)
+        if (i >= 0) NativeEngine.readInsertSignal(i, out) else out.fill(0f)
+    }
+
+    /** Detected and corrected pitch (Hz) of a pitch corrector, 0 when nothing is sung. */
+    fun readPitch(trackId: Long, effectId: Long, out: FloatArray) {
+        val i = insertIndex(trackId)
+        val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
+        if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
     }
 
     override fun onCleared() {

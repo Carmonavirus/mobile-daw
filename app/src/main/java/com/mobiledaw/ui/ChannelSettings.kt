@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +38,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -49,7 +51,10 @@ import com.mobiledaw.model.Channel
 import com.mobiledaw.model.Instrument
 import com.mobiledaw.ui.theme.DawColors
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * A small take on a sampler's channel settings: volume with boost, pan, cut itself, trim and a
@@ -162,7 +167,7 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                         Text("Drag the handles to cut the start or end of the sound.", fontSize = 12.sp, color = DawColors.Muted)
                         Spacer(Modifier.height(8.dp))
                         TrimWaveform(
-                            peaks = peaks,
+                            peaks = if (channel.reverse) peaks.reversedArray() else peaks,
                             start = channel.trimStart,
                             end = channel.trimEnd,
                             attack = if (seconds > 0) channel.attack / seconds else 0f,
@@ -206,29 +211,35 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
 
                     Spacer(Modifier.height(10.dp))
                     Card {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Envelope", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, modifier = Modifier.weight(1f))
-                            Text(
-                                "${(channel.attack * 1000).roundToInt()} · ${(channel.hold * 1000).roundToInt()} · ${(channel.decay * 1000).roundToInt()} ms  S ${(channel.sustain * 100).roundToInt()}%  R ${(channel.release * 1000).roundToInt()} ms",
-                                fontSize = 11.sp,
-                                color = DawColors.Muted,
-                            )
-                        }
-                        Text("Drag the dots: attack, hold, decay/sustain, release.", fontSize = 12.sp, color = DawColors.Muted)
+                        Text("Envelope", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                        Text("Drag the dots, or use the knobs below.", fontSize = 12.sp, color = DawColors.Muted)
                         Spacer(Modifier.height(8.dp))
                         EnvelopeEditor(
+                            delay = channel.envDelay,
                             attack = channel.attack,
                             hold = channel.hold,
                             decay = channel.decay,
                             sustain = channel.sustain,
                             release = channel.release,
+                            tension = channel.tension,
                             onChange = { a, h, d, s, r -> set { it.copy(attack = a, hold = h, decay = d, sustain = s, release = r) } },
                             onRelease = { vm.preview(channel) },
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(10.dp))
+                        val onLift = { vm.preview(channel) }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Knob("DELAY", channel.envDelay, 0f..0.5f, "${(channel.envDelay * 1000).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(envDelay = v) } }
+                            Knob("ATT", channel.attack, 0f..0.5f, "${(channel.attack * 1000).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(attack = v) } }
+                            Knob("HOLD", channel.hold, 0f..0.5f, "${(channel.hold * 1000).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(hold = v) } }
+                            Knob("DEC", channel.decay, 0f..1f, "${(channel.decay * 1000).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(decay = v) } }
+                            Knob("SUS", channel.sustain, 0f..1f, "${(channel.sustain * 100).roundToInt()}%", onLift, Modifier.weight(1f)) { v -> set { it.copy(sustain = v) } }
+                            Knob("REL", channel.release, 0f..2f, "${(channel.release * 1000).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(release = v) } }
+                            Knob("TENS", channel.tension, -1f..1f, "${(channel.tension * 100).roundToInt()}", onLift, Modifier.weight(1f)) { v -> set { it.copy(tension = v) } }
+                        }
+                        Spacer(Modifier.height(6.dp))
                         Row {
                             Text("Reset envelope", fontSize = 12.sp, color = DawColors.Accent, modifier = Modifier.pointerInput(Unit) {
-                                detectTapGestures { set { it.copy(attack = 0f, hold = 0f, decay = 0f, sustain = 1f, release = 0f) } }
+                                detectTapGestures { set { it.copy(envDelay = 0f, attack = 0f, hold = 0f, decay = 0f, sustain = 1f, release = 0f, tension = 0f) } }
                             })
                         }
                     }
@@ -283,25 +294,36 @@ private fun LabeledSlider(
     )
 }
 
+/** Bends a 0..1 ramp by [tension] in [-1, 1]; matches the native envWarp in DawCore.cpp. */
+private fun envWarp(x: Float, tension: Float): Float {
+    if (abs(tension) < 1e-4f) return x
+    val k = tension * 5f
+    return ((exp(k * x) - 1f) / (exp(k) - 1f))
+}
+
 /**
- * A graphical attack / hold / decay / sustain / release editor. Four dots are draggable: attack,
- * hold and release move in time; the decay dot also sets the sustain level by its height. The flat
- * stretch before release is a fixed window so the sustain plateau stays visible.
+ * A graphical delay / attack / hold / decay / sustain / release editor, with tension curving the
+ * attack, decay and release segments. Four dots are draggable: attack, hold and release move in
+ * time; the decay dot also sets the sustain level by its height. Delay and tension are set by the
+ * knobs below. The flat stretch before release is a fixed window so the sustain plateau shows.
  */
 @Composable
 private fun EnvelopeEditor(
+    delay: Float,
     attack: Float,
     hold: Float,
     decay: Float,
     sustain: Float,
     release: Float,
+    tension: Float,
     onChange: (Float, Float, Float, Float, Float) -> Unit,
     onRelease: () -> Unit,
 ) {
-    val aMax = 0.5f; val hMax = 0.5f; val dMax = 1.0f; val rMax = 2.0f
+    val aMax = 0.5f; val hMax = 0.5f; val dMax = 1.0f; val rMax = 2.0f; val dlyMax = 0.5f
     val plateau = 0.5f // fixed on-screen sustain stretch
-    val span = aMax + hMax + dMax + plateau + rMax
+    val span = dlyMax + aMax + hMax + dMax + plateau + rMax
 
+    val dlyState = rememberUpdatedState(delay)
     val aState = rememberUpdatedState(attack)
     val hState = rememberUpdatedState(hold)
     val dState = rememberUpdatedState(decay)
@@ -320,12 +342,12 @@ private fun EnvelopeEditor(
                 fun xOf(sec: Float) = pad + (sec / span) * (size.width - 2 * pad)
                 detectDragGestures(
                     onDragStart = { pos ->
-                        val a = aState.value; val h = hState.value; val d = dState.value
+                        val dly = dlyState.value; val a = aState.value; val h = hState.value; val d = dState.value
                         val xs = listOf(
-                            1 to xOf(a),
-                            2 to xOf(a + h),
-                            3 to xOf(a + h + d),
-                            4 to xOf(a + h + d + plateau + rState.value),
+                            1 to xOf(dly + a),
+                            2 to xOf(dly + a + h),
+                            3 to xOf(dly + a + h + d),
+                            4 to xOf(dly + a + h + d + plateau + rState.value),
                         )
                         dragging = xs.minByOrNull { abs(it.second - pos.x) }?.first ?: 0
                     },
@@ -335,15 +357,15 @@ private fun EnvelopeEditor(
                     change.consume()
                     val pad2 = 12.dp.toPx()
                     val sec = ((change.position.x - pad2) / (size.width - 2 * pad2) * span).coerceIn(0f, span)
-                    val a = aState.value; val h = hState.value; val d = dState.value
+                    val dly = dlyState.value; val a = aState.value; val h = hState.value; val d = dState.value
                     when (dragging) {
-                        1 -> onChange(sec.coerceIn(0f, aMax), h, d, sState.value, rState.value)
-                        2 -> onChange(a, (sec - a).coerceIn(0f, hMax), d, sState.value, rState.value)
+                        1 -> onChange((sec - dly).coerceIn(0f, aMax), h, d, sState.value, rState.value)
+                        2 -> onChange(a, (sec - dly - a).coerceIn(0f, hMax), d, sState.value, rState.value)
                         3 -> {
                             val lvl = (1f - (change.position.y - pad2) / (size.height - 2 * pad2)).coerceIn(0f, 1f)
-                            onChange(a, h, (sec - a - h).coerceIn(0f, dMax), lvl, rState.value)
+                            onChange(a, h, (sec - dly - a - h).coerceIn(0f, dMax), lvl, rState.value)
                         }
-                        4 -> onChange(a, h, d, sState.value, (sec - a - h - d - plateau).coerceIn(0f, rMax))
+                        4 -> onChange(a, h, d, sState.value, (sec - dly - a - h - d - plateau).coerceIn(0f, rMax))
                     }
                 }
             },
@@ -354,38 +376,89 @@ private fun EnvelopeEditor(
         fun px(sec: Float) = pad + (sec / span) * w
         fun py(level: Float) = pad + (1f - level) * h
 
-        val pA = Offset(px(attack), py(1f))
-        val pH = Offset(px(attack + hold), py(1f))
-        val pD = Offset(px(attack + hold + decay), py(sustain))
-        val pP = Offset(px(attack + hold + decay + plateau), py(sustain))
-        val pR = Offset(px(attack + hold + decay + plateau + release), py(0f))
-        val origin = Offset(px(0f), py(0f))
+        // Build the outline, sampling the curved attack / decay / release segments for tension.
+        val steps = 12
+        val pts = ArrayList<Offset>()
+        pts.add(Offset(px(0f), py(0f)))            // origin
+        pts.add(Offset(px(delay), py(0f)))         // end of delay (still silent)
+        for (i in 1..steps) { val u = i / steps.toFloat(); pts.add(Offset(px(delay + attack * u), py(envWarp(u, tension)))) }
+        val dStart = delay + attack + hold
+        pts.add(Offset(px(dStart), py(1f)))        // end of hold
+        for (i in 1..steps) { val u = i / steps.toFloat(); pts.add(Offset(px(dStart + decay * u), py(1f - (1f - sustain) * envWarp(u, tension)))) }
+        val pEnd = dStart + decay + plateau
+        pts.add(Offset(px(pEnd), py(sustain)))     // end of sustain plateau
+        for (i in 1..steps) { val u = i / steps.toFloat(); pts.add(Offset(px(pEnd + release * u), py(sustain * envWarp(1f - u, tension)))) }
 
-        // Baseline.
         drawLine(DawColors.Line, Offset(pad, py(0f)), Offset(size.width - pad, py(0f)), 1.dp.toPx())
 
-        // Filled area under the envelope.
         val fill = Path().apply {
-            moveTo(origin.x, origin.y)
-            lineTo(pA.x, pA.y); lineTo(pH.x, pH.y); lineTo(pD.x, pD.y)
-            lineTo(pP.x, pP.y); lineTo(pR.x, pR.y)
+            moveTo(pts.first().x, pts.first().y)
+            for (p in pts.drop(1)) lineTo(p.x, p.y)
+            lineTo(pts.last().x, py(0f))
             close()
         }
         drawPath(fill, DawColors.Note.copy(alpha = 0.18f))
 
-        // Envelope outline.
         val line = Path().apply {
-            moveTo(origin.x, origin.y)
-            lineTo(pA.x, pA.y); lineTo(pH.x, pH.y); lineTo(pD.x, pD.y)
-            lineTo(pP.x, pP.y); lineTo(pR.x, pR.y)
+            moveTo(pts.first().x, pts.first().y)
+            for (p in pts.drop(1)) lineTo(p.x, p.y)
         }
         drawPath(line, DawColors.Note, style = Stroke(width = 2.dp.toPx()))
 
-        // Draggable dots.
-        for (p in listOf(pA, pH, pD, pR)) {
+        // Draggable dots: attack peak, hold end, decay/sustain, release end.
+        val dots = listOf(
+            Offset(px(delay + attack), py(1f)),
+            Offset(px(delay + attack + hold), py(1f)),
+            Offset(px(dStart + decay), py(sustain)),
+            Offset(px(pEnd + release), py(0f)),
+        )
+        for (p in dots) {
             drawCircle(DawColors.Paper, 7.dp.toPx(), p)
             drawCircle(DawColors.Accent, 7.dp.toPx(), p, style = Stroke(width = 2.dp.toPx()))
         }
+    }
+}
+
+/** A small rotary knob. Drag up/down to change the value; shows a label and a compact readout. */
+@Composable
+private fun Knob(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    display: String,
+    onRelease: () -> Unit,
+    modifier: Modifier = Modifier,
+    onChange: (Float) -> Unit,
+) {
+    val span = range.endInclusive - range.start
+    val valState = rememberUpdatedState(value)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(
+            Modifier
+                .size(38.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures(onDragEnd = { onRelease() }) { change, drag ->
+                        change.consume()
+                        val next = (valState.value - drag.y / 150f * span).coerceIn(range.start, range.endInclusive)
+                        if (next != valState.value) onChange(next)
+                    }
+                },
+        ) {
+            val f = ((value - range.start) / span).coerceIn(0f, 1f)
+            val startAngle = 135f
+            val sweep = 270f
+            val stroke = 3.dp.toPx()
+            val d = size.minDimension - stroke * 2
+            val topLeft = Offset((size.width - d) / 2f, (size.height - d) / 2f)
+            drawArc(DawColors.Line, startAngle, sweep, false, topLeft, Size(d, d), style = Stroke(stroke, cap = StrokeCap.Round))
+            drawArc(DawColors.Note, startAngle, sweep * f, false, topLeft, Size(d, d), style = Stroke(stroke, cap = StrokeCap.Round))
+            val ang = Math.toRadians((startAngle + sweep * f).toDouble())
+            val r = d / 2f
+            val c = Offset(size.width / 2f + r * cos(ang).toFloat(), size.height / 2f + r * sin(ang).toFloat())
+            drawCircle(DawColors.Accent, 3.dp.toPx(), c)
+        }
+        Text(label, fontSize = 8.sp, color = DawColors.Muted, maxLines = 1)
+        Text(display, fontSize = 9.sp, color = DawColors.Ink, maxLines = 1)
     }
 }
 

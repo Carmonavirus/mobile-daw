@@ -63,12 +63,14 @@ data class Channel(
     /** Part of the sample that plays, as fractions 0..1. */
     val trimStart: Float = 0f,
     val trimEnd: Float = 1f,
-    /** Amplitude envelope: attack/hold/decay/release in seconds, sustain as a 0..1 level. */
+    /** Amplitude envelope: delay/attack/hold/decay/release in seconds, sustain 0..1, tension -1..1. */
+    val envDelay: Float = 0f,
     val attack: Float = 0f,
     val hold: Float = 0f,
     val decay: Float = 0f,
     val sustain: Float = 1f,
     val release: Float = 0f,
+    val tension: Float = 0f,
     /** Transpose in semitones (-12..12) and reverse playback, for sample channels. */
     val pitchSemis: Int = 0,
     val reverse: Boolean = false,
@@ -80,6 +82,8 @@ data class Channel(
     val source: String? = null,
     /** Pitch that steps place, for one-sound channels such as a GM drum (else the instrument's). */
     val pitch: Int? = null,
+    /** Mixer track this channel plays through; null goes straight to the master. */
+    val mixerTrack: Long? = null,
 )
 
 /** The pitch a step on this channel plays. */
@@ -134,6 +138,10 @@ data class Project(
     val patterns: List<Pattern>,
     val clips: List<Clip> = emptyList(),
     val audioClips: List<AudioClip> = emptyList(),
+    /** Mixer tracks with effect chains. Every project starts with a generic "Vocals" track. */
+    val mixerTracks: List<MixerTrack> = listOf(MixerTrack.vocals()),
+    /** Mixer track recorded audio plays through (the Vocals track unless changed); null = master. */
+    val recordingTrackId: Long? = VOCALS_TRACK_ID,
 ) {
     fun pattern(id: Long): Pattern? = patterns.firstOrNull { it.id == id }
 
@@ -152,6 +160,12 @@ data class Project(
     fun laneFree(lane: Int, fromTick: Int, toTick: Int, ignoreAudioId: Long? = null): Boolean =
         clips.none { it.lane == lane && fromTick < (it.bar + clipBars(it)) * TICKS_PER_BAR && it.bar * TICKS_PER_BAR < toTick } &&
             audioClips.none { it.id != ignoreAudioId && it.lane == lane && fromTick < it.endTick(bpm) && it.startTick < toTick }
+
+    fun mixerTrack(id: Long?): MixerTrack? = id?.let { t -> mixerTracks.firstOrNull { it.id == t } }
+
+    fun nextMixerTrackId(): Long = (mixerTracks.maxOfOrNull { it.id } ?: 0L) + 1
+
+    fun nextEffectId(): Long = (mixerTracks.flatMap { it.effects }.maxOfOrNull { it.id } ?: 0L) + 1
 
     fun nextId(): Long =
         (channels.map { it.id } + patterns.map { it.id } + audioClips.map { it.id }).maxOrNull()?.plus(1) ?: 1L

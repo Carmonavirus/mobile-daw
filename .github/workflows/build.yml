@@ -16,6 +16,10 @@ jobs:
           curl -sSfL -o engine-test/out/GeneralUser-GS.sf2 \
             https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
           cd engine-test && ./out/enginetest out/GeneralUser-GS.sf2
+      - name: Build and run the mixer effects test (EQ, pitch correction, mixer tracks)
+        run: |
+          # build.sh (above) also links the effects test against the full engine.
+          cd engine-test && ./out/fxtest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
           mkdir -p engine-test/out
@@ -70,9 +74,8 @@ jobs:
   publish:
     needs: launch-test
     runs-on: ubuntu-latest
-    # The synth branch is merged into the main work branch before release, so it never publishes.
-    # Same for the recording branch: it reaches the phone once merged into claude/sample-import.
-    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy'
+    # Feature branches are merged into the main work branch before release, so they never publish.
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy' && github.ref_name != 'claude/project-thread-hr3nbu'
     # Pushes to different branches must not update the release at the same time.
     concurrency: publish-apk
     permissions:
