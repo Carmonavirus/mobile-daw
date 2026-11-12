@@ -205,6 +205,7 @@ private val GUIDE = listOf(
     "Playlist" to listOf(
         "Tap an empty cell" to "Place the selected pattern.",
         "Tap a clip" to "Remove it.",
+        "Swipe sideways" to "Move along the song (time runs left to right).",
     ),
     "Mixer" to listOf(
         "Sliders" to "Volume and pan (pan snaps to centre).",

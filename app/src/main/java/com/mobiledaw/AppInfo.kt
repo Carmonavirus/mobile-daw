@@ -21,6 +21,7 @@ object AppInfo {
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
                 "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Playlist now runs left to right like the rest of the app, with 8 tracks. Swipe sideways to move through the song.",
                 "Piano roll: two fingers now scroll freely (left/right and up/down); a clear pinch zooms.",
                 "Settings → How to get around: a guide to every gesture.",
                 "Long-press a channel name: Fill every 2 / 4 / 8 steps, Clear steps, or Loop the pattern (copies its bars to double the length).",
