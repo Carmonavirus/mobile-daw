@@ -21,6 +21,9 @@ for f in $(find $TP/plaits/plaits $TP/plaits/stmlib -name '*.cc') $(find $TP/dai
 done
 [ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
 g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/main.cpp $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/enginetest"
-if [ -f engine-test/fx_test.cpp ]; then
-  g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/fx_test.cpp $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/fxtest"
-fi
+# Other tests that link the whole engine (DawCore needs the sound engine objects above).
+for t in fx_test:fxtest metronome_test:metronometest; do
+  src="engine-test/${t%%:*}.cpp"
+  [ -f "$src" ] && g++ -std=c++17 -O2 -Wall -Wextra $INC "$src" $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/${t##*:}"
+done
+true
