@@ -42,6 +42,13 @@ The UI owns the song. On every edit it flattens the current pattern (or the whol
 song mode) into a sorted note list and hands it to the engine, which swaps it in lock-free
 on the audio thread.
 
+## Install on your phone
+
+Open this link on the phone (signed in to GitHub, since the repo is private):
+https://github.com/Carmonavirus/mobile-daw/releases/download/latest-build/mobile-daw.apk
+
+CI replaces that file on every push, so the link always gives the newest build.
+
 ## Building
 
 - Android Studio Ladybug or newer, Android SDK 35, NDK (installed automatically by Gradle).
