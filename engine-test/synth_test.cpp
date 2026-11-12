@@ -92,6 +92,7 @@ struct Note { double at, len; int pitch; float vel; };
 int main(int argc, char** argv) {
     const char* presetPath = argc > 1 ? argv[1] : "../app/src/main/assets/wavesynth/factory_presets.json";
     const int sr = 48000;
+    Bank::get();  // the app builds this on a background thread; here we just wait for it
     auto presets = loadPresets(presetPath);
     if (presets.empty()) { std::printf("FAIL: no presets read from %s\n", presetPath); return 1; }
     if (std::system("mkdir -p out/synth") != 0) return 1;

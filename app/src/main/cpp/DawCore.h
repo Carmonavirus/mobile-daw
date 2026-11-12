@@ -106,7 +106,6 @@ private:
     void advanceTick(const Sequence* seq);
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
-    void pushPreview(const Preview& p);
     void adoptSamples();
     void jumpTo(int64_t tick);
     float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
@@ -144,6 +143,7 @@ private:
 
     // Preview notes: single-producer single-consumer ring.
     struct Preview { int channel; int pitch; float velocity; int hold; };  // hold: 0 tap, 1 press, -1 release
+    void pushPreview(const Preview& p);
     static constexpr int kPreviewQueue = 64;
     std::array<Preview, kPreviewQueue> previews_{};
     std::atomic<int> previewWrite_{0};
