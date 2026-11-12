@@ -49,6 +49,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // Declared before init {} below, which syncs the engine and needs them.
+    /** The patch each engine slot last received, so unchanged sounds aren't resent. */
+    private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
     /** SoundFonts, SFZ, synth engine presets, online libraries and credits. */
     val sounds = com.mobiledaw.sound.SoundSources(app)
 
@@ -391,9 +393,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** The channel whose synth editor is open, or null. */
     var synthEditorChannelId by mutableStateOf<Long?>(null)
         private set
-
-    /** The patch each engine slot last received, so unchanged sounds aren't resent. */
-    private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
 
     private fun syncSynth(slot: Int, c: Channel) {
         if (c.instrument != Instrument.WAVETABLE) {
