@@ -26,6 +26,10 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.1", "2026-11-12T12:20:00Z",
+            listOf("Fix: the app crashed on launch after the last update. Fixed."),
+        ),
+        Release(
             "0.4", "2026-11-12T11:35:00Z",
             listOf(
                 "Progress bar above the play button: shows where the pattern or song is (bar.beat) and its length.",

@@ -25,10 +25,6 @@ jobs:
 
   apk:
     runs-on: ubuntu-latest
-    # Pushes to different branches must not update the release at the same time.
-    concurrency: ${{ github.ref_name == 'claude/project-thread-n1suni' && 'synth-apk' || 'publish-apk' }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -42,13 +38,50 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mobile-daw-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-      # Keep one always-current APK on the "latest-build" release so it can be
-      # installed straight from a phone browser. Feature branches that are still being
-      # tried out publish to their own release instead, so they never replace it.
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  # Boots an emulator, installs the APK and makes sure it actually opens.
+  # A build that crashes on launch fails here, so it never reaches the publish job.
+  launch-test:
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-daw-debug-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install the app and confirm it opens without crashing
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          disable-animations: true
+          # Keep this a single command: the runner executes `script` with sh.
+          script: bash .github/scripts/launch-check.sh app-debug.apk
+
+  # Keep one always-current APK on the "latest-build" release so it can be
+  # installed straight from a phone browser. Only after the launch test passes.
+  publish:
+    needs: launch-test
+    runs-on: ubuntu-latest
+    # The synth branch is merged into the main work branch before release, so it never publishes.
+    if: github.ref_name != 'claude/project-thread-n1suni'
+    # Pushes to different branches must not update the release at the same time.
+    concurrency: publish-apk
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-daw-debug-apk
+      # Feature branches still being tried out publish to their own release, never latest-build.
       - name: Publish APK to its release
-        # The synth branch is merged into the main work branch before release, so it never publishes.
-        if: github.ref_name != 'claude/project-thread-n1suni'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -57,7 +90,7 @@ jobs:
             claude/project-thread-ht5fxu) tag=sounds-build; title="Sounds test build"; latest="" ;;
             *) tag=latest-build; title="Latest build"; latest="--latest" ;;
           esac
-          cp app/build/outputs/apk/debug/app-debug.apk mobile-daw.apk
+          cp app-debug.apk mobile-daw.apk
           notes="Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null; then
             gh release upload "$tag" mobile-daw.apk --clobber -R "$GITHUB_REPOSITORY"
