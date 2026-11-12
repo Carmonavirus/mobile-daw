@@ -1,6 +1,14 @@
 package com.mobiledaw.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -79,15 +87,27 @@ fun PlaylistScreen(vm: DawViewModel) {
         }
     }
 
+    // Tap a row number -> "Add audio file" -> the system file picker -> the clip lands on that row.
+    var pickLane by remember { mutableIntStateOf(0) }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        vm.importAudioToLane(uris, pickLane)
+    }
+
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
+        val importNote = when {
+            vm.importingAudio -> "Importing audio…"
+            else -> vm.audioImportMessage
+        }
         Text(
-            if (vm.recordMode) "Recordings land on the first free track at the playhead. Tap one to remove it."
-            else "Tap a cell to place the selected pattern, tap a clip to remove it.",
+            importNote ?: if (vm.recordMode) "Recordings land on the first free track at the playhead. Tap one to remove it."
+            else "Tap a cell to place the selected pattern, tap a clip to remove it. Tap a row number to add an audio file.",
             fontSize = 11.sp,
-            color = DawColors.Muted,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            color = if (importNote != null) DawColors.Ink else DawColors.Muted,
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 4.dp)
+                .clickable(enabled = vm.audioImportMessage != null) { vm.audioImportMessage = null },
         )
         Row(
             Modifier
@@ -100,9 +120,7 @@ fun PlaylistScreen(vm: DawViewModel) {
             Column(Modifier.width(GUTTER_W)) {
                 Box(Modifier.height(HEADER_H))
                 for (lane in 0 until LANES) {
-                    Box(Modifier.height(LANE_H).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("${lane + 1}", fontSize = 12.sp, color = DawColors.Muted, maxLines = 1, overflow = TextOverflow.Clip)
-                    }
+                    LaneNumber(lane, onAddAudio = { pickLane = lane; pickAudio.launch(AUDIO_TYPES) })
                 }
             }
             Box(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
@@ -217,6 +235,32 @@ fun PlaylistScreen(vm: DawViewModel) {
 }
 
 private val RecordRed = Color(0xFFE5484D)
+
+/** File types the "Add audio file" picker offers (Android decodes WAV, MP3, OGG, FLAC, M4A/AAC...). */
+private val AUDIO_TYPES = arrayOf("audio/*", "application/ogg")
+
+/** A playlist row number. Tapping it opens a small menu with "Add audio file". */
+@Composable
+private fun LaneNumber(lane: Int, onAddAudio: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .height(LANE_H)
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { menu = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("${lane + 1}", fontSize = 12.sp, color = DawColors.Muted, maxLines = 1, overflow = TextOverflow.Clip)
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Add audio file to row ${lane + 1}") },
+                onClick = { menu = false; onAddAudio() },
+            )
+        }
+    }
+}
 
 /** Mirrored peak bars across a box, one bar every 2 dp. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWave(

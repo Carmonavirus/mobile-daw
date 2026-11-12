@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Mobile DAW</string>
+    <string name="share_label">Add to playlist</string>
 </resources>

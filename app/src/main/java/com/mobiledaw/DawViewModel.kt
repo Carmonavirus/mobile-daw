@@ -878,6 +878,98 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------------------------------------------------------------- imported audio files
+
+    private val audioImport = com.mobiledaw.model.AudioImport(app)
+
+    /** True while an audio file is being copied and converted. */
+    var importingAudio by mutableStateOf(false)
+        private set
+
+    /** A short note after an import ("Added …", or why it failed). */
+    var audioImportMessage by mutableStateOf<String?>(null)
+
+    /** Files that came in through Share / Open with, waiting for the user to pick a playlist row. */
+    var sharedAudio by mutableStateOf<List<com.mobiledaw.model.AudioImport.Imported>>(emptyList())
+        private set
+
+    /** Imports audio files and puts them on playlist row [lane], each on its own new mixer track. */
+    fun importAudioToLane(uris: List<android.net.Uri>, lane: Int) {
+        if (uris.isEmpty()) return
+        importAudio(uris) { placeImported(it, lane) }
+    }
+
+    /** Called with every intent the activity receives; ignores ones that carry no audio. */
+    fun receiveShared(intent: android.content.Intent?) {
+        val uris = audioImport.urisFrom(intent)
+        if (uris.isEmpty()) return
+        // Copy straight away: the permission to read a shared file doesn't last.
+        importAudio(uris) { sharedAudio = it }
+    }
+
+    private fun importAudio(uris: List<android.net.Uri>, then: (List<com.mobiledaw.model.AudioImport.Imported>) -> Unit) {
+        importingAudio = true
+        audioImportMessage = null
+        viewModelScope.launch {
+            val imported = withContext(Dispatchers.IO) {
+                uris.take(MAX_MIXER_TRACKS).mapNotNull { runCatching { audioImport.import(it) }.getOrNull() }
+            }
+            importingAudio = false
+            if (imported.isEmpty()) {
+                audioImportMessage = "Couldn't read that file as audio."
+                return@launch
+            }
+            if (imported.size < uris.size) audioImportMessage = "Skipped ${uris.size - imported.size} file(s) that weren't readable audio."
+            then(imported)
+        }
+    }
+
+    /** Puts the files waiting from a share on playlist row [lane]. */
+    fun placeShared(lane: Int) {
+        val files = sharedAudio
+        sharedAudio = emptyList()
+        if (files.isNotEmpty()) placeImported(files, lane)
+    }
+
+    fun dismissShared() {
+        sharedAudio = emptyList()
+    }
+
+    /**
+     * Each file goes on [lane] after whatever is already on that row (or at bar 1 if it is empty),
+     * with a new mixer track named after it. Nothing is added to the channel rack.
+     */
+    private fun placeImported(files: List<com.mobiledaw.model.AudioImport.Imported>, lane: Int) {
+        var full = false
+        update { start ->
+            var p = start
+            files.forEach { f ->
+                val trackId = if (p.mixerTracks.size < MAX_MIXER_TRACKS) p.nextMixerTrackId() else null
+                if (trackId == null) full = true
+                val laneEnd = maxOf(
+                    p.clips.filter { it.lane == lane }.maxOfOrNull { (it.bar + p.clipBars(it)) * TICKS_PER_BAR } ?: 0,
+                    p.audioClips.filter { it.lane == lane }.maxOfOrNull { it.endTick(p.bpm) } ?: 0,
+                )
+                // Start on a bar line.
+                val startTick = (laneEnd + TICKS_PER_BAR - 1) / TICKS_PER_BAR * TICKS_PER_BAR
+                p = p.copy(
+                    mixerTracks = if (trackId != null) p.mixerTracks + MixerTrack(trackId, f.name.take(24)) else p.mixerTracks,
+                    audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, f.path, f.seconds, f.name, trackId),
+                )
+            }
+            p
+        }
+        sentEffects.clear()
+        tab = Tab.PLAYLIST
+        // Audio clips play in song mode.
+        if (mode != PlayMode.SONG) switchMode(PlayMode.SONG)
+        val what = if (files.size == 1) "\"${files[0].name}\"" else "${files.size} files"
+        audioImportMessage = when {
+            full -> "Added $what to row ${lane + 1}. The mixer is full ($MAX_MIXER_TRACKS tracks), so it plays through the recordings track."
+            else -> "Added $what to row ${lane + 1} with its own mixer track."
+        }
+    }
+
     /** Where recordings are saved. */
     fun recordingFile(name: String): java.io.File = kits.file("$RECORDINGS_DIR/$name")
 
@@ -969,10 +1061,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
         }
-        // Recorded audio clips play through the recording track (the Vocals track by default).
-        val recordingInsert = insertIndex(p.recordingTrackId)
-        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, _) ->
-            NativeEngine.setChannelInsert(slot, recordingInsert)
+        // Recordings play through the recording track (the Vocals track by default);
+        // imported audio files through the mixer track made for them.
+        SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS).forEach { (slot, clip) ->
+            NativeEngine.setChannelInsert(slot, insertIndex(clip.trackId ?: p.recordingTrackId))
         }
     }
 
@@ -1003,6 +1095,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             p.copy(
                 mixerTracks = p.mixerTracks.filter { it.id != id },
                 channels = p.channels.map { if (it.mixerTrack == id) it.copy(mixerTrack = null) else it },
+                audioClips = p.audioClips.map { if (it.trackId == id) it.copy(trackId = null) else it },
                 recordingTrackId = p.recordingTrackId.takeIf { it != id },
             )
         }

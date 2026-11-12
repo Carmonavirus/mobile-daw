@@ -102,6 +102,7 @@ fun DawApp(vm: DawViewModel) {
     vm.synthEditorChannelId?.let { com.mobiledaw.ui.synth.SynthEditor(vm, it) }
     vm.openEffect?.let { (track, effect) -> com.mobiledaw.ui.fx.EffectEditor(vm, track, effect) }
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
+    SharedAudioDialog(vm)
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
     if (vm.settingsOpen) {
         SettingsScreen(
