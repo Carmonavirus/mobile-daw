@@ -494,8 +494,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun addSampleChannel(sound: KitLibrary.Sound) {
         if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
         val id = project.nextId()
-        update { it.copy(channels = it.channels + Channel(id, sound.name, Instrument.SAMPLE, sample = sound.path)) }
+        update { it.copy(channels = it.channels + Channel(id, shortName(sound.name), Instrument.SAMPLE, sample = sound.path)) }
         selectedChannelId = id
+    }
+
+    /** A short channel name from a sound's filename, e.g. "808 - Christopher Spinza" -> "808". */
+    private fun shortName(full: String): String {
+        val head = full.substringBefore(" - ").substringBefore(" (").trim()
+        val name = head.ifEmpty { full.trim() }
+        return if (name.length > 16) name.take(16).trim() else name
     }
 
     fun setChannelSound(channelId: Long, sound: KitLibrary.Sound) {

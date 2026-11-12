@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4.2", "2026-11-12T13:05:00Z",
+            listOf(
+                "Rack: the ♪ / ⋯ / M buttons always stay visible; long names now shorten with …",
+                "Rack: swipe anywhere (not just the steps) to change bars.",
+                "Rack: Delete and a new Rename moved into the ⋯ menu; added sounds get a short name.",
+                "Audio: the sound engine now re-opens itself if the system interrupts it, so playback doesn't go quiet.",
+            ),
+        ),
+        Release(
             "0.4.1", "2026-11-12T12:20:00Z",
             listOf("Fix: the app crashed on launch after the last update. Fixed."),
         ),
