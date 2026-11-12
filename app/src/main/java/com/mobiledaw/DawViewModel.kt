@@ -103,15 +103,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var previewOnEdit by mutableStateOf(prefs.getBoolean("preview_on_edit", true))
         private set
 
-    /** Piano roll: one-finger drag scrolls (tap still edits). Off = one finger edits notes, two scroll. */
-    var oneFingerScroll by mutableStateOf(prefs.getBoolean("one_finger_scroll", false))
-        private set
-
-    fun changeOneFingerScroll(on: Boolean) {
-        oneFingerScroll = on
-        prefs.edit().putBoolean("one_finger_scroll", on).apply()
-    }
-
     fun changePreviewOnEdit(on: Boolean) {
         previewOnEdit = on
         prefs.edit().putBoolean("preview_on_edit", on).apply()

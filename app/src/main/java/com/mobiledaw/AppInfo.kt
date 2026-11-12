@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.6.5", "2026-11-12T23:40:00Z",
+            listOf(
+                "Piano roll: dragging a note now always resizes or moves it — only dragging empty space scrolls.",
+                "Piano roll: the grid and note-label controls are now on one line, with the grid as a dropdown, leaving more room for the notes.",
+            ),
+        ),
+        Release(
             "0.6.4", "2026-11-12T23:30:00Z",
             listOf(
                 "Metronome: tap the metronome button at the top left to turn the click on or off. It clicks every beat at the project's tempo, with a higher click on beat 1 of each bar. Remembered.",
