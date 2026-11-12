@@ -97,21 +97,6 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                             ),
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("One-finger scroll (piano roll)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-                            Text("Drag with one finger to scroll; tap to place a note. Off: one finger edits notes, two scroll.", fontSize = 12.sp, color = DawColors.Muted)
-                        }
-                        androidx.compose.material3.Switch(
-                            checked = vm.oneFingerScroll,
-                            onCheckedChange = vm::changeOneFingerScroll,
-                            colors = androidx.compose.material3.SwitchDefaults.colors(
-                                checkedTrackColor = DawColors.Note,
-                                checkedThumbColor = DawColors.OnNote,
-                            ),
-                        )
-                    }
                 }
 
                 // ---------------------------------------------------------------- audio sync
@@ -242,13 +227,13 @@ private val GUIDE = listOf(
     "Piano roll" to listOf(
         "Tap empty space" to "Place a note (length = the Grid setting).",
         "Tap a note" to "Remove it.",
-        "Drag a note" to "Move it in time and pitch (unless One-finger scroll is on).",
+        "Drag a note" to "Move it in time and pitch.",
         "Drag a note's end" to "Make it longer or shorter.",
+        "Drag empty space" to "Scroll with one finger (left/right and up/down).",
         "Two-finger drag" to "Scroll left/right and up/down.",
-        "One-finger scroll" to "Turn on in Settings to scroll with one finger; tap still places notes.",
         "Pinch / spread" to "Zoom time in or out.",
         "Note labels" to "Key = only the project's scale (in-scale rows light); All = every note.",
-        "Grid buttons" to "Set the grid lines, snapping and new note length.",
+        "Grid menu" to "Choose the snapping and new note length (1/32 … 1/2).",
         "Track chips" to "Switch which channel you edit; others show as faint notes.",
     ),
     "Playlist" to listOf(
