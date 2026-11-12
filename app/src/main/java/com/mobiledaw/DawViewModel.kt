@@ -121,6 +121,87 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         labelAllNotes = all
         prefs.edit().putBoolean("label_all_notes", all).apply()
     }
+
+    // ---------------------------------------------------------------- output latency (Bluetooth sync)
+    // Declared before init{}: the engine polling loop reads them.
+
+    private val visualDelay = com.mobiledaw.audio.VisualDelay()
+    private val latencyMeter = com.mobiledaw.audio.LatencyMeter()
+
+    /** What the app is playing through right now (speaker, wired, or the earbuds' name). */
+    var outputDevice by mutableStateOf(com.mobiledaw.audio.OutputDevice("speaker", "Phone speaker", false))
+        private set
+    /** Delay the phone reports for that output, in ms; null until it has been measured. */
+    var measuredLatencyMs by mutableStateOf<Int?>(null)
+        private set
+    /** Auto: follow the measured delay. Off: only [latencyOffsetMs]. Remembered per output. */
+    var latencyAuto by mutableStateOf(true)
+        private set
+    /** Manual ms added to the measured delay (Auto), or the whole delay (Auto off). Per output. */
+    var latencyOffsetMs by mutableIntStateOf(0)
+        private set
+
+    /** True when Auto is on but the phone gave no reading, so [estimatedLatencyMs] stands in. */
+    val latencyEstimated: Boolean get() = latencyAuto && measuredLatencyMs == null
+
+    private val estimatedLatencyMs: Int get() = if (outputDevice.wireless) 200 else 30
+
+    /** How far the screen runs behind the engine, in ms: what you hear vs. what is drawn. */
+    val uiDelayMs: Int
+        get() = ((if (latencyAuto) measuredLatencyMs ?: estimatedLatencyMs else 0) + latencyOffsetMs)
+            .coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+
+    fun changeLatencyAuto(on: Boolean) {
+        latencyAuto = on
+        // Keep the total where it was when switching, so the slider doesn't jump the playhead.
+        val measured = measuredLatencyMs ?: estimatedLatencyMs
+        latencyOffsetMs = if (on) (latencyOffsetMs - measured).coerceIn(LATENCY_OFFSET_MIN, LATENCY_OFFSET_MAX)
+        else (latencyOffsetMs + measured).coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+        saveLatency()
+    }
+
+    fun changeLatencyOffset(ms: Int) {
+        latencyOffsetMs = if (latencyAuto) ms.coerceIn(LATENCY_OFFSET_MIN, LATENCY_OFFSET_MAX)
+        else ms.coerceIn(0, com.mobiledaw.audio.VisualDelay.MAX_DELAY_MS)
+        saveLatency()
+    }
+
+    private fun saveLatency() {
+        val key = outputDevice.key
+        prefs.edit()
+            .putBoolean("latency_auto:$key", latencyAuto)
+            .putInt("latency_offset:$key", latencyOffsetMs)
+            .apply()
+    }
+
+    private fun loadLatency() {
+        val key = outputDevice.key
+        latencyAuto = prefs.getBoolean("latency_auto:$key", true)
+        latencyOffsetMs = prefs.getInt("latency_offset:$key", 0)
+    }
+
+    /** Re-reads which output is in use and how late it is. Called about once a second. */
+    private fun refreshOutputLatency() {
+        val device = com.mobiledaw.audio.OutputDevices.describe(getApplication<Application>(), NativeEngine.outputDeviceId())
+        if (device.key != outputDevice.key) {
+            outputDevice = device
+            latencyMeter.reset()
+            measuredLatencyMs = null
+            loadLatency()
+        } else if (device != outputDevice) {
+            outputDevice = device
+        }
+        // Never report less than the buffer alone adds.
+        val floor = NativeEngine.bufferLatencyMs()
+        val reading = NativeEngine.outputLatencyMs().let { if (it > 0 && floor > 0) maxOf(it, floor) else it }
+        latencyMeter.add(reading)?.let { if (it != measuredLatencyMs) measuredLatencyMs = it }
+    }
+
+    /** Shows the engine's state right away (no delay), e.g. after a jump while stopped. */
+    private fun showLive(tick: Long) {
+        visualDelay.clear()
+        positionTicks = tick
+    }
     var mode by mutableStateOf(PlayMode.PATTERN)
         private set
     var playing by mutableStateOf(false)
@@ -178,12 +259,32 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         syncEngine()
+        loadLatency()
         viewModelScope.launch {
+            var polls = 0
             while (isActive) {
-                positionTicks = NativeEngine.positionTicks()
-                levels = FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) }
-                scope = FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) }
-                trackLevels = FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) }
+                if (polls++ % 30 == 0) refreshOutputLatency()
+                val now = System.nanoTime()
+                val frame = com.mobiledaw.audio.VisualDelay.Frame(
+                    now,
+                    NativeEngine.positionTicks(),
+                    FloatArray(NativeEngine.MAX_CHANNELS + 1).also { NativeEngine.readLevels(it) },
+                    FloatArray(SCOPE_BINS).also { NativeEngine.readScope(it) },
+                    FloatArray(NativeEngine.MAX_INSERTS).also { NativeEngine.readInsertLevels(it) },
+                )
+                // While playing, draw what is being heard now: the engine reading from uiDelayMs ago.
+                // Stopped, show it live so taps and jumps answer at once.
+                val shown = if (playing && uiDelayMs > 0) {
+                    visualDelay.push(frame)
+                    visualDelay.at(now, uiDelayMs) ?: frame
+                } else {
+                    visualDelay.clear()
+                    frame
+                }
+                positionTicks = shown.tick
+                levels = shown.levels
+                scope = shown.scope
+                trackLevels = shown.trackLevels
                 delay(33)
             }
         }
@@ -296,13 +397,19 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val raw = (fraction.coerceIn(0f, 1f) * loopTicks).toInt()
         val tick = ((raw / TICKS_PER_STEP) * TICKS_PER_STEP).coerceIn(0, maxOf(0, loopTicks - TICKS_PER_STEP))
         NativeEngine.seek(tick.toLong())
-        positionTicks = tick.toLong()
+        // Playing: hold the playhead here while the earbuds finish what was already sent, then go on in sync.
+        showLive(tick.toLong())
     }
 
     private fun applyPlaying(value: Boolean) {
         playing = value
         NativeEngine.setPlaying(value)
+        visualDelay.clear()
+        if (value) playStartNanos = System.nanoTime()
     }
+
+    /** When playback last started (System.nanoTime), for lining recordings up with what was heard. */
+    private var playStartNanos = 0L
 
     fun switchMode(value: PlayMode) {
         if (mode == value) return
@@ -924,7 +1031,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 if (countIn == 4) countIn = null
             }
             while (isActive && recorder.isRunning) {
-                takePeaks = recorder.peaksSnapshot()
+                // Drop the lead-in the take will lose when it's lined up (see takeLeadInFrames).
+                val peaks = recorder.peaksSnapshot()
+                val skip = (takeLeadInFrames() / maxOf(1, recorder.sampleRate * Recorder.PEAK_MS / 1000)).toInt()
+                takePeaks = if (skip <= 0) peaks else if (skip >= peaks.size) FloatArray(0) else peaks.copyOfRange(skip, peaks.size)
                 micLevel = recorder.level
                 delay(50)
             }
@@ -945,7 +1055,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             syncEngine()
             return
         }
-        val take = recorder.stop()
+        val leadIn = takeLeadInFrames()
+        val take = recorder.stop()?.let { recorder.trimStart(it, leadIn) }
         takePeaks = FloatArray(0)
         val start = takeStartTick
         if (take == null) {
@@ -956,6 +1067,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Park the playhead at the start of the take so play replays it.
         NativeEngine.seek(start.toLong())
         positionTicks = start.toLong()
+    }
+
+    /**
+     * Mic frames to cut from the front of the take so it lines up with the song. The mic opens
+     * before playback starts, and you sing along to what you hear, which arrives [uiDelayMs] after
+     * the engine plays it: the moment the first beat reached your ears is where the take begins.
+     * The recorder's timestamps also take out the mic's own delay.
+     */
+    private fun takeLeadInFrames(): Long {
+        if (playStartNanos == 0L) return 0L
+        return recorder.frameAt(playStartNanos + uiDelayMs * 1_000_000L).coerceAtLeast(0L)
     }
 
     /** Puts a finished recording (a WAV in the app's files folder) on the playlist. */
@@ -1266,6 +1388,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** Fine-tune range around the measured delay (Auto), in ms. */
+        const val LATENCY_OFFSET_MIN = -300
+        const val LATENCY_OFFSET_MAX = 500
         private const val MAX_CACHED_FRAMES = 24_000_000L
         /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT

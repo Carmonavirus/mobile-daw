@@ -16,6 +16,16 @@ public:
     void stop();
     Core& core() { return core_; }
 
+    /**
+     * How long it takes from writing a frame until it is heard, in ms, measured from the
+     * stream's timestamps (includes Bluetooth delay on most phones). Negative when unknown.
+     */
+    double outputLatencyMillis();
+    /** Android AudioDeviceInfo id the stream plays to, 0 when unknown. */
+    int outputDeviceId();
+    /** Latency the buffer alone adds (buffer size / rate), in ms; a floor when timestamps are missing. */
+    double bufferLatencyMillis();
+
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData,
                                           int32_t numFrames) override;
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;

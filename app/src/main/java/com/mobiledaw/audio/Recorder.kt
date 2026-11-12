@@ -28,7 +28,19 @@ class Recorder {
     private var frames = 0L
     private var rate = 48000
 
+    // Ties mic frames to System.nanoTime: frame [stampFrame] reached the mic at [stampNanos].
+    @Volatile private var stampFrame = 0L
+    @Volatile private var stampNanos = 0L
+
     val isRunning: Boolean get() = running
+    val sampleRate: Int get() = rate
+
+    /**
+     * Which frame of the take (0 = first) was being captured at [nanos] (System.nanoTime). Uses the
+     * recorder's own timestamps, so the mic's delay is accounted for; before the first timestamp,
+     * assumes frame 0 was captured when recording started.
+     */
+    fun frameAt(nanos: Long): Long = stampFrame + (nanos - stampNanos) * rate / 1_000_000_000L
 
     /** Peaks so far, each covering [PEAK_MS] ms. */
     fun peaksSnapshot(): FloatArray = synchronized(peaks) { peaks.toFloatArray() }
@@ -47,6 +59,8 @@ class Recorder {
         running = true
         try {
             record.startRecording()
+            stampFrame = 0L
+            stampNanos = System.nanoTime()
         } catch (e: Exception) {
             running = false
             record.release()
@@ -78,6 +92,36 @@ class Recorder {
         return Take(out, seconds)
     }
 
+    /**
+     * Cuts the first [frames] frames off a finished take (rewrites its WAV in place).
+     * Keeps the take as it is if that would leave almost nothing.
+     */
+    fun trimStart(take: Take, frames: Long): Take {
+        if (frames <= 0) return take
+        return runCatching {
+            RandomAccessFile(take.file, "rw").use { raf ->
+                val total = (raf.length() - 44) / 2
+                if (total - frames < rate / 5) return take
+                val buf = ByteArray(64 * 1024)
+                var read = 44 + frames * 2
+                var write = 44L
+                while (true) {
+                    raf.seek(read)
+                    val n = raf.read(buf)
+                    if (n <= 0) break
+                    raf.seek(write)
+                    raf.write(buf, 0, n)
+                    read += n
+                    write += n
+                }
+                val left = total - frames
+                raf.setLength(44 + left * 2)
+                writeHeader(raf, rate, left)
+                Take(take.file, left.toFloat() / rate)
+            }
+        }.getOrDefault(take)
+    }
+
     @SuppressLint("MissingPermission")
     private fun open(): Pair<AudioRecord, Int>? {
         for (sampleRate in intArrayOf(48000, 44100)) {
@@ -105,6 +149,8 @@ class Recorder {
         val bytes = ByteBuffer.allocate(chunk.size * 2).order(ByteOrder.LITTLE_ENDIAN)
         val maxFrames = sampleRate.toLong() * WavDecoder.MAX_RECORDING_SECONDS
         val perPeak = sampleRate * PEAK_MS / 1000
+        val stamp = android.media.AudioTimestamp()
+        var stamped = 0
         var peak = 0f
         var inPeak = 0
         try {
@@ -128,6 +174,15 @@ class Recorder {
                 raf.write(bytes.array(), 0, n * 2)
                 frames += n
                 level = blockPeak
+                // Refresh the frame <-> time link now and then (about twice a second).
+                if (stamped++ % 25 == 0 &&
+                    record.getTimestamp(stamp, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS &&
+                    stamp.nanoTime > 0 &&
+                    abs(stamp.framePosition - frames) < sampleRate // sanity: near what we've read
+                ) {
+                    stampNanos = stamp.nanoTime
+                    stampFrame = stamp.framePosition
+                }
             }
         } finally {
             running = false

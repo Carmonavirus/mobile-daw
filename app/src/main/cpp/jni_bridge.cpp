@@ -108,6 +108,18 @@ JNIEXPORT jlong JNICALL Java_com_mobiledaw_audio_NativeEngine_positionTicks(JNIE
     return static_cast<jlong>(engine()->core().positionTicks());
 }
 
+JNIEXPORT jdouble JNICALL Java_com_mobiledaw_audio_NativeEngine_outputLatencyMs(JNIEnv*, jobject) {
+    return engine()->outputLatencyMillis();
+}
+
+JNIEXPORT jdouble JNICALL Java_com_mobiledaw_audio_NativeEngine_bufferLatencyMs(JNIEnv*, jobject) {
+    return engine()->bufferLatencyMillis();
+}
+
+JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_outputDeviceId(JNIEnv*, jobject) {
+    return engine()->outputDeviceId();
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readLevels(JNIEnv* env, jobject, jfloatArray out) {
     const jsize len = env->GetArrayLength(out);
     std::vector<float> tmp(static_cast<size_t>(len));
