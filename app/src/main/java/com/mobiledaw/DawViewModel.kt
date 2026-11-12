@@ -282,6 +282,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (takeState != TakeState.IDLE) stopTake() else applyPlaying(!playing)
     }
 
+    /** The "stop all sound" button: stops playback (and a take in progress) and cuts every sound. */
+    fun stopAllSound() {
+        if (takeState != TakeState.IDLE) stopTake()
+        playing = false
+        NativeEngine.panic()
+    }
+
     /** Moves the playhead to a fraction (0..1) of the pattern or song, snapped to a step. */
     fun seekTo(fraction: Float) {
         val raw = (fraction.coerceIn(0f, 1f) * loopTicks).toInt()

@@ -376,9 +376,30 @@ Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples
 }
 
 void Core::releaseAll() {
-    for (auto& pool : voices_)
-        for (auto& v : pool) Synth::release(v);
+    // Synth voices go into their release; sample voices (one-shots and audio clips) don't use
+    // that envelope, so they get a short fade instead, or a long clip would keep playing on stop.
+    const float step = 1.0f / (0.01f * static_cast<float>(sampleRate_));
+    for (int c = 0; c < kMaxChannels; ++c) {
+        const bool sample = params_[c].instrument.load() == kSample;
+        for (auto& v : voices_[c]) {
+            if (!v.active) continue;
+            if (sample) {
+                if (v.fadeStep == 0.0f) v.fadeStep = step;
+            } else {
+                Synth::release(v);
+            }
+        }
+    }
     for (auto& s : synths_) s.releaseAll();
+}
+
+void Core::silenceAll(float seconds) {
+    const float step = 1.0f / (std::max(seconds, 0.0005f) * static_cast<float>(sampleRate_));
+    for (auto& pool : voices_)
+        for (auto& v : pool)
+            if (v.active) v.fadeStep = std::max(v.fadeStep, step);
+    for (auto& s : synths_) s.choke();
+    auditionVoice_.active = false;
 }
 
 void Core::advanceTick(const Sequence* seq) {
@@ -457,6 +478,7 @@ void Core::renderBlock(float* out, int frames) {
     }
     if (wasPlaying_ && !playing) releaseAll();
     wasPlaying_ = playing;
+    if (panic_.exchange(false)) silenceAll(0.003f);
 
     const double ticksPerSample = std::max(bpm_.load(), 20.0f) * kTicksPerBeat / (60.0 * sampleRate_);
     const int channelCount = channelCount_.load();
