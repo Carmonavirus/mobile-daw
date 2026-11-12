@@ -20,6 +20,8 @@ object AppInfo {
                 "Themes: pick a preset or your own background, note/step and accent colours.",
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
+                "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Tapping a drum shows all your kits and their folders, with matching folders (e.g. Kicks) opened.",
                 "Smaller play button, now just above the tabs.",
             ),
         ),

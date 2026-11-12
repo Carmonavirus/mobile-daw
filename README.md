@@ -23,11 +23,14 @@ Built in (synthesised, no sample files): kick, snare, hi-hat, clap, bass, lead, 
 
 ### Your own drum kits
 
-In the **Rack**, tap **Sounds**, then **Import .zip** and pick a kit you downloaded (or
-**Import folder** for one you already unzipped). The kit's WAV files are copied into the app,
-grouped by their folders. Tap a sound to hear it and **+** to add it as a channel. Long-press a
-channel name and choose **Change sound** to swap what it plays. Sample channels follow the piano
-roll too: C4 plays the sound as-is, other notes pitch it up or down.
+Open **Settings (≡) → Drum kits** and tap **Import .zip** (or **Import folder** for a kit you
+already unzipped). Each import is added as a new kit; existing kits are never replaced. Only WAV
+files are imported, keeping their folders (Kicks, Snares, 808s...).
+
+In the **Rack**, tap a drum channel's name to choose its sound: every kit and folder is listed,
+with folders matching the channel (e.g. "Kick" → Kicks) already open. Tap a sound to hear it and
+**Use** to pick it. **+ Add sound** below the channels adds a kit sound as a new channel. Sample
+channels follow the piano roll too: C4 plays the sound as-is, other notes pitch it.
 
 ## Architecture
 

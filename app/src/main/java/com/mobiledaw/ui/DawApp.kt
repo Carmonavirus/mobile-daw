@@ -41,7 +41,6 @@ import com.mobiledaw.ui.theme.DawColors
 fun DawApp(vm: DawViewModel) {
     var showProjects by remember { mutableStateOf(false) }
     var showTempo by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -55,7 +54,7 @@ fun DawApp(vm: DawViewModel) {
             vm = vm,
             onTitle = { showProjects = true },
             onTempo = { showTempo = true },
-            onMenu = { showSettings = true },
+            onMenu = { vm.settingsOpen = true },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (vm.tab) {
@@ -74,11 +73,11 @@ fun DawApp(vm: DawViewModel) {
 
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
-    if (showSettings) {
+    if (vm.settingsOpen) {
         SettingsScreen(
             vm = vm,
-            onOpenProjects = { showSettings = false; showProjects = true },
-            onDismiss = { showSettings = false },
+            onOpenProjects = { vm.settingsOpen = false; showProjects = true },
+            onDismiss = { vm.settingsOpen = false },
         )
     }
 }

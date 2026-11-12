@@ -75,6 +75,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
                 }
 
+                // ---------------------------------------------------------------- drum kits
+                SectionTitle("Drum kits")
+                SectionCard { DrumKitsSection(vm) }
+
                 // ---------------------------------------------------------------- appearance
                 SectionTitle("Appearance")
                 SectionCard {

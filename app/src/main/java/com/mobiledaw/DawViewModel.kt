@@ -52,6 +52,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var project by mutableStateOf(loadInitial())
         private set
     var tab by mutableStateOf(Tab.RACK)
+    var settingsOpen by mutableStateOf(false)
     var mode by mutableStateOf(PlayMode.PATTERN)
         private set
     var playing by mutableStateOf(false)

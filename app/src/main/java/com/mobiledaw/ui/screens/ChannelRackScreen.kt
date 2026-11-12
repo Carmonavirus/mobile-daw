@@ -50,7 +50,7 @@ import com.mobiledaw.model.STEPS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_STEP
 import com.mobiledaw.ui.AddChannelDialog
 import com.mobiledaw.ui.DawChip
-import com.mobiledaw.ui.KitBrowser
+import com.mobiledaw.ui.KitPicker
 import com.mobiledaw.ui.RoundToggle
 import com.mobiledaw.ui.TextAction
 import com.mobiledaw.ui.theme.DawColors
@@ -103,13 +103,20 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 ) {
                     TextAction("+ Add channel") { adding = true }
-                    TextAction("Sounds", strong = true) { replaceId = null; browsing = true }
+                    TextAction("+ Add sound", strong = true) { replaceId = null; browsing = true }
                 }
             }
         }
     }
     if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
-    if (browsing) KitBrowser(vm, replaceId) { browsing = false }
+    if (browsing) {
+        KitPicker(
+            vm = vm,
+            replaceChannelId = replaceId,
+            onOpenSettings = { browsing = false; vm.settingsOpen = true },
+            onDismiss = { browsing = false },
+        )
+    }
 }
 
 /** Pattern chips plus the pattern length selector, shared by the rack and piano roll. */
