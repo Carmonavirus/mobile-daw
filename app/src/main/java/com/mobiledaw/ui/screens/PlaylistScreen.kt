@@ -78,6 +78,8 @@ import com.mobiledaw.TakeState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.onSizeChanged
@@ -92,6 +94,10 @@ private val HEADER_H = 24.dp
 private val GUTTER_W = 40.dp
 private val HANDLE_R = 6.dp
 private val HANDLE_HIT = 18.dp
+/** How far the playhead may glide past the last engine reading (they arrive every ~33 ms). */
+private const val PLAYHEAD_LEAD_NANOS = 60_000_000L
+/** After you swipe the playlist yourself, it stops following the playhead for this long. */
+private const val FOLLOW_PAUSE_NANOS = 2_500_000_000L
 
 /** What a touch on the playlist grid landed on. */
 private sealed interface Hit {
@@ -181,12 +187,37 @@ fun PlaylistScreen(vm: DawViewModel) {
     var openAudioId by remember { mutableStateOf<Long?>(null) }
     var openPatternIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Keep the playhead in view while recording.
-    LaunchedEffect(vm.positionTicks, recording) {
-        if (!recording || viewportPx == 0) return@LaunchedEffect
-        val x = with(density) { (vm.positionTicks.toFloat() / TICKS_PER_BAR * BAR_W.toPx()).toInt() }
-        if (x > hScroll.value + viewportPx * 0.75f || x < hScroll.value) {
-            hScroll.animateScrollTo((x - viewportPx / 4).coerceAtLeast(0))
+    // Song playhead: glides every frame between engine readings (which already include the
+    // Bluetooth delay), and the playlist pages along to keep it in view, FL-style.
+    var headTick by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var lastPoll = Long.MIN_VALUE
+        var lastPollNanos = 0L
+        var moving = false
+        var userScrollUntil = 0L
+        while (true) {
+            val now = withFrameNanos { it }
+            val polled = vm.positionTicks.coerceAtLeast(0L)
+            if (polled != lastPoll) {
+                moving = lastPoll != Long.MIN_VALUE && polled > lastPoll && polled - lastPoll < TICKS_PER_BAR
+                lastPoll = polled
+                lastPollNanos = now
+            }
+            val ticksPerNano = projectState.value.bpm * TICKS_PER_BEAT / 60e9
+            val ahead = if (vm.playing && moving && vm.countIn == null) {
+                (now - lastPollNanos).coerceAtMost(PLAYHEAD_LEAD_NANOS) * ticksPerNano
+            } else 0.0
+            val target = (polled + ahead).toFloat().coerceAtMost(maxOf(1, vm.loopTicks).toFloat())
+            // Never step back a hair when a fresh reading lands just behind the glide.
+            headTick = if (vm.playing && target < headTick && headTick - target < TICKS_PER_STEP) headTick else target
+
+            if (hScroll.isScrollInProgress) userScrollUntil = now + FOLLOW_PAUSE_NANOS
+            if (vm.mode == PlayMode.SONG && vm.playing && viewportPx > 0 && now > userScrollUntil) {
+                val x = with(density) { headTick / TICKS_PER_BAR * BAR_W.toPx() }
+                if (x > hScroll.value + viewportPx * 0.85f || x < hScroll.value) {
+                    hScroll.scrollTo((x - viewportPx * 0.1f).toInt().coerceAtLeast(0))
+                }
+            }
         }
     }
 
@@ -229,6 +260,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                 }
             }
             Box(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
+              Box {
                 Canvas(
                     Modifier
                         .width(BAR_W * bars)
@@ -244,7 +276,13 @@ fun PlaylistScreen(vm: DawViewModel) {
                                 val tick = g.tickAt(down.position.x)
 
                                 fun tap() {
-                                    if (down.position.y < g.header || lane !in 0 until LANES) return
+                                    // Tap the bar numbers to move the song playhead there.
+                                    if (down.position.y < g.header) {
+                                        vm.switchMode(PlayMode.SONG)
+                                        vm.seekToTick(tick)
+                                        return
+                                    }
+                                    if (lane !in 0 until LANES) return
                                     when (tool) {
                                         PlaylistTool.PENCIL -> when (hit) {
                                             is Hit.AudioBody -> openAudioId = hit.clip.id
@@ -430,13 +468,26 @@ fun PlaylistScreen(vm: DawViewModel) {
                         drawRoundRect(RecordRed.copy(alpha = 0.22f), Offset(x, y), Size(w, h), corner)
                         drawWave(vm.takePeaks, x, y + 6.dp.toPx(), w, h - 12.dp.toPx(), RecordRed, normalize = false)
                     }
-
-                    // Song playhead
-                    if (vm.mode == PlayMode.SONG && (vm.playing || vm.positionTicks > 0)) {
-                        val x = vm.positionTicks.toFloat() / TICKS_PER_BAR * bw
-                        drawLine(if (recording) RecordRed else DawColors.Accent, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
-                    }
                 }
+                // Song playhead on its own layer, so only the line redraws each frame.
+                Canvas(Modifier.matchParentSize()) {
+                    if (vm.mode != PlayMode.SONG) return@Canvas
+                    val x = headTick / TICKS_PER_BAR * BAR_W.toPx()
+                    val color = if (recording) RecordRed else DawColors.Accent
+                    val top = HEADER_H.toPx()
+                    val bottom = top + LANE_H.toPx() * LANES
+                    drawLine(color, Offset(x, top - 2.dp.toPx()), Offset(x, bottom), 2.dp.toPx())
+                    // Marker in the bar-number ruler.
+                    val half = 6.dp.toPx()
+                    val marker = Path().apply {
+                        moveTo(x - half, top - 11.dp.toPx())
+                        lineTo(x + half, top - 11.dp.toPx())
+                        lineTo(x, top - 1.dp.toPx())
+                        close()
+                    }
+                    drawPath(marker, color)
+                }
+              }
             }
         }
         PlaylistToolBar(vm)

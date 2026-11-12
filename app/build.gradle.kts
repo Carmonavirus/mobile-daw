@@ -1,3 +1,6 @@
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -18,6 +21,11 @@ android {
         versionCode = build
         versionName = "0.3.$build"
         buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
+
+        // Screenshot tests (app/src/androidTest) save their images through the test storage
+        // service, which Gradle copies into build/outputs/connected_android_test_additional_output.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["useTestStorageService"] = "true"
 
         externalNativeBuild {
             cmake {
@@ -54,6 +62,11 @@ android {
         jvmTarget = "17"
     }
 
+    androidResources {
+        // The SoundFont is read straight from the APK (memory-mapped), so keep it uncompressed.
+        noCompress += "sf2"
+    }
+
     buildFeatures {
         compose = true
         prefab = true
@@ -82,4 +95,45 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.oboe)
     implementation(libs.androidx.documentfile)
+
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.services:storage:1.5.0")
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestUtil("androidx.test.services:test-services:1.5.0")
 }
+
+// GeneralUser GS, a free General MIDI SoundFont by S. Christian Collins (see THIRD_PARTY_NOTICES.md),
+// ships inside the APK as an asset. It is fetched at build time from its official GitHub repository
+// (pinned commit + checksum) instead of being committed, to keep 32 MB out of git history.
+val generalUserUrl =
+    "https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2"
+val generalUserSha256 = "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe"
+val generalUserFile = file("src/main/assets/soundfonts/GeneralUser-GS.sf2")
+
+val fetchGeneralUser = tasks.register("fetchGeneralUserGs") {
+    outputs.file(generalUserFile)
+    doLast {
+        fun sha256(f: File): String {
+            val md = MessageDigest.getInstance("SHA-256")
+            f.inputStream().use { input ->
+                val buf = ByteArray(1 shl 16)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            return md.digest().joinToString("") { b -> "%02x".format(b) }
+        }
+        if (generalUserFile.exists() && sha256(generalUserFile) == generalUserSha256) return@doLast
+        generalUserFile.parentFile.mkdirs()
+        val tmp = File(generalUserFile.path + ".part")
+        URI(generalUserUrl).toURL().openStream().use { input -> tmp.outputStream().use { out -> input.copyTo(out) } }
+        check(sha256(tmp) == generalUserSha256) { "GeneralUser GS download did not match its checksum" }
+        tmp.renameTo(generalUserFile)
+    }
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchGeneralUser) }

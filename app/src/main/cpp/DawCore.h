@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "SoundEngines.h"
 #include "Synth.h"
 #include "fx/Mixer.h"
 #include "wavesynth/WaveSynth.h"
@@ -160,6 +161,9 @@ public:
     // Frees a sequence the audio thread has finished with. Call regularly from the UI thread.
     void collectGarbage();
 
+    // SoundFont / Macro / Modeled / Multisample instruments (see SoundEngines.h).
+    SoundEngines& engines() { return engines_; }
+
     // ---- audio thread ----
     // Live output: the mix plus the metronome / count-in click.
     void render(float* interleavedStereo, int frames);
@@ -232,6 +236,7 @@ private:
     Voice auditionVoice_{};
     std::atomic<bool> auditionTrigger_{false};
 
+    SoundEngines engines_;
     // Mixer tracks and their per-block buses (audio thread).
     std::unique_ptr<std::array<fx::Insert, fx::kMaxInserts>> inserts_;
     std::atomic<int> insertCount_{0};

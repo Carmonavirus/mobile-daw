@@ -1,9 +1,12 @@
 // Desktop smoke test for the audio core: renders a short loop to out/render.wav
 // and fails if the output is silent, clipped flat, or contains NaNs.
-// Build: g++ -std=c++17 -O2 -I../app/src/main/cpp main.cpp ../app/src/main/cpp/DawCore.cpp -o out/enginetest
+// Build and run: engine-test/build.sh && (cd engine-test && ./out/enginetest [path/to/bank.sf2])
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
 #include "DawCore.h"
@@ -23,7 +26,143 @@ static void writeWav(const char* path, const std::vector<float>& data, int sr) {
     std::fclose(f);
 }
 
-int main() {
+// Plays every preset of the extra engines (and a SoundFont if given) on one channel and checks
+// each makes finite, non-silent sound that ends.
+static bool testExtraEngines(const char* sf2Path) {
+    const int sr = 48000;
+    bool ok = true;
+    auto play = [&](const char* label, int instrument, int variant, int bank, int pitch, std::vector<float>* keep) {
+        Core core;
+        core.setSampleRate(sr);
+        if (instrument == kSoundFont && bank >= 0) {
+            // Banks live in the core that loads them, so reload into this one.
+        }
+        core.setChannelCount(1);
+        core.setChannel(0, instrument, 0.8f, 0.0f, false, false);
+        core.engines().setChannel(0, instrument, variant, bank);
+        core.previewNote(0, pitch, 0.9f);
+        std::vector<float> buf(256 * 2);
+        double sumSq = 0;
+        float peak = 0, tailPeak = 0;
+        bool bad = false;
+        const int blocks = sr * 3 / 256;
+        for (int b = 0; b < blocks; ++b) {
+            core.render(buf.data(), 256);
+            for (float x : buf) {
+                if (!std::isfinite(x)) bad = true;
+                sumSq += x * x;
+                peak = std::fmax(peak, std::fabs(x));
+                if (b > blocks - 20) tailPeak = std::fmax(tailPeak, std::fabs(x));
+            }
+            if (keep) keep->insert(keep->end(), buf.begin(), buf.end());
+        }
+        const double rms = std::sqrt(sumSq / (blocks * 512.0));
+        const bool silent = peak < 0.01f;
+        std::printf("  %-28s rms=%.3f peak=%.3f tail=%.4f%s\n", label, rms, peak, tailPeak,
+                    bad ? " NaN!" : silent ? " SILENT!" : "");
+        if (bad || silent) ok = false;
+    };
+    std::vector<float> all;
+    for (int inst : {kMacro, kModeled}) {
+        std::printf("%s presets:\n", inst == kMacro ? "Macro" : "Modeled");
+        for (int i = 0; i < SoundEngines::presetCount(inst); ++i) {
+            std::string info = SoundEngines::presetInfo(inst, i);
+            int pitch = 60;
+            {
+                // info = Name|Group|drum|pitch[|library]
+                size_t a = info.find('|'), b = info.find('|', a + 1), c = info.find('|', b + 1);
+                size_t d = info.find('|', c + 1);
+                pitch = std::stoi(info.substr(c + 1, d == std::string::npos ? std::string::npos : d - c - 1));
+            }
+            play(info.substr(0, info.find('|')).c_str(), inst, i, -1, pitch, &all);
+        }
+    }
+
+    // Multisample: two zones, the upper one looping.
+    {
+        Core core;
+        core.setSampleRate(sr);
+        core.setChannelCount(1);
+        core.setChannel(0, kMultiSample, 0.8f, 0.0f, false, false);
+        auto* set = new MultiSampleSet();
+        for (int z = 0; z < 2; ++z) {
+            Zone zone;
+            zone.sampleRate = 44100;
+            zone.frames.resize(44100);
+            for (size_t n = 0; n < zone.frames.size(); ++n)
+                zone.frames[n] = 0.5f * std::sin(2 * 3.14159 * (z ? 440.0 : 220.0) * n / 44100.0);
+            zone.loKey = z ? 61 : 0;
+            zone.hiKey = z ? 127 : 60;
+            zone.root = z ? 69 : 57;
+            zone.loop = z == 1;
+            zone.loopStart = 1000;
+            zone.loopEnd = 1000 + 44100 / 440 * 40;
+            set->zones.push_back(std::move(zone));
+        }
+        core.engines().setMultiSample(0, set);
+        core.engines().setChannel(0, kMultiSample, 0, -1);
+        std::vector<NoteEvent> ev = {{0, 0, kTicksPerBeat, 57, 0.9f}, {0, kTicksPerBeat * 2, kTicksPerBeat * 4, 72, 0.9f}};
+        core.setSequence(ev, kTicksPerBeat * 8);
+        core.setPlaying(true);
+        std::vector<float> buf(512);
+        float peak = 0;
+        bool bad = false;
+        for (int b = 0; b < sr * 2 / 256; ++b) {
+            core.render(buf.data(), 256);
+            for (float x : buf) { bad |= !std::isfinite(x); peak = std::fmax(peak, std::fabs(x)); }
+        }
+        std::printf("Multisample: peak=%.3f%s\n", peak, bad ? " NaN!" : "");
+        if (bad || peak < 0.05f) ok = false;
+    }
+
+    if (sf2Path) {
+        std::ifstream in(sf2Path, std::ios::binary);
+        std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        Core core;
+        core.setSampleRate(sr);
+        const int bank = core.engines().loadSoundFont(bytes.data(), static_cast<int>(bytes.size()));
+        const int presets = core.engines().soundFontPresetCount(bank);
+        std::printf("SoundFont %s: bank=%d presets=%d\n", sf2Path, bank, presets);
+        if (bank < 0 || presets <= 0) return false;
+        core.setChannelCount(2);
+        int drumKit = -1;
+        for (int i = 0; i < presets; ++i) if (core.engines().soundFontPresetIds(bank, i)[0] == 128) { drumKit = i; break; }
+        core.setChannel(0, kSoundFont, 0.8f, 0.0f, false, false);
+        core.engines().setChannel(0, kSoundFont, 0, bank);
+        core.setChannel(1, kSoundFont, 0.8f, 0.0f, false, false);
+        core.engines().setChannel(1, kSoundFont, drumKit, bank);
+        std::printf("  preset0=%s drums=%s\n", core.engines().soundFontPresetName(bank, 0),
+                    drumKit >= 0 ? core.engines().soundFontPresetName(bank, drumKit) : "none");
+        std::vector<NoteEvent> ev;
+        for (int s = 0; s < 16; ++s) {
+            ev.push_back({1, s * kTicksPerStep, kTicksPerStep, s % 4 == 0 ? 36 : (s % 4 == 2 ? 38 : 42), 0.9f});
+            if (s % 4 == 0) ev.push_back({0, s * kTicksPerStep, kTicksPerStep * 3, 60 + s / 2, 0.8f});
+        }
+        core.setSequence(ev, kTicksPerStep * 16);
+        core.setPlaying(true);
+        std::vector<float> buf(512), out;
+        float peak = 0;
+        bool bad = false;
+        for (int b = 0; b < sr * 4 / 256; ++b) {
+            core.render(buf.data(), 256);
+            core.collectGarbage();
+            for (float x : buf) { bad |= !std::isfinite(x); peak = std::fmax(peak, std::fabs(x)); }
+            out.insert(out.end(), buf.begin(), buf.end());
+        }
+        writeWav("out/soundfont.wav", out, sr);
+        std::printf("  rendered peak=%.3f%s\n", peak, bad ? " NaN!" : "");
+        if (bad || peak < 0.05f) ok = false;
+    }
+    writeWav("out/presets.wav", all, sr);
+    return ok;
+}
+
+int main(int argc, char** argv) {
+    if (!testExtraEngines(argc > 1 ? argv[1] : nullptr)) {
+        std::printf("FAIL (extra engines)\n");
+        return 1;
+    }
+
     const int sr = 48000;
     Core core;
     core.setSampleRate(sr);
