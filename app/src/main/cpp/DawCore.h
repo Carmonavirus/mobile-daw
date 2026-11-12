@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Synth.h"
+#include "wavesynth/WaveSynth.h"
 
 namespace daw {
 
@@ -80,6 +81,10 @@ public:
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
     void setMasterVolume(float v) { master_.store(v); }
     void previewNote(int channel, int pitch, float velocity);
+    // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.
+    void previewHold(int channel, int pitch, float velocity, bool on);
+    // Sets one wavetable-synth parameter (see wavesynth::Param) for a channel.
+    void setSynthParam(int channel, int param, float value);
     // Replaces the sample a channel plays (slot 0..kMaxChannels-1) or the audition sample
     // (kAuditionSlot). Pass empty frames to clear it.
     void setSample(int slot, std::vector<float> frames, float sampleRate);
@@ -101,6 +106,7 @@ private:
     void advanceTick(const Sequence* seq);
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
+    void pushPreview(const Preview& p);
     void adoptSamples();
     void jumpTo(int64_t tick);
     float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
@@ -132,8 +138,12 @@ private:
     // Voices
     std::array<std::array<Voice, kVoicesPerChannel>, kMaxChannels> voices_{};
 
+    // Wavetable synths, one per channel, and their parameters (written by the UI thread).
+    std::array<wavesynth::Instrument, kMaxChannels> synths_{};
+    std::array<std::array<std::atomic<float>, wavesynth::kParamCount>, kMaxChannels> synthParams_;
+
     // Preview notes: single-producer single-consumer ring.
-    struct Preview { int channel; int pitch; float velocity; };
+    struct Preview { int channel; int pitch; float velocity; int hold; };  // hold: 0 tap, 1 press, -1 release
     static constexpr int kPreviewQueue = 64;
     std::array<Preview, kPreviewQueue> previews_{};
     std::atomic<int> previewWrite_{0};

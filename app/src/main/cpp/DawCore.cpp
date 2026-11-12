@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 namespace daw {
 
@@ -13,6 +14,11 @@ Core::Core() {
         sample_[i] = nullptr;
     }
     current_ = new Sequence();
+    const wavesynth::Patch defaults;
+    for (auto& channel : synthParams_)
+        for (int i = 0; i < wavesynth::kParamCount; ++i) channel[static_cast<size_t>(i)].store(defaults[i]);
+    // Build the wavetables in the background; synth channels stay silent for the moment it takes.
+    std::thread([] { wavesynth::Bank::get(); }).detach();
 }
 
 Core::~Core() {
@@ -165,12 +171,23 @@ void Core::setChannel(int index, int instrument, float volume, float pan, bool m
     p.solo.store(solo);
 }
 
-void Core::previewNote(int channel, int pitch, float velocity) {
+void Core::previewNote(int channel, int pitch, float velocity) { pushPreview({channel, pitch, velocity, 0}); }
+
+void Core::previewHold(int channel, int pitch, float velocity, bool on) {
+    pushPreview({channel, pitch, velocity, on ? 1 : -1});
+}
+
+void Core::pushPreview(const Preview& p) {
     int w = previewWrite_.load(std::memory_order_relaxed);
     int next = (w + 1) % kPreviewQueue;
     if (next == previewRead_.load(std::memory_order_acquire)) return;  // full, drop
-    previews_[w] = {channel, pitch, velocity};
+    previews_[w] = p;
     previewWrite_.store(next, std::memory_order_release);
+}
+
+void Core::setSynthParam(int channel, int param, float value) {
+    if (channel < 0 || channel >= kMaxChannels || param < 0 || param >= wavesynth::kParamCount) return;
+    synthParams_[static_cast<size_t>(channel)][static_cast<size_t>(param)].store(value);
 }
 
 void Core::readLevels(float* out, int count) const {
@@ -196,6 +213,12 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
     const bool cut = params_[channel].cutItself.load();
+    if (instrument == kWavetable) {
+        auto& synth = synths_[static_cast<size_t>(channel)];
+        if (cut) synth.choke();
+        synth.noteOn(pitch, velocity, gateSamples);
+        return;
+    }
     Voice* target = nullptr;
     if (cut) {
         // "Cut itself": every hit chokes whatever this channel is still playing (4 ms fade).
@@ -226,6 +249,7 @@ void Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples) 
 void Core::releaseAll() {
     for (auto& pool : voices_)
         for (auto& v : pool) Synth::release(v);
+    for (auto& s : synths_) s.releaseAll();
 }
 
 void Core::advanceTick(const Sequence* seq) {
@@ -267,7 +291,14 @@ void Core::render(float* out, int frames) {
     int r = previewRead_.load(std::memory_order_relaxed);
     while (r != previewWrite_.load(std::memory_order_acquire)) {
         const auto& p = previews_[r];
-        trigger(p.channel, p.pitch, p.velocity, sampleRate_ / 4);
+        if (p.hold < 0) {
+            if (p.channel >= 0 && p.channel < kMaxChannels) synths_[static_cast<size_t>(p.channel)].noteOff(p.pitch);
+        } else {
+            // A held press only stays down on synth channels; everything else plays a short note.
+            const bool held = p.hold > 0 && p.channel >= 0 && p.channel < kMaxChannels &&
+                              params_[p.channel].instrument.load() == kWavetable;
+            trigger(p.channel, p.pitch, p.velocity, held ? 0 : sampleRate_ / 4);
+        }
         r = (r + 1) % kPreviewQueue;
         previewRead_.store(r, std::memory_order_release);
     }
@@ -303,6 +334,15 @@ void Core::render(float* out, int frames) {
         gains[c][1] = std::sin(angle) * vol * 1.414f;
         instruments[c] = p.instrument.load();
         audible[c] = !p.mute.load() && (!anySolo || p.solo.load());
+        auto& synth = synths_[static_cast<size_t>(c)];
+        if (instruments[c] == kWavetable) {
+            wavesynth::Patch patch;
+            for (int i = 0; i < wavesynth::kParamCount; ++i)
+                patch.v[static_cast<size_t>(i)] = synthParams_[static_cast<size_t>(c)][static_cast<size_t>(i)].load(std::memory_order_relaxed);
+            synth.prepare(patch, static_cast<float>(sampleRate_), bpm_.load());
+        } else if (synth.anyActive()) {
+            synth.silence();  // the channel switched to another instrument
+        }
     }
     SampleShape shapes[kMaxChannels];
     for (int c = 0; c < channelCount; ++c) {
@@ -328,20 +368,26 @@ void Core::render(float* out, int frames) {
         }
         float left = 0.0f, right = 0.0f;
         for (int c = 0; c < channelCount; ++c) {
-            float sum = 0.0f;
-            for (auto& v : voices_[c]) {
-                if (!v.active) continue;
-                float x = instruments[c] == kSample ? sampleTick(v, sample_[c], &shapes[c]) : Synth::tick(v, instruments[c], sr);
-                if (v.fadeStep > 0.0f) {
-                    x *= v.fade;
-                    v.fade -= v.fadeStep;
-                    if (v.fade <= 0.0f) v.active = false;
+            float sumL = 0.0f, sumR = 0.0f;
+            if (instruments[c] == kWavetable) {
+                synths_[static_cast<size_t>(c)].tick(sumL, sumR);
+            } else {
+                float sum = 0.0f;
+                for (auto& v : voices_[c]) {
+                    if (!v.active) continue;
+                    float x = instruments[c] == kSample ? sampleTick(v, sample_[c], &shapes[c]) : Synth::tick(v, instruments[c], sr);
+                    if (v.fadeStep > 0.0f) {
+                        x *= v.fade;
+                        v.fade -= v.fadeStep;
+                        if (v.fade <= 0.0f) v.active = false;
+                    }
+                    sum += x;
                 }
-                sum += x;
+                sumL = sumR = sum;
             }
             if (!audible[c]) continue;
-            float l = sum * gains[c][0];
-            float rr = sum * gains[c][1];
+            float l = sumL * gains[c][0];
+            float rr = sumR * gains[c][1];
             peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(rr)));
             left += l;
             right += rr;

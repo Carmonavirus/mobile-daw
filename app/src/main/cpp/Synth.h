@@ -16,7 +16,9 @@ enum Instrument : int {
     kPluck = 6,
     kPad = 7,
     kSample = 8,  // plays an imported audio file, rendered by Core
-    kInstrumentCount = 9,
+    // 9-12 are reserved for the sound-source instruments.
+    kWavetable = 13,  // two-oscillator wavetable synth (wavesynth/), rendered by Core in stereo
+    kInstrumentCount = 14,
 };
 
 inline bool isDrum(int instrument) { return instrument <= kClap || instrument == kSample; }
