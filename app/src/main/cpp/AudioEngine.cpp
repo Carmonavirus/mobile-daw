@@ -54,6 +54,24 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     return oboe::DataCallbackResult::Continue;
 }
 
+double AudioEngine::outputLatencyMillis() {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (!stream_ || stream_->getState() != oboe::StreamState::Started) return -1.0;
+    auto result = stream_->calculateLatencyMillis();
+    return result ? result.value() : -1.0;
+}
+
+int AudioEngine::outputDeviceId() {
+    std::lock_guard<std::mutex> guard(lock_);
+    return stream_ ? stream_->getDeviceId() : 0;
+}
+
+double AudioEngine::bufferLatencyMillis() {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (!stream_ || stream_->getSampleRate() <= 0) return -1.0;
+    return 1000.0 * stream_->getBufferSizeInFrames() / stream_->getSampleRate();
+}
+
 void AudioEngine::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {
     // A disconnect (headphone plug/unplug, or another app taking exclusive audio) closes the
     // stream. Reopen so playback resumes on the current device instead of going silent.

@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.6.3", "2026-11-12T23:00:00Z",
+            listOf(
+                "Bluetooth sync: the playhead, step lights and meters now wait for the sound, so with earbuds what you see matches what you hear.",
+                "Settings → Audio sync: Auto uses the delay the phone measures for your earbuds/speaker; a slider (and − / +) fine-tunes it. Remembered for each output.",
+                "Recordings are lined up with that delay too, so a take lands where you actually sang it.",
+            ),
+        ),
+        Release(
             "0.6.2", "2026-11-12T18:00:00Z",
             listOf(
                 "Chord generator in the piano roll: tap Chords. It writes a progression in the project's key into the channel you're on (great with the Wavetable synth).",

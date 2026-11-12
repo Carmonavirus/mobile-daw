@@ -33,6 +33,13 @@ object NativeEngine {
     external fun audition()
     external fun positionTicks(): Long
 
+    /** Time from the engine writing audio to it leaving the speaker / earbuds, in ms (stream timestamps). < 0 = unknown. */
+    external fun outputLatencyMs(): Double
+    /** The output buffer alone, in ms. < 0 = no stream. */
+    external fun bufferLatencyMs(): Double
+    /** AudioDeviceInfo id of the output in use, 0 = unknown. */
+    external fun outputDeviceId(): Int
+
     /** Fills per-channel peaks; the last slot receives the master peak. */
     external fun readLevels(out: FloatArray)
     external fun readScope(out: FloatArray)

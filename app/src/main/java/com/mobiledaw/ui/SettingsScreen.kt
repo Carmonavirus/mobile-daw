@@ -109,6 +109,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                 }
 
+                // ---------------------------------------------------------------- audio sync
+                SectionTitle("Audio sync (Bluetooth delay)")
+                SectionCard { AudioSyncSection(vm) }
+
                 // ---------------------------------------------------------------- drum kits
                 SectionTitle("Drum kits")
                 SectionCard { DrumKitsSection(vm) }
@@ -199,6 +203,7 @@ private val GUIDE = listOf(
         "PAT / SONG (left of play)" to "Loop the current pattern, or play the whole playlist.",
         "Play button" to "Start / stop (just above the tabs).",
         "Progress bar" to "Shows where you are. Tap or drag it to jump.",
+        "Settings → Audio sync" to "Earbuds sound late? The playhead waits for the sound. Auto measures it; fine-tune with the slider.",
     ),
     "Rack" to listOf(
         "Tap a step" to "Turn it on or off.",
