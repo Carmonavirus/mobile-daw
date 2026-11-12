@@ -33,6 +33,7 @@ object AppInfo {
                 "Tap the red button: 1, 2, 3, GO count-in, then it records the microphone. Tap again to stop. The take lands on the playlist at the playhead, on the first free track, with its waveform.",
                 "Recordings play back in SONG mode, also when you start playing in the middle of one. Tap a recording to remove it (Undo is there for a few seconds).",
                 "Close goes back to the normal play bar.",
+                "Piano roll: fixed one-finger scroll — hold and drag now actually scrolls (Settings → Editing).",
             ),
         ),
         Release(
