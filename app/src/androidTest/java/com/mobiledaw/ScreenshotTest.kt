@@ -45,7 +45,7 @@ class ScreenshotTest {
     private fun dismissSystemDialogs() {
         repeat(3) {
             if (device.findObject(By.textContains("isn't responding")) == null) return
-            (device.findObject(By.text("Wait")) ?: device.findObject(By.res("android:id/aerr_wait")))?.click()
+            if (!clickNow(By.text("Wait"))) clickNow(By.res("android:id/aerr_wait"))
             Thread.sleep(500)
         }
     }
@@ -62,21 +62,38 @@ class ScreenshotTest {
         TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
+    /**
+     * Taps the element's centre. The app redraws constantly, so a found element can go stale before
+     * it is clicked; read its position right away and retry a few times.
+     */
+    private fun clickNow(selector: androidx.test.uiautomator.BySelector): Boolean {
+        repeat(4) {
+            val obj = device.findObject(selector) ?: return false
+            val point = runCatching { obj.visibleCenter }.getOrNull()
+            if (point != null) {
+                device.click(point.x, point.y)
+                return true
+            }
+            Thread.sleep(200)
+        }
+        return false
+    }
+
     /** Taps the first visible element showing exactly [text] (or containing it with [partial]). */
     private fun tap(text: String, partial: Boolean = false) {
         dismissSystemDialogs()
         val selector = if (partial) By.textContains(text) else By.text(text)
-        val obj = device.wait(Until.findObject(selector), 5_000) ?: error("\"$text\" not on screen")
-        obj.click()
+        device.wait(Until.hasObject(selector), 5_000)
+        if (!clickNow(selector)) error("\"$text\" not on screen")
     }
 
     /** Like [tap], but scrolls down first when [text] is below the fold. */
     private fun tapScrolling(text: String) {
         repeat(8) {
             dismissSystemDialogs()
-            device.findObject(By.text(text))?.let { it.click(); return }
+            if (clickNow(By.text(text))) return
             device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 20)
-            Thread.sleep(300)
+            Thread.sleep(400)
         }
         tap(text)
     }
