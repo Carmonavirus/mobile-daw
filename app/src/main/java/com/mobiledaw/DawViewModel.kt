@@ -412,6 +412,12 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         showLive(tick.toLong())
     }
 
+    /** Moves the song playhead to [tick] (snapped to a step), e.g. from a tap on the playlist ruler. */
+    fun seekToTick(tick: Int) {
+        if (loopTicks <= 0) return
+        seekTo((tick + 0.5f) / loopTicks)
+    }
+
     private fun applyPlaying(value: Boolean) {
         playing = value
         NativeEngine.setPlaying(value)
