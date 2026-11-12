@@ -11,9 +11,13 @@ object WavDecoder {
     /** Longest sound we load, to keep memory in check on long loops. */
     private const val MAX_SECONDS = 60
 
-    fun decode(file: File): Decoded? = runCatching { decode(file.readBytes()) }.getOrNull()
+    /** Longest recording we load (audio clips on the playlist). */
+    const val MAX_RECORDING_SECONDS = 300
 
-    fun decode(bytes: ByteArray): Decoded? {
+    fun decode(file: File, maxSeconds: Int = MAX_SECONDS): Decoded? =
+        runCatching { decode(file.readBytes(), maxSeconds) }.getOrNull()
+
+    fun decode(bytes: ByteArray, maxSeconds: Int = MAX_SECONDS): Decoded? {
         val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         if (bytes.size < 12 || tag(buf, 0) != "RIFF" || tag(buf, 8) != "WAVE") return null
         var pos = 12
@@ -49,7 +53,7 @@ object WavDecoder {
         val bytesPerSample = bits / 8
         if (bytesPerSample !in 1..4) return null
         val frameSize = bytesPerSample * channels
-        val frameCount = minOf(dataLen / frameSize, rate * MAX_SECONDS)
+        val frameCount = minOf(dataLen / frameSize, rate * maxSeconds)
         val out = FloatArray(frameCount)
         for (f in 0 until frameCount) {
             var sum = 0f

@@ -54,6 +54,9 @@ struct ChannelParams {
     std::atomic<float> trimEnd{1.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> release{0.0f};
+    // Audio clips on the playlist: when playback starts or seeks into the middle of one of
+    // this channel's notes, the sample starts from that point instead of staying silent.
+    std::atomic<bool> resumeMidway{false};
 };
 
 // Per-block snapshot of a sample channel's trim and envelope, in sample frames.
@@ -80,6 +83,8 @@ public:
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
     void setMasterVolume(float v) { master_.store(v); }
+    // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
+    void setChannelClip(int index, bool resumeMidway);
     void previewNote(int channel, int pitch, float velocity);
     // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.
     void previewHold(int channel, int pitch, float velocity, bool on);
@@ -104,10 +109,12 @@ public:
 
 private:
     void advanceTick(const Sequence* seq);
-    void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
+    // Returns the voice it started, or nullptr (wavetable channels, bad index).
+    Voice* trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
     void adoptSamples();
     void jumpTo(int64_t tick);
+    void resumeLongSamples();
     float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
     SampleShape shapeFor(int channel) const;
 

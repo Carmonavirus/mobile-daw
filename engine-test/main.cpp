@@ -102,6 +102,38 @@ int main() {
         std::printf("FAIL seek\n");
         return 1;
     }
+
+    // Audio clip: a long recording on its own channel starts mid-way when playback starts
+    // inside it, and stays silent on a normal sample channel.
+    {
+        Core clip;
+        clip.setSampleRate(sr);
+        clip.setBpm(120.0f);
+        clip.setChannelCount(1);
+        clip.setChannel(0, 8 /* sample */, 1.0f, 0.0f, false, false);
+        std::vector<float> tone(static_cast<size_t>(sr) * 8);
+        for (size_t i = 0; i < tone.size(); ++i) tone[i] = 0.5f * std::sin(0.05f * static_cast<float>(i));
+        clip.setSample(0, tone, static_cast<float>(sr));
+        const int64_t len = kTicksPerBeat * 16;  // 8 s at 120 BPM
+        clip.setSequence({NoteEvent{0, 0, static_cast<int32_t>(len), 60, 1.0f}}, len * 2);
+        auto loudness = [&](bool resume) {
+            clip.setChannelClip(0, resume);
+            clip.setPlaying(false);
+            clip.render(buf.data(), block);
+            clip.seek(kTicksPerBeat * 4);
+            clip.setPlaying(true);
+            double sum = 0;
+            for (int b = 0; b < 8; ++b) {
+                clip.render(buf.data(), block);
+                for (int i = 0; i < block * 2; ++i) sum += buf[i] * buf[i];
+            }
+            return std::sqrt(sum / (block * 16));
+        };
+        const double off = loudness(false);
+        const double on = loudness(true);
+        std::printf("clip resume: off=%.3f on=%.3f\n", off, on);
+        if (off > 0.001 || on < 0.05) { std::printf("FAIL clip resume\n"); return 1; }
+    }
     std::printf("OK\n");
     return 0;
 }

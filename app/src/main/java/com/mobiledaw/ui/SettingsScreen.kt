@@ -181,7 +181,7 @@ private val GUIDE = listOf(
     "Everywhere" to listOf(
         "Tap the song name" to "Open, rename or start a project.",
         "Tap BPM · key" to "Change tempo and key.",
-        "PAT / SONG" to "Loop the current pattern, or play the whole playlist.",
+        "PAT / SONG (left of play)" to "Loop the current pattern, or play the whole playlist.",
         "Play button" to "Start / stop (just above the tabs).",
         "Progress bar" to "Shows where you are. Tap or drag it to jump.",
     ),
@@ -212,6 +212,9 @@ private val GUIDE = listOf(
         "Tap an empty cell" to "Place the selected pattern.",
         "Tap a clip" to "Remove it.",
         "Swipe sideways" to "Move along the song (time runs left to right).",
+        "Record (right of play)" to "Record mode: big play and record buttons. Close goes back.",
+        "Red record button" to "1, 2, 3, GO, then it records the mic. Tap again to stop; the take lands at the playhead.",
+        "Tap a recording" to "Remove it. Tap Undo to bring it back.",
     ),
     "Mixer" to listOf(
         "Sliders" to "Volume and pan (pan snaps to centre).",

@@ -240,7 +240,7 @@ private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit)
 }
 
 @Composable
-private fun UndoBar(label: String, onUndo: () -> Unit, onDismiss: () -> Unit) {
+internal fun UndoBar(label: String, onUndo: () -> Unit, onDismiss: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(label) {
         kotlinx.coroutines.delay(6000)
         onDismiss()
