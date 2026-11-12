@@ -5,6 +5,8 @@ find_package(oboe REQUIRED CONFIG)
 
 add_library(mobiledaw SHARED
         DawCore.cpp
+        fx/ParametricEq.cpp
+        fx/PitchCorrector.cpp
         wavesynth/WaveSynth.cpp
         wavesynth/Wavetables.cpp
         AudioEngine.cpp

@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.5", "2026-11-12T13:30:00Z",
+            listOf(
+                "Mixer tracks: the Mixer now has a Vocals track with its own effects. Recordings play through it; add more tracks with + Track.",
+                "Send any channel to a mixer track with its → Master chip in the Mixer.",
+                "New Parametric EQ: up to 8 bands you drag on a graph over the live spectrum. Bell, shelves, cuts (12/24/48 dB) and notch.",
+                "New Pitch Correct (auto-tune): pulls the voice to the song's key. Retune speed from instant (robotic) to natural, humanize, transpose.",
+            ),
+        ),
+        Release(
             "0.4.1", "2026-11-12T12:20:00Z",
             listOf("Fix: the app crashed on launch after the last update. Fixed."),
         ),

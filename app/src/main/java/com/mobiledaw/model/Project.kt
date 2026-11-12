@@ -56,6 +56,8 @@ data class Channel(
     val release: Float = 0f,
     /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
     val synth: SynthPatch? = null,
+    /** Mixer track this channel plays through; null goes straight to the master. */
+    val mixerTrack: Long? = null,
 )
 
 @Serializable
@@ -88,6 +90,10 @@ data class Project(
     val channels: List<Channel>,
     val patterns: List<Pattern>,
     val clips: List<Clip> = emptyList(),
+    /** Mixer tracks with effect chains. Every project starts with a generic "Vocals" track. */
+    val mixerTracks: List<MixerTrack> = listOf(MixerTrack.vocals()),
+    /** Mixer track recorded audio plays through (the Vocals track unless changed); null = master. */
+    val recordingTrackId: Long? = VOCALS_TRACK_ID,
 ) {
     fun pattern(id: Long): Pattern? = patterns.firstOrNull { it.id == id }
 
@@ -97,6 +103,12 @@ data class Project(
 
     /** Bars in the arrangement, at least one. */
     val songBars: Int get() = maxOf(1, clips.maxOfOrNull { it.bar + clipBars(it) } ?: 1)
+
+    fun mixerTrack(id: Long?): MixerTrack? = id?.let { t -> mixerTracks.firstOrNull { it.id == t } }
+
+    fun nextMixerTrackId(): Long = (mixerTracks.maxOfOrNull { it.id } ?: 0L) + 1
+
+    fun nextEffectId(): Long = (mixerTracks.flatMap { it.effects }.maxOfOrNull { it.id } ?: 0L) + 1
 
     fun nextId(): Long =
         (channels.map { it.id } + patterns.map { it.id }).maxOrNull()?.plus(1) ?: 1L

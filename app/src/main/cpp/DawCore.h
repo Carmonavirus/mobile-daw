@@ -5,9 +5,11 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "Synth.h"
+#include "fx/Mixer.h"
 #include "wavesynth/WaveSynth.h"
 
 namespace daw {
@@ -54,6 +56,8 @@ struct ChannelParams {
     std::atomic<float> trimEnd{1.0f};
     std::atomic<float> attack{0.0f};
     std::atomic<float> release{0.0f};
+    // Mixer track (fx::Insert) this channel plays through, or -1 for straight to the master.
+    std::atomic<int> insert{-1};
 };
 
 // Per-block snapshot of a sample channel's trim and envelope, in sample frames.
@@ -80,6 +84,21 @@ public:
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release);
     void setMasterVolume(float v) { master_.store(v); }
+
+    // ---- mixer tracks (control thread)
+    // Routes a channel to mixer track `insert` (0..fx::kMaxInserts-1), or -1 for the master.
+    void setChannelInsert(int channel, int insert);
+    void setInsertCount(int count) { insertCount_.store(count < 0 ? 0 : (count > fx::kMaxInserts ? fx::kMaxInserts : count)); }
+    void setInsert(int index, float volume, float pan, bool mute);
+    // Puts an effect (fx::EffectType) in a slot of a mixer track's chain.
+    void setInsertEffect(int index, int slot, int type, bool bypass);
+    void setEffectParam(int index, int slot, int param, float value);
+    // Mixer track meters (0..1).
+    void readInsertLevels(float* out, int count) const;
+    // The newest `count` (<= fx::kSpectrumSize) post-effects samples of a mixer track, oldest first.
+    void readInsertSignal(int index, float* out, int count) const;
+    // Pitch corrector readout: out[0] = detected Hz, out[1] = corrected Hz (0 when silent).
+    void readPitch(int index, int slot, float* out) const;
     void previewNote(int channel, int pitch, float velocity);
     // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.
     void previewHold(int channel, int pitch, float velocity, bool on);
@@ -102,7 +121,11 @@ public:
     // ---- audio thread ----
     void render(float* interleavedStereo, int frames);
 
+    // Largest block rendered in one go; render() splits bigger requests.
+    static constexpr int kBlock = 256;
+
 private:
+    void renderBlock(float* interleavedStereo, int frames);
     void advanceTick(const Sequence* seq);
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
@@ -156,6 +179,12 @@ private:
     std::array<SampleData*, kSampleSlots> sample_{};
     Voice auditionVoice_{};
     std::atomic<bool> auditionTrigger_{false};
+
+    // Mixer tracks and their per-block buses (audio thread).
+    std::unique_ptr<std::array<fx::Insert, fx::kMaxInserts>> inserts_;
+    std::atomic<int> insertCount_{0};
+    std::array<std::array<float, kBlock>, fx::kMaxInserts> busL_{};
+    std::array<std::array<float, kBlock>, fx::kMaxInserts> busR_{};
 
     // Metering
     std::array<std::atomic<float>, kMaxChannels> levels_{};
