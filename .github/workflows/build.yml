@@ -13,13 +13,20 @@ jobs:
         run: |
           mkdir -p engine-test/out
           g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/main.cpp app/src/main/cpp/DawCore.cpp -o engine-test/out/enginetest
+            engine-test/main.cpp app/src/main/cpp/DawCore.cpp app/src/main/cpp/wavesynth/*.cpp \
+            -o engine-test/out/enginetest -pthread
           cd engine-test && ./out/enginetest
+      - name: Build and run the wavetable synth test (renders every factory preset)
+        run: |
+          mkdir -p engine-test/out
+          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
+            engine-test/synth_test.cpp app/src/main/cpp/wavesynth/*.cpp -o engine-test/out/synthtest
+          cd engine-test && ./out/synthtest
 
   apk:
     runs-on: ubuntu-latest
     # Pushes to different branches must not update the release at the same time.
-    concurrency: publish-apk
+    concurrency: ${{ github.ref_name == 'claude/project-thread-n1suni' && 'synth-apk' || 'publish-apk' }}
     permissions:
       contents: write
     steps:
@@ -39,6 +46,8 @@ jobs:
       # Keep one always-current APK on the "latest-build" release so it can be
       # installed straight from a phone browser.
       - name: Publish APK to the latest-build release
+        # The synth branch is merged into the main work branch before release, so it never publishes.
+        if: github.ref_name != 'claude/project-thread-n1suni'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

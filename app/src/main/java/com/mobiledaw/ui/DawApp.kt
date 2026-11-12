@@ -73,6 +73,7 @@ fun DawApp(vm: DawViewModel) {
         BottomTabs(vm.tab) { vm.tab = it }
     }
 
+    vm.synthEditorChannelId?.let { com.mobiledaw.ui.synth.SynthEditor(vm, it) }
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
     if (vm.settingsOpen) {

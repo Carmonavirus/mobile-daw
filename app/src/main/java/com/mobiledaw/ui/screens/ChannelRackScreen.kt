@@ -500,8 +500,8 @@ private fun ChannelRow(
                         .combinedClickable(
                             onClick = {
                                 vm.selectChannel(channel.id)
-                                // Tapping the name picks a sound for this channel.
-                                onChangeSound()
+                                // Tapping the name picks a sound for this channel (synths open their editor).
+                                if (channel.instrument == com.mobiledaw.model.Instrument.WAVETABLE) vm.openSynth(channel.id) else onChangeSound()
                             },
                             onLongClick = { vm.selectChannel(channel.id); menu = true },
                         )

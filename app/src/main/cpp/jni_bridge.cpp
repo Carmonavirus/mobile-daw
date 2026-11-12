@@ -15,6 +15,9 @@ AudioEngine* engine() {
 }
 }  // namespace
 
+// Shared with synth_jni.cpp.
+AudioEngine& dawSharedEngine() { return *engine(); }
+
 extern "C" {
 
 JNIEXPORT jboolean JNICALL Java_com_mobiledaw_audio_NativeEngine_start(JNIEnv*, jobject) {

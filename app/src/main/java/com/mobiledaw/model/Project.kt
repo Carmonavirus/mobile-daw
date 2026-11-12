@@ -21,6 +21,9 @@ enum class Instrument(val id: Int, val label: String, val isDrum: Boolean, val d
 
     /** Plays an imported sound from a kit; see [Channel.sample]. */
     SAMPLE(8, "Sample", true, 60),
+
+    /** Two-oscillator wavetable synth; its sound lives in [Channel.synth]. */
+    WAVETABLE(13, "Wavetable", false, 60),
 }
 
 /** A note inside a pattern. Times are in ticks (96 per beat). */
@@ -51,6 +54,8 @@ data class Channel(
     /** Fade-in and fade-out (before the trim end) in seconds. */
     val attack: Float = 0f,
     val release: Float = 0f,
+    /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
+    val synth: SynthPatch? = null,
 )
 
 @Serializable
