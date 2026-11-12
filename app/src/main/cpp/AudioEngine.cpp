@@ -55,12 +55,12 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
 }
 
 void AudioEngine::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {
-    // Typically a headphone plug/unplug: reopen on the new device.
-    if (error == oboe::Result::ErrorDisconnected) {
-        std::lock_guard<std::mutex> guard(lock_);
-        stream_.reset();
-        openStream();
-    }
+    // A disconnect (headphone plug/unplug, or another app taking exclusive audio) closes the
+    // stream. Reopen so playback resumes on the current device instead of going silent.
+    LOGE("stream closed with error: %s; reopening", oboe::convertToText(error));
+    std::lock_guard<std::mutex> guard(lock_);
+    stream_.reset();
+    openStream();
 }
 
 }  // namespace daw
