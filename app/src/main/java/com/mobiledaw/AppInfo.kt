@@ -21,6 +21,7 @@ object AppInfo {
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
                 "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Piano roll grid: vertical lines follow the Grid buttons (1/32 to 1/2), notes snap to it and new notes take its length.",
                 "No more double hits: placing steps or notes is silent while the beat plays (Settings → Editing to silence it always).",
                 "Pattern templates: tap the selected pattern, Save as template, then load it from + in any project.",
                 "Tapping a drum shows all your kits and their folders, with matching folders (e.g. Kicks) opened.",

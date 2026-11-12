@@ -76,7 +76,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var selectedChannelId by mutableLongStateOf(project.channels.firstOrNull()?.id ?: 0L)
         private set
 
-    /** Length in ticks given to notes drawn in the piano roll. */
+    /** Piano roll grid in ticks: the lines drawn, where notes snap, and the length of new notes. */
     var drawLength by mutableStateOf(TICKS_PER_STEP * 2)
 
     // Live engine readings, refreshed ~30 times a second.

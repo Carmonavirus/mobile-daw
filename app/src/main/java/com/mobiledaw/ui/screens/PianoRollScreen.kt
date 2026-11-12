@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,13 +90,15 @@ fun PianoRollScreen(vm: DawViewModel) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
+            Text("GRID", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
             Segmented(
                 options = listOf(
+                    TICKS_PER_STEP / 2 to "1/32",
                     TICKS_PER_STEP to "1/16",
                     TICKS_PER_STEP * 2 to "1/8",
                     TICKS_PER_BEAT to "1/4",
                     TICKS_PER_BEAT * 2 to "1/2",
-                    TICKS_PER_BAR to "1",
                 ),
                 selected = vm.drawLength,
                 onSelect = { vm.drawLength = it },
@@ -218,8 +221,9 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                                 }
                                 DragMode.MOVE -> if (original != null) {
                                     val dTicks = total.x / pxPerTick
-                                    val start = (((original.start + dTicks) / TICKS_PER_STEP).roundToInt() * TICKS_PER_STEP)
-                                        .coerceIn(0, lengthState.value - TICKS_PER_STEP)
+                                    val g = drawLengthState.value
+                                    val start = (((original.start + dTicks) / g).roundToInt() * g)
+                                        .coerceIn(0, maxOf(0, lengthState.value - g))
                                     val pitch = (original.pitch - (total.y / rowH).roundToInt()).coerceIn(LOWEST_PITCH, HIGHEST_PITCH)
                                     val moved = original.copy(start = start, pitch = pitch)
                                     if (moved != lastApplied) {
@@ -230,8 +234,9 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                                 }
                                 DragMode.RESIZE -> if (original != null) {
                                     val dTicks = total.x / pxPerTick
-                                    val length = (((original.length + dTicks) / TICKS_PER_STEP).roundToInt() * TICKS_PER_STEP)
-                                        .coerceIn(TICKS_PER_STEP, lengthState.value - original.start)
+                                    val g = drawLengthState.value
+                                    val length = (((original.length + dTicks) / g).roundToInt() * g)
+                                        .coerceIn(minOf(g, lengthState.value - original.start), lengthState.value - original.start)
                                     val resized = original.copy(length = length)
                                     if (resized != lastApplied) {
                                         vm.replaceNote(channelState.value.id, hit, resized)
@@ -249,7 +254,8 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                                 val tick = tickAt(down.position.x)
                                 val pitch = pitchAt(down.position.y)
                                 if (tick >= 0 && tick < lengthState.value && pitch in LOWEST_PITCH..HIGHEST_PITCH) {
-                                    val start = (floor(tick / TICKS_PER_STEP).toInt()) * TICKS_PER_STEP
+                                    val g = drawLengthState.value
+                                    val start = (floor(tick / g).toInt()) * g
                                     val length = drawLengthState.value.coerceAtMost(lengthState.value - start)
                                     vm.addNote(channelState.value.id, Note(start, length, pitch))
                                 }
@@ -274,20 +280,34 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                 }
             }
 
-            // Beat and bar lines.
+            // Grid: one line per grid step (the Grid buttons below), stronger on beats, strongest on bars.
             val len = pattern.lengthTicks
+            val grid = vm.drawLength
+            val lineStep = minOf(grid, TICKS_PER_BEAT)
+            // Shade every other beat so the grid is easy to read at a glance.
+            var b = TICKS_PER_BEAT
+            while (b < len) {
+                val x0 = noteX(b)
+                val x1 = noteX(b + TICKS_PER_BEAT)
+                if (x1 > gutter && x0 < size.width) {
+                    drawRect(DawColors.Chip.copy(alpha = 0.35f), Offset(maxOf(x0, gutter), 0f), Size(minOf(x1, size.width) - maxOf(x0, gutter), size.height))
+                }
+                b += TICKS_PER_BEAT * 2
+            }
             var t = 0
             while (t <= len) {
                 val x = noteX(t)
                 if (x in gutter..size.width) {
                     val isBar = t % TICKS_PER_BAR == 0
-                    drawLine(
-                        if (isBar) DawColors.LineStrong else DawColors.Line,
-                        Offset(x, 0f), Offset(x, size.height),
-                        if (isBar) 1.5f else 1f,
-                    )
+                    val isBeat = t % TICKS_PER_BEAT == 0
+                    val color = when {
+                        isBar -> DawColors.InkSoft.copy(alpha = 0.45f)
+                        isBeat -> DawColors.LineStrong
+                        else -> DawColors.Line
+                    }
+                    drawLine(color, Offset(x, 0f), Offset(x, size.height), if (isBar) 2f else 1f)
                 }
-                t += TICKS_PER_BEAT
+                t += lineStep
             }
             // Dim everything past the end of the pattern.
             val endX = noteX(len)
