@@ -94,7 +94,7 @@ along with stm32loader; see the file COPYING3.  If not see
 
 ## DaisySP
 
-DSP modules behind the Modeled instruments, by Electrosmith. Source: https://github.com/electro-smith/DaisySP. Location: `app/src/main/cpp/third_party/daisysp`. Only the MIT-licensed modules are compiled; the LGPL modules are not used.
+DSP modules behind the Modeled instruments, by Electrosmith. Source: https://github.com/electro-smith/DaisySP. Location: `app/src/main/cpp/third_party/daisysp`. Only the MIT-licensed modules are compiled; the LGPL modules are not used. Modified for Mobile DAW: the ARM min/max assembly in Utility/dsp.h is only used where the CPU supports it.
 
 ```
 DaisySP, copyright (c) 2020 Electrosmith, Corp. 

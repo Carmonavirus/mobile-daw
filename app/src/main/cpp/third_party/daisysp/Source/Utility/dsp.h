@@ -40,7 +40,7 @@ c/o stephen mccaul
 inline float fmax(float a, float b)
 {
     float r;
-#ifdef __arm__
+#if defined(__arm__) && defined(__ARM_FEATURE_NUMERIC_MAXMIN) // Modified for mobile-daw: 32-bit Android ARM (ARMv7) lacks vmaxnm
     asm("vmaxnm.f32 %[d], %[n], %[m]" : [d] "=t"(r) : [n] "t"(a), [m] "t"(b) :);
 #else
     r = (a > b) ? a : b;
@@ -51,7 +51,7 @@ inline float fmax(float a, float b)
 inline float fmin(float a, float b)
 {
     float r;
-#ifdef __arm__
+#if defined(__arm__) && defined(__ARM_FEATURE_NUMERIC_MAXMIN) // Modified for mobile-daw: see fmax
     asm("vminnm.f32 %[d], %[n], %[m]" : [d] "=t"(r) : [n] "t"(a), [m] "t"(b) :);
 #else
     r = (a < b) ? a : b;
