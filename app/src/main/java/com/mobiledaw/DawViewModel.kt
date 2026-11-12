@@ -69,6 +69,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         previewOnEdit = on
         prefs.edit().putBoolean("preview_on_edit", on).apply()
     }
+
+    /** Piano roll row labels: every note, or only notes in the project's key. */
+    var labelAllNotes by mutableStateOf(prefs.getBoolean("label_all_notes", false))
+        private set
+
+    fun changeLabelAllNotes(all: Boolean) {
+        labelAllNotes = all
+        prefs.edit().putBoolean("label_all_notes", all).apply()
+    }
     var mode by mutableStateOf(PlayMode.PATTERN)
         private set
     var playing by mutableStateOf(false)

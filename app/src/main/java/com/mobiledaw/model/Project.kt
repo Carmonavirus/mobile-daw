@@ -101,4 +101,11 @@ val NOTE_NAMES = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A
 
 fun noteName(pitch: Int): String = NOTE_NAMES[pitch.mod(12)] + (pitch / 12 - 1)
 
+private val MAJOR_STEPS = setOf(0, 2, 4, 5, 7, 9, 11)
+private val MINOR_STEPS = setOf(0, 2, 3, 5, 7, 8, 10)
+
+/** True when the pitch belongs to the major or natural minor scale starting on `key` (0 = C). */
+fun inScale(pitch: Int, key: Int, minor: Boolean): Boolean =
+    (pitch - key).mod(12) in (if (minor) MINOR_STEPS else MAJOR_STEPS)
+
 fun isBlackKey(pitch: Int): Boolean = pitch.mod(12) in setOf(1, 3, 6, 8, 10)

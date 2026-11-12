@@ -47,6 +47,7 @@ import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_BEAT
 import com.mobiledaw.model.TICKS_PER_STEP
 import com.mobiledaw.model.isBlackKey
+import com.mobiledaw.model.inScale
 import com.mobiledaw.model.noteName
 import com.mobiledaw.ui.DawChip
 import com.mobiledaw.ui.Segmented
@@ -105,6 +106,19 @@ fun PianoRollScreen(vm: DawViewModel) {
                 onSelect = { vm.drawLength = it },
             )
         }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Text("NOTES", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
+            Segmented(
+                options = listOf(false to "Key ${vm.project.keyLabel}", true to "All"),
+                selected = vm.labelAllNotes,
+                onSelect = vm::changeLabelAllNotes,
+            )
+        }
         WaveformStrip(
             vm.scope,
             Modifier
@@ -131,6 +145,10 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
     val gutterStyle = TextStyle(fontSize = 9.sp, color = DawColors.Muted)
     val labels = remember { HashMap<Int, TextLayoutResult>() }
     val gutterLabels = remember { HashMap<Int, TextLayoutResult>() }
+    val rootStyle = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+    val rootLabels = remember { HashMap<Int, TextLayoutResult>() }
+    val project = vm.project
+    val labelAll = vm.labelAllNotes
 
     BoxWithConstraints(modifier) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -284,7 +302,12 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                 }
                 if (p % 12 == 0) {
                     drawLine(DawColors.Line, Offset(0f, y + rowH), Offset(size.width, y + rowH), 1f)
-                    val layout = gutterLabels.getOrPut(p) { measurer.measure(noteName(p), gutterStyle) }
+                }
+                // Labels: every note, or only the project's key (Notes switch below). The root is darker.
+                val isRoot = (p - project.key).mod(12) == 0
+                if (labelAll || inScale(p, project.key, project.minor)) {
+                    val cache = if (isRoot) rootLabels else gutterLabels
+                    val layout = cache.getOrPut(p) { measurer.measure(noteName(p), if (isRoot) rootStyle else gutterStyle) }
                     drawText(layout, topLeft = Offset(4.dp.toPx(), y + (rowH - layout.size.height) / 2f))
                 }
             }

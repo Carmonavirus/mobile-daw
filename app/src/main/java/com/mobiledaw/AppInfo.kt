@@ -30,6 +30,7 @@ object AppInfo {
             listOf(
                 "Progress bar above the play button: shows where the pattern or song is (bar.beat) and its length.",
                 "Tap or drag the progress bar to jump; while stopped, play starts from there.",
+                "Piano roll NOTES switch: label only the notes in the project key, or every note.",
             ),
         ),
         Release(
