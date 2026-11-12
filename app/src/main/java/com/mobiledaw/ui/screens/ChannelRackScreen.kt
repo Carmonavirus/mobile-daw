@@ -28,6 +28,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
@@ -89,6 +93,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
         ) {
             items(vm.project.channels, key = { it.id }) { channel ->
                 val index = vm.project.channels.indexOf(channel)
+                SwipeToDelete(onDelete = { vm.deleteChannel(channel.id) }) {
                 ChannelRow(
                     vm = vm,
                     channel = channel,
@@ -99,6 +104,7 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     currentStep = currentStep,
                     onChangeSound = { replaceId = channel.id; browsing = true },
                 )
+                }
             }
             item {
                 Row(
@@ -111,6 +117,9 @@ fun ChannelRackScreen(vm: DawViewModel) {
             }
         }
     }
+    vm.undoSnapshot?.let {
+        UndoBar(vm.undoLabel, onUndo = vm::undoDelete, onDismiss = vm::dismissUndo)
+    }
     if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
     if (browsing) {
         KitPicker(
@@ -119,6 +128,63 @@ fun ChannelRackScreen(vm: DawViewModel) {
             onOpenSettings = { browsing = false; vm.settingsOpen = true },
             onDismiss = { browsing = false },
         )
+    }
+}
+
+/** Swipe a channel to the right to delete it (an Undo bar appears). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) {
+                onDelete()
+                true
+            } else {
+                false
+            }
+        },
+        positionalThreshold = { total -> total * 0.4f },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(DawColors.Mute)
+                    .padding(start = 20.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text("Delete", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            }
+        },
+    ) { content() }
+}
+
+@Composable
+private fun UndoBar(label: String, onUndo: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(label) {
+        kotlinx.coroutines.delay(6000)
+        onDismiss()
+    }
+    Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .background(DawColors.Ink)
+                .padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = DawColors.Paper, fontSize = 14.sp, maxLines = 1)
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(50)).background(DawColors.Paper).clickable(onClick = onUndo)
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            ) { Text("Undo", color = DawColors.Ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+        }
     }
 }
 
@@ -354,8 +420,8 @@ private fun ChannelRow(
                         .combinedClickable(
                             onClick = {
                                 vm.selectChannel(channel.id)
-                                // Drum channels: tapping the name picks a sound from your kits.
-                                if (channel.instrument.isDrum) onChangeSound() else vm.preview(channel)
+                                // Tapping the name picks a sound for this channel.
+                                onChangeSound()
                             },
                             onLongClick = { vm.selectChannel(channel.id); menu = true },
                         )
@@ -372,9 +438,17 @@ private fun ChannelRow(
                     Spacer(Modifier.width(8.dp))
                     Text(channel.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 170.dp))
                     Spacer(Modifier.width(6.dp))
-                    if (channel.instrument != com.mobiledaw.model.Instrument.SAMPLE) {
-                        Text(channel.instrument.label.lowercase(), fontSize = 12.sp, color = DawColors.Muted)
-                    }
+                    // The sound actually playing, small and grey next to the channel's own name.
+                    val soundName = channel.sample?.substringAfterLast('/')?.substringBeforeLast('.')
+                        ?: channel.instrument.label.lowercase()
+                    Text(
+                        soundName,
+                        fontSize = 11.sp,
+                        color = DawColors.Muted,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp),
+                    )
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("Open piano roll") }, onClick = {

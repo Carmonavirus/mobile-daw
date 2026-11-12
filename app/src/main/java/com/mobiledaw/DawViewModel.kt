@@ -146,7 +146,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setSequence(compiled.events, compiled.loopTicks)
     }
 
+    /** Project as it was before the last delete, while that delete can still be undone. */
+    var undoSnapshot by mutableStateOf<Project?>(null)
+        private set
+    var undoLabel by mutableStateOf("")
+        private set
+
     private fun update(transform: (Project) -> Project) {
+        undoSnapshot = null
         project = transform(project)
         syncEngine()
         scheduleSave()
@@ -300,6 +307,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteChannel(id: Long) {
+        val before = project
+        val name = before.channels.firstOrNull { it.id == id }?.name ?: "channel"
         update { p ->
             p.copy(
                 channels = p.channels.filter { it.id != id },
@@ -307,6 +316,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         if (selectedChannelId == id) selectedChannelId = project.channels.firstOrNull()?.id ?: 0L
+        undoSnapshot = before
+        undoLabel = "Deleted $name"
+    }
+
+    fun undoDelete() {
+        val snapshot = undoSnapshot ?: return
+        update { snapshot }
+    }
+
+    fun dismissUndo() {
+        undoSnapshot = null
     }
 
     fun updateChannel(id: Long, transform: (Channel) -> Channel) = update { p ->
@@ -333,7 +353,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setChannelSound(channelId: Long, sound: KitLibrary.Sound) {
-        updateChannel(channelId) { it.copy(name = sound.name, instrument = Instrument.SAMPLE, sample = sound.path) }
+        // Keep the name the user gave the channel; the rack shows the sound's file name beside it.
+        updateChannel(channelId) { it.copy(instrument = Instrument.SAMPLE, sample = sound.path) }
         project.channels.firstOrNull { it.id == channelId }?.let { preview(it) }
     }
 

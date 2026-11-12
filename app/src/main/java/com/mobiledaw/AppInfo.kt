@@ -21,6 +21,7 @@ object AppInfo {
                 "Versions page with this list of what changed.",
                 "Update button to get the newest build.",
                 "Drum kits now live in Settings → Drum kits. Each import adds a kit, nothing gets replaced.",
+                "Rack: swipe a channel right to delete it (with Undo). Tap any channel's name to pick a kit sound; your name stays, the sound's file name shows small beside it.",
                 "Playlist now runs left to right like the rest of the app, with 8 tracks. Swipe sideways to move through the song.",
                 "Piano roll: two fingers now scroll freely (left/right and up/down); a clear pinch zooms.",
                 "Settings → How to get around: a guide to every gesture.",
