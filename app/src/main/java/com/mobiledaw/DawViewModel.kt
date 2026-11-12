@@ -147,6 +147,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release)
+            syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
                 val decoded = path?.let { decodeSample(it) }
@@ -328,6 +329,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val name = if (sameKind == 0) instrument.label else "${instrument.label} ${sameKind + 1}"
         update { it.copy(channels = it.channels + Channel(id, name, instrument)) }
         selectedChannelId = id
+        if (instrument == Instrument.WAVETABLE) openSynth(id)
     }
 
     fun deleteChannel(id: Long) {
@@ -355,6 +357,96 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateChannel(id: Long, transform: (Channel) -> Channel) = update { p ->
         p.copy(channels = p.channels.map { if (it.id == id) transform(it) else it })
+    }
+
+    // ---------------------------------------------------------------- wavetable synth
+
+    val synthPresets = com.mobiledaw.model.SynthPresetLibrary(app)
+    var userSynthPresets by mutableStateOf<List<com.mobiledaw.model.SynthPreset>>(emptyList())
+        private set
+
+    /** The channel whose synth editor is open, or null. */
+    var synthEditorChannelId by mutableStateOf<Long?>(null)
+        private set
+
+    /** The patch each engine slot last received, so unchanged sounds aren't resent. */
+    private val sentPatches = arrayOfNulls<com.mobiledaw.model.SynthPatch>(NativeEngine.MAX_CHANNELS)
+
+    private fun syncSynth(slot: Int, c: Channel) {
+        if (c.instrument != Instrument.WAVETABLE) {
+            sentPatches[slot] = null
+            return
+        }
+        val patch = c.synth ?: com.mobiledaw.model.SynthPatch()
+        if (sentPatches[slot] != patch) {
+            com.mobiledaw.audio.SynthEngine.setParams(slot, patch.toArray())
+            sentPatches[slot] = patch
+        }
+    }
+
+    fun openSynth(channelId: Long) {
+        userSynthPresets = synthPresets.user()
+        selectedChannelId = channelId
+        synthEditorChannelId = channelId
+    }
+
+    fun closeSynth() {
+        synthEditorChannelId = null
+    }
+
+    /** Knob changes go straight to the engine, without recompiling the whole project. */
+    fun setSynthParam(channelId: Long, name: String, value: Float) {
+        val info = com.mobiledaw.model.SynthParams.byName(name) ?: return
+        val index = project.channels.indexOfFirst { it.id == channelId }
+        if (index < 0) return
+        val patch = (project.channels[index].synth ?: com.mobiledaw.model.SynthPatch()).with(name, value)
+        undoSnapshot = null
+        project = project.copy(channels = project.channels.map { if (it.id == channelId) it.copy(synth = patch) else it })
+        if (index < NativeEngine.MAX_CHANNELS) {
+            com.mobiledaw.audio.SynthEngine.setParam(index, info.index, value)
+            sentPatches[index] = patch
+        }
+        scheduleSave()
+    }
+
+    fun loadSynthPreset(channelId: Long, preset: com.mobiledaw.model.SynthPreset) {
+        updateChannel(channelId) { c ->
+            // Channels still named after their instrument or old preset take the preset's name.
+            val oldPreset = c.synth?.preset
+            val autoNamed = c.name.startsWith(Instrument.WAVETABLE.label) || c.name == oldPreset
+            c.copy(synth = com.mobiledaw.model.SynthPatch.from(preset), name = if (autoNamed) preset.name else c.name)
+        }
+        val low = preset.category == "808" || preset.category == "Bass"
+        auditionSynth(channelId, if (low) 48 else 60)
+    }
+
+    /** Plays a short note so a freshly picked preset can be heard. */
+    private fun auditionSynth(channelId: Long, pitch: Int) {
+        if (playing) return
+        synthNote(channelId, pitch, true)
+        viewModelScope.launch {
+            delay(450)
+            synthNote(channelId, pitch, false)
+        }
+    }
+
+    fun synthNote(channelId: Long, pitch: Int, on: Boolean) {
+        val index = project.channels.indexOfFirst { it.id == channelId }
+        if (index in 0 until NativeEngine.MAX_CHANNELS) com.mobiledaw.audio.SynthEngine.noteHold(index, pitch, 100, on)
+    }
+
+    fun saveSynthPreset(channelId: Long, name: String, category: String) {
+        val channel = project.channels.firstOrNull { it.id == channelId } ?: return
+        val clean = name.trim().ifEmpty { return }
+        val patch = channel.synth ?: com.mobiledaw.model.SynthPatch()
+        synthPresets.save(com.mobiledaw.model.SynthPreset(clean, category, patch.params))
+        userSynthPresets = synthPresets.user()
+        updateChannel(channelId) { it.copy(synth = patch.copy(preset = clean, category = category, edited = false)) }
+    }
+
+    fun deleteSynthPreset(name: String) {
+        synthPresets.delete(name)
+        userSynthPresets = synthPresets.user()
     }
 
     // ---------------------------------------------------------------- kits & samples

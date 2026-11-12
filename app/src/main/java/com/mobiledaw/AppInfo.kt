@@ -31,6 +31,10 @@ object AppInfo {
                 "Progress bar above the play button: shows where the pattern or song is (bar.beat) and its length.",
                 "Tap or drag the progress bar to jump; while stopped, play starts from there.",
                 "Piano roll NOTES switch: label only the notes in the project key, or every note.",
+                "New Wavetable synth: + Add channel → Wavetable. Two wavetable oscillators you can morph, unison, sub and noise, a filter, two envelopes and an LFO that can follow the tempo.",
+                "28 built-in presets: 808, bass, pluck, pad, lead, bells and keys. Save your own with Save in the synth.",
+                "Tap a synth channel's name to open it. Play it with the keyboard at the bottom, or from the piano roll like any channel.",
+                "808s and basses slide: in Mono mode, overlap two notes in the piano roll to glide between them.",
             ),
         ),
         Release(
