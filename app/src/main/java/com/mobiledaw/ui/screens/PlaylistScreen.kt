@@ -140,7 +140,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                     }
 
                     // Song playhead
-                    if (vm.playing && vm.mode == PlayMode.SONG) {
+                    if (vm.mode == PlayMode.SONG && (vm.playing || vm.positionTicks > 0)) {
                         val x = vm.positionTicks.toFloat() / TICKS_PER_BAR * bw
                         drawLine(DawColors.Accent, Offset(x, 0f), Offset(x, size.height), 2.dp.toPx())
                     }

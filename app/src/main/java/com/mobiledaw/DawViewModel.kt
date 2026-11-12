@@ -2,6 +2,7 @@ package com.mobiledaw
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,6 +20,7 @@ import com.mobiledaw.model.Pattern
 import com.mobiledaw.model.Project
 import com.mobiledaw.model.ProjectStore
 import com.mobiledaw.model.SequenceCompiler
+import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_STEP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,6 +83,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     // Live engine readings, refreshed ~30 times a second.
     var positionTicks by mutableLongStateOf(0L)
+        private set
+    /** Length of what is playing (the pattern or the whole song), in ticks. */
+    var loopTicks by mutableIntStateOf(TICKS_PER_BAR)
         private set
     var levels by mutableStateOf(FloatArray(NativeEngine.MAX_CHANNELS + 1))
         private set
@@ -145,6 +150,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             PlayMode.SONG -> SequenceCompiler.song(p)
         }
         NativeEngine.setSequence(compiled.events, compiled.loopTicks)
+        loopTicks = compiled.loopTicks
     }
 
     /** Project as it was before the last delete, while that delete can still be undone. */
@@ -177,6 +183,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- transport
 
     fun togglePlay() = applyPlaying(!playing)
+
+    /** Moves the playhead to a fraction (0..1) of the pattern or song, snapped to a step. */
+    fun seekTo(fraction: Float) {
+        val raw = (fraction.coerceIn(0f, 1f) * loopTicks).toInt()
+        val tick = ((raw / TICKS_PER_STEP) * TICKS_PER_STEP).coerceIn(0, maxOf(0, loopTicks - TICKS_PER_STEP))
+        NativeEngine.seek(tick.toLong())
+        positionTicks = tick.toLong()
+    }
 
     private fun applyPlaying(value: Boolean) {
         playing = value

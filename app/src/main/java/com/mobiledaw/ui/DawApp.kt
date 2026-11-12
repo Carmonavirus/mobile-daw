@@ -65,7 +65,9 @@ fun DawApp(vm: DawViewModel) {
             }
         }
         // Transport sits right above the tabs, within thumb reach.
-        Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
+        // A slim progress bar sits just above it: tap or drag to move the playhead.
+        TransportProgress(vm, Modifier.padding(top = 2.dp))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
         }
         BottomTabs(vm.tab) { vm.tab = it }

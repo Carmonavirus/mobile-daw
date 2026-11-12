@@ -13,6 +13,7 @@ object NativeEngine {
     external fun start(): Boolean
     external fun stop()
     external fun setPlaying(playing: Boolean)
+    external fun seek(tick: Long)
     external fun setBpm(bpm: Float)
     external fun setMasterVolume(volume: Float)
     external fun setChannelCount(count: Int)

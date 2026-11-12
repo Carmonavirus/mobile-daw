@@ -72,6 +72,8 @@ public:
     void setSampleRate(int sampleRate);
     void setSequence(std::vector<NoteEvent> events, int64_t loopTicks);
     void setPlaying(bool playing);
+    // Moves the playhead. While stopped, the next play starts there instead of at 0.
+    void seek(int64_t tick);
     void setBpm(float bpm) { bpm_.store(bpm); }
     void setChannelCount(int count);
     void setChannel(int index, int instrument, float volume, float pan, bool mute, bool solo);
@@ -100,6 +102,7 @@ private:
     void trigger(int channel, int pitch, float velocity, int64_t gateSamples);
     void releaseAll();
     void adoptSamples();
+    void jumpTo(int64_t tick);
     float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
     SampleShape shapeFor(int channel) const;
 
@@ -108,6 +111,8 @@ private:
     std::atomic<float> master_{0.7f};
     std::atomic<bool> playing_{false};
     std::atomic<bool> restart_{false};
+    std::atomic<int64_t> seek_{-1};       // pending seek while playing
+    std::atomic<int64_t> startTick_{0};   // where the next play starts
     std::atomic<int> channelCount_{0};
     std::array<ChannelParams, kMaxChannels> params_;
 

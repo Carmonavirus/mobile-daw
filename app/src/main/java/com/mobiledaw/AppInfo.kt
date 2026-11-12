@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.4", "2026-11-12T11:35:00Z",
+            listOf(
+                "Progress bar above the play button: shows where the pattern or song is (bar.beat) and its length.",
+                "Tap or drag the progress bar to jump; while stopped, play starts from there.",
+            ),
+        ),
+        Release(
             "0.3", "2026-11-12T11:20:00Z",
             listOf(
                 "New Settings menu (the ≡ button, top right).",

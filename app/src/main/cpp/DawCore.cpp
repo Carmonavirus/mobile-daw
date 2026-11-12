@@ -117,7 +117,28 @@ void Core::setSequence(std::vector<NoteEvent> events, int64_t loopTicks) {
 
 void Core::setPlaying(bool playing) {
     if (playing && !playing_.load()) restart_.store(true);
+    if (!playing) startTick_.store(0);
     playing_.store(playing);
+}
+
+void Core::seek(int64_t tick) {
+    tick = std::max<int64_t>(tick, 0);
+    if (playing_.load()) {
+        seek_.store(tick);
+    } else {
+        startTick_.store(tick);
+        position_.store(tick);
+    }
+}
+
+// Audio thread: puts the transport at `tick`; events on that tick fire on the next advanceTick.
+void Core::jumpTo(int64_t tick) {
+    tick_ = (current_ && tick < current_->loopTicks) ? tick : 0;
+    tickFraction_ = 0.0;
+    eventIndex_ = current_ ? static_cast<size_t>(
+        std::lower_bound(current_->events.begin(), current_->events.end(), tick_,
+                         [](const NoteEvent& e, int64_t t) { return e.start < t; }) -
+        current_->events.begin()) : 0;
 }
 
 void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release) {
@@ -253,10 +274,13 @@ void Core::render(float* out, int frames) {
 
     const bool playing = playing_.load();
     if (restart_.exchange(false)) {
-        tick_ = 0;
-        tickFraction_ = 0.0;
-        eventIndex_ = 0;
+        seek_.store(-1);
+        jumpTo(startTick_.exchange(0));
         if (playing) advanceTick(current_);
+    } else if (const int64_t s = seek_.exchange(-1); s >= 0 && playing) {
+        releaseAll();
+        jumpTo(s);
+        advanceTick(current_);
     }
     if (wasPlaying_ && !playing) releaseAll();
     wasPlaying_ = playing;
@@ -337,7 +361,8 @@ void Core::render(float* out, int frames) {
         scopeW = (scopeW + 1) % kScopeSize;
     }
     scopeWrite_.store(scopeW);
-    position_.store(tick_);
+    // Stopped: show where the next play will start.
+    position_.store(playing ? tick_ : startTick_.load());
 
     // Simple peak-hold meters with a smooth fall-off.
     for (int c = 0; c < kMaxChannels; ++c) {

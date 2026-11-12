@@ -80,6 +80,28 @@ int main() {
     std::printf("rms=%.3f peak=%.3f pos=%lld scope0=%.2f\n", rms, peak, (long long)core.positionTicks(), scope[0]);
     writeWav("out/render.wav", out, sr);
     if (bad || rms < 0.02 || rms > 0.9) { std::printf("FAIL\n"); return 1; }
+
+    // Seeking: while playing the playhead jumps; while stopped the next play starts there.
+    const int64_t target = kTicksPerStep * 20;
+    core.seek(target);
+    core.render(buf.data(), block);
+    const int64_t afterSeek = core.positionTicks();
+    core.setPlaying(false);
+    core.render(buf.data(), block);
+    const int64_t stopped = core.positionTicks();
+    core.seek(kTicksPerStep * 8);
+    core.render(buf.data(), block);
+    const int64_t parked = core.positionTicks();
+    core.setPlaying(true);
+    core.render(buf.data(), block);
+    const int64_t resumed = core.positionTicks();
+    std::printf("seek: playing=%lld stopped=%lld parked=%lld resumed=%lld\n", (long long)afterSeek,
+                (long long)stopped, (long long)parked, (long long)resumed);
+    if (afterSeek < target || afterSeek > target + 4 || stopped != 0 || parked != kTicksPerStep * 8 ||
+        resumed < kTicksPerStep * 8 || resumed > kTicksPerStep * 8 + 4) {
+        std::printf("FAIL seek\n");
+        return 1;
+    }
     std::printf("OK\n");
     return 0;
 }

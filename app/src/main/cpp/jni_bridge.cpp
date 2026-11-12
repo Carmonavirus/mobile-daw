@@ -81,6 +81,10 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setSample(
     engine()->core().setSample(slot, std::move(data), sampleRate);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_seek(JNIEnv*, jobject, jlong tick) {
+    engine()->core().seek(static_cast<int64_t>(tick));
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_audition(JNIEnv*, jobject) {
     engine()->core().audition();
 }
