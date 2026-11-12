@@ -1,6 +1,7 @@
 // JNI entry points for com.mobiledaw.audio.NativeEngine.
 #include <jni.h>
 
+#include <string>
 #include <vector>
 
 #include "AudioEngine.h"
@@ -110,6 +111,123 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readScope(JNIEnv* e
     std::vector<float> tmp(static_cast<size_t>(len));
     engine()->core().readScope(tmp.data(), len);
     env->SetFloatArrayRegion(out, 0, len, tmp.data());
+}
+
+}  // extern "C"
+
+// ---------------------------------------------------------------------------- extra engines
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
+
+#include <cstdio>
+
+using daw::MultiSampleSet;
+using daw::SoundEngines;
+using daw::Zone;
+
+extern "C" {
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelEngine(
+    JNIEnv*, jobject, jint slot, jint instrument, jint variant, jint bank) {
+    engine()->core().engines().setChannel(slot, instrument, variant, bank);
+}
+
+JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_loadSoundFontAsset(
+    JNIEnv* env, jobject, jobject assetManager, jstring name) {
+    AAssetManager* am = AAssetManager_fromJava(env, assetManager);
+    const char* path = env->GetStringUTFChars(name, nullptr);
+    AAsset* asset = am ? AAssetManager_open(am, path, AASSET_MODE_BUFFER) : nullptr;
+    env->ReleaseStringUTFChars(name, path);
+    if (!asset) return -1;
+    const void* data = AAsset_getBuffer(asset);
+    const off_t size = AAsset_getLength(asset);
+    const int bank = data ? engine()->core().engines().loadSoundFont(data, static_cast<int>(size)) : -1;
+    AAsset_close(asset);
+    return bank;
+}
+
+JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_loadSoundFontFile(JNIEnv* env, jobject, jstring path) {
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    FILE* f = std::fopen(p, "rb");
+    env->ReleaseStringUTFChars(path, p);
+    if (!f) return -1;
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    std::vector<char> data(size > 0 ? static_cast<size_t>(size) : 0);
+    const size_t read = data.empty() ? 0 : std::fread(data.data(), 1, data.size(), f);
+    std::fclose(f);
+    if (read != data.size() || data.empty()) return -1;
+    return engine()->core().engines().loadSoundFont(data.data(), static_cast<int>(data.size()));
+}
+
+// One "bank|program|name" string per preset.
+JNIEXPORT jobjectArray JNICALL Java_com_mobiledaw_audio_NativeEngine_soundFontPresets(JNIEnv* env, jobject, jint bank) {
+    auto& e = engine()->core().engines();
+    const int count = e.soundFontPresetCount(bank);
+    jobjectArray out = env->NewObjectArray(count, env->FindClass("java/lang/String"), nullptr);
+    for (int i = 0; i < count; ++i) {
+        const auto ids = e.soundFontPresetIds(bank, i);
+        const char* name = e.soundFontPresetName(bank, i);
+        std::string s = std::to_string(ids.size() > 0 ? ids[0] : 0) + "|" + std::to_string(ids.size() > 1 ? ids[1] : 0) +
+                        "|" + (name ? name : "");
+        jstring js = env->NewStringUTF(s.c_str());
+        env->SetObjectArrayElement(out, i, js);
+        env->DeleteLocalRef(js);
+    }
+    return out;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_mobiledaw_audio_NativeEngine_enginePresets(JNIEnv* env, jobject, jint instrument) {
+    const int count = SoundEngines::presetCount(instrument);
+    jobjectArray out = env->NewObjectArray(count, env->FindClass("java/lang/String"), nullptr);
+    for (int i = 0; i < count; ++i) {
+        jstring js = env->NewStringUTF(SoundEngines::presetInfo(instrument, i));
+        env->SetObjectArrayElement(out, i, js);
+        env->DeleteLocalRef(js);
+    }
+    return out;
+}
+
+// zones: one FloatArray of frames per zone; rates: sample rate per zone;
+// meta: 8 ints per zone (loKey, hiKey, root, loVel, hiVel, loop, loopStart, loopEnd);
+// tuning: 2 floats per zone (tune in cents, gain).
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setMultiSample(
+    JNIEnv* env, jobject, jint slot, jobjectArray zones, jfloatArray rates, jintArray meta, jfloatArray tuning, jfloat release) {
+    if (zones == nullptr) {
+        engine()->core().engines().setMultiSample(slot, nullptr);
+        return;
+    }
+    const jsize n = env->GetArrayLength(zones);
+    std::vector<float> r(static_cast<size_t>(n));
+    std::vector<jint> m(static_cast<size_t>(n) * 8);
+    std::vector<float> t(static_cast<size_t>(n) * 2);
+    env->GetFloatArrayRegion(rates, 0, n, r.data());
+    env->GetIntArrayRegion(meta, 0, n * 8, m.data());
+    env->GetFloatArrayRegion(tuning, 0, n * 2, t.data());
+    auto* set = new MultiSampleSet();
+    set->release = release;
+    for (jsize i = 0; i < n; ++i) {
+        auto frames = static_cast<jfloatArray>(env->GetObjectArrayElement(zones, i));
+        Zone z;
+        const jsize len = env->GetArrayLength(frames);
+        z.frames.resize(static_cast<size_t>(len));
+        env->GetFloatArrayRegion(frames, 0, len, z.frames.data());
+        env->DeleteLocalRef(frames);
+        z.sampleRate = r[i];
+        const jint* mm = &m[static_cast<size_t>(i) * 8];
+        z.loKey = mm[0]; z.hiKey = mm[1]; z.root = mm[2]; z.loVel = mm[3]; z.hiVel = mm[4];
+        z.loop = mm[5] != 0; z.loopStart = mm[6]; z.loopEnd = mm[7];
+        z.tuneCents = t[static_cast<size_t>(i) * 2];
+        z.gain = t[static_cast<size_t>(i) * 2 + 1];
+        set->zones.push_back(std::move(z));
+    }
+    engine()->core().engines().setMultiSample(slot, set);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_auditionEngine(
+    JNIEnv*, jobject, jint instrument, jint variant, jint bank, jint pitch, jint velocity) {
+    engine()->core().engines().audition(instrument, variant, bank, pitch, velocity / 127.0f);
 }
 
 }  // extern "C"

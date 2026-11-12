@@ -100,7 +100,7 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                         Column(Modifier.weight(1f)) {
                             Text("Sound", fontSize = 12.sp, color = DawColors.Muted)
                             Text(
-                                channel.sample?.substringAfterLast('/')?.substringBeforeLast('.') ?: channel.instrument.label,
+                                channel.sample?.substringAfterLast('/')?.substringBeforeLast('.') ?: vm.soundLabel(channel) ?: channel.instrument.label,
                                 fontSize = 15.sp,
                                 color = DawColors.Ink,
                                 maxLines = 1,

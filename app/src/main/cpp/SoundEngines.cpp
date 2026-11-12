@@ -59,16 +59,19 @@ int SoundEngines::loadSoundFont(const void* data, int size) {
     tsf* f = tsf_load_memory(data, size);
     if (!f) return -1;
     tsf_set_output(f, TSF_MONO, sampleRate_, 0.0f);
+    std::lock_guard<std::mutex> guard(banksLock_);
     banks_.push_back(f);
     return static_cast<int>(banks_.size()) - 1;
 }
 
 int SoundEngines::soundFontPresetCount(int bank) const {
+    std::lock_guard<std::mutex> guard(banksLock_);
     if (bank < 0 || bank >= static_cast<int>(banks_.size())) return 0;
     return tsf_get_presetcount(banks_[bank]);
 }
 
 std::vector<int> SoundEngines::soundFontPresetIds(int bank, int index) const {
+    std::lock_guard<std::mutex> guard(banksLock_);
     if (bank < 0 || bank >= static_cast<int>(banks_.size())) return {};
     const tsf* f = banks_[bank];
     if (index < 0 || index >= f->presetNum) return {};
@@ -76,6 +79,7 @@ std::vector<int> SoundEngines::soundFontPresetIds(int bank, int index) const {
 }
 
 const char* SoundEngines::soundFontPresetName(int bank, int index) const {
+    std::lock_guard<std::mutex> guard(banksLock_);
     if (bank < 0 || bank >= static_cast<int>(banks_.size())) return nullptr;
     return tsf_get_presetname(banks_[bank], index);
 }
@@ -93,6 +97,7 @@ void SoundEngines::setChannel(int slot, int instrument, int variant, int bank) {
     s.variant.store(variant);
     s.instrument.store(instrument);
     if (instrument != kSoundFont || bank == s.uiBank) return;
+    std::lock_guard<std::mutex> guard(banksLock_);
     if (bank < 0 || bank >= static_cast<int>(banks_.size())) return;
     collectGarbage();
     // Each slot gets its own player that shares the bank's samples; created here so the

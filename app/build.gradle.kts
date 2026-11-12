@@ -54,6 +54,11 @@ android {
         jvmTarget = "17"
     }
 
+    androidResources {
+        // The SoundFont is read straight from the APK (memory-mapped), so keep it uncompressed.
+        noCompress += "sf2"
+    }
+
     buildFeatures {
         compose = true
         prefab = true
@@ -83,3 +88,36 @@ dependencies {
     implementation(libs.oboe)
     implementation(libs.androidx.documentfile)
 }
+
+// GeneralUser GS, a free General MIDI SoundFont by S. Christian Collins (see THIRD_PARTY_NOTICES.md),
+// ships inside the APK as an asset. It is fetched at build time from its official GitHub repository
+// (pinned commit + checksum) instead of being committed, to keep 32 MB out of git history.
+val generalUserUrl =
+    "https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2"
+val generalUserSha256 = "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe"
+val generalUserFile = file("src/main/assets/soundfonts/GeneralUser-GS.sf2")
+
+val fetchGeneralUser = tasks.register("fetchGeneralUserGs") {
+    outputs.file(generalUserFile)
+    doLast {
+        fun sha256(f: File): String {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            f.inputStream().use { input ->
+                val buf = ByteArray(1 shl 16)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            return md.digest().joinToString("") { "%02x".format(it) }
+        }
+        if (generalUserFile.exists() && sha256(generalUserFile) == generalUserSha256) return@doLast
+        generalUserFile.parentFile.mkdirs()
+        val tmp = File(generalUserFile.path + ".part")
+        java.net.URI(generalUserUrl).toURL().openStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        check(sha256(tmp) == generalUserSha256) { "GeneralUser GS download did not match its checksum" }
+        tmp.renameTo(generalUserFile)
+    }
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchGeneralUser) }

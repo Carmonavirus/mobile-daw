@@ -14,6 +14,9 @@ data class TemplateChannel(
     val sample: String? = null,
     val volume: Float = 0.8f,
     val pan: Float = 0f,
+    val variant: Int = 0,
+    val source: String? = null,
+    val pitch: Int? = null,
 )
 
 /** A saved pattern plus the sounds it uses, ready to drop into any project. */
@@ -27,7 +30,7 @@ data class PatternTemplate(
     companion object {
         fun from(name: String, project: Project, pattern: Pattern): PatternTemplate {
             val used = project.channels.filter { pattern.notesFor(it.id).isNotEmpty() }
-            val channels = used.mapIndexed { i, c -> TemplateChannel(i, c.name, c.instrument, c.sample, c.volume, c.pan) }
+            val channels = used.mapIndexed { i, c -> TemplateChannel(i, c.name, c.instrument, c.sample, c.volume, c.pan, c.variant, c.source, c.pitch) }
             val notes = used.mapIndexed { i, c -> i to pattern.notesFor(c.id) }.toMap()
             return PatternTemplate(name, pattern.bars, channels, notes)
         }
@@ -42,12 +45,12 @@ data class PatternTemplate(
         var nextId = project.nextId()
         val idFor = mutableMapOf<Int, Long>()
         for (tc in this.channels) {
-            val same = channels.firstOrNull { it.instrument == tc.instrument && it.sample == tc.sample && it.name == tc.name }
-                ?: channels.firstOrNull { it.instrument == tc.instrument && it.sample == tc.sample && !idFor.containsValue(it.id) }
+            val same = channels.firstOrNull { it.instrument == tc.instrument && it.sample == tc.sample && it.variant == tc.variant && it.source == tc.source && it.name == tc.name }
+                ?: channels.firstOrNull { it.instrument == tc.instrument && it.sample == tc.sample && it.variant == tc.variant && it.source == tc.source && !idFor.containsValue(it.id) }
             if (same != null) {
                 idFor[tc.key] = same.id
             } else if (channels.size < maxChannels) {
-                val ch = Channel(nextId++, tc.name, tc.instrument, tc.volume, tc.pan, sample = tc.sample)
+                val ch = Channel(nextId++, tc.name, tc.instrument, tc.volume, tc.pan, sample = tc.sample, variant = tc.variant, source = tc.source, pitch = tc.pitch)
                 channels += ch
                 idFor[tc.key] = ch.id
             }

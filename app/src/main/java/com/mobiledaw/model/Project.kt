@@ -9,7 +9,14 @@ const val TICKS_PER_BAR = TICKS_PER_STEP * STEPS_PER_BAR
 const val MAX_BARS = 16
 
 /** Built-in instruments. The id must match the enum in app/src/main/cpp/Synth.h. */
-enum class Instrument(val id: Int, val label: String, val isDrum: Boolean, val defaultPitch: Int) {
+enum class Instrument(
+    val id: Int,
+    val label: String,
+    val isDrum: Boolean,
+    val defaultPitch: Int,
+    /** Listed in "Add channel"; the extra engines are picked from the sound library instead. */
+    val addable: Boolean = true,
+) {
     KICK(0, "Kick", true, 60),
     SNARE(1, "Snare", true, 60),
     HAT(2, "Hi-hat", true, 60),
@@ -22,6 +29,11 @@ enum class Instrument(val id: Int, val label: String, val isDrum: Boolean, val d
     /** Plays an imported sound from a kit; see [Channel.sample]. */
     SAMPLE(8, "Sample", true, 60),
 
+    // Extra engines (cpp/SoundEngines.h). [Channel.variant] picks the preset, [Channel.source] the file.
+    SOUNDFONT(9, "SoundFont", false, 60, addable = false),
+    MACRO(10, "Macro", false, 60, addable = false),
+    MODELED(11, "Modeled", false, 60, addable = false),
+    MULTISAMPLE(12, "Multisample", false, 60, addable = false),
     /** Two-oscillator wavetable synth; its sound lives in [Channel.synth]. */
     WAVETABLE(13, "Wavetable", false, 60),
 }
@@ -56,7 +68,16 @@ data class Channel(
     val release: Float = 0f,
     /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
     val synth: SynthPatch? = null,
+    /** Extra engines: preset index (SoundFont preset, Macro/Modeled preset). */
+    val variant: Int = 0,
+    /** Extra engines: the SoundFont or SFZ the channel plays (see SoundSources), else null. */
+    val source: String? = null,
+    /** Pitch that steps place, for one-sound channels such as a GM drum (else the instrument's). */
+    val pitch: Int? = null,
 )
+
+/** The pitch a step on this channel plays. */
+val Channel.stepPitch: Int get() = pitch ?: instrument.defaultPitch
 
 @Serializable
 data class Pattern(

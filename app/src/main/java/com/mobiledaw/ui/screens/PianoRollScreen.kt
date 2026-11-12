@@ -42,6 +42,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
+import com.mobiledaw.model.stepPitch
 import com.mobiledaw.model.Note
 import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_BEAT
@@ -163,7 +164,7 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
         // Center the view on the selected channel's notes when it changes.
         LaunchedEffect(channel.id) {
             val notes = pattern.notesFor(channel.id)
-            val center = if (notes.isEmpty()) channel.instrument.defaultPitch else notes.map { it.pitch }.average().roundToInt()
+            val center = if (notes.isEmpty()) channel.stepPitch else notes.map { it.pitch }.average().roundToInt()
             scrollY = ((HIGHEST_PITCH - center) * rowH - heightPx / 2f).coerceIn(0f, (contentHeight - heightPx).coerceAtLeast(0f))
             scrollX = 0f
         }

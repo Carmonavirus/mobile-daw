@@ -33,4 +33,21 @@ object NativeEngine {
     /** Fills per-channel peaks; the last slot receives the master peak. */
     external fun readLevels(out: FloatArray)
     external fun readScope(out: FloatArray)
+
+    // ---- extra engines (SoundFont, Macro, Modeled, Multisample); see cpp/SoundEngines.h
+
+    /** What a channel slot plays with an extra engine: preset/model [variant] and SoundFont [bank]. */
+    external fun setChannelEngine(slot: Int, instrument: Int, variant: Int, bank: Int)
+    /** Loads a SoundFont from the APK's assets; returns a bank id, or -1. Slow: call off the main thread. */
+    external fun loadSoundFontAsset(assets: android.content.res.AssetManager, name: String): Int
+    /** Loads a .sf2/.sf3 file; returns a bank id, or -1. Slow: call off the main thread. */
+    external fun loadSoundFontFile(path: String): Int
+    /** One "bank|program|name" string per preset index. */
+    external fun soundFontPresets(bank: Int): Array<String>
+    /** Built-in presets of an engine: "Name|Group|drum(0/1)|pitch[|library]". */
+    external fun enginePresets(instrument: Int): Array<String>
+    /** Key/velocity zones for a multisample slot; see jni_bridge.cpp for the array layout. */
+    external fun setMultiSample(slot: Int, zones: Array<FloatArray>?, rates: FloatArray?, meta: IntArray?, tuning: FloatArray?, release: Float)
+    /** Plays one note of any extra engine without touching a channel. */
+    external fun auditionEngine(instrument: Int, variant: Int, bank: Int, pitch: Int, velocity: Int)
 }

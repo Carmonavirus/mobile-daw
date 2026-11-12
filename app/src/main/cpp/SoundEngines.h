@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 struct tsf;
@@ -123,7 +124,8 @@ private:
 
     int sampleRate_ = 48000;
     std::array<Slot, kEngineSlots> slots_;
-    std::vector<tsf*> banks_;  // UI thread
+    std::vector<tsf*> banks_;  // control threads only, guarded by banksLock_
+    mutable std::mutex banksLock_;
     std::vector<std::unique_ptr<MacroVoice>> macro_;
     std::vector<std::unique_ptr<ModelVoice>> model_;
 

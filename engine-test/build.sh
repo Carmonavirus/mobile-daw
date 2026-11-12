@@ -20,4 +20,4 @@ for f in $(find $TP/plaits/plaits $TP/plaits/stmlib -name '*.cc') $(find $TP/dai
   if [ "${#pids[@]}" -ge 8 ]; then wait "${pids[@]}"; pids=(); fi
 done
 [ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
-g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/main.cpp $CPP/DawCore.cpp "${objs[@]}" -o "$OUT/enginetest"
+g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/main.cpp $CPP/DawCore.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/enginetest"

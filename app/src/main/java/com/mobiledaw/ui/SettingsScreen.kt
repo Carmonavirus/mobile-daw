@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +54,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
     val choice = DawColors.choice
     fun pick(c: ThemeChoice) = ThemeStore.save(context, c)
 
+    var libraryOpen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // Opened from Sounds → Sound library; a dialog inside this one, so it shows on top.
+        if (libraryOpen) SoundLibraryScreen(vm) { libraryOpen = false }
         Column(
             Modifier
                 .fillMaxSize()
@@ -94,9 +99,20 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                 }
 
-                // ---------------------------------------------------------------- drum kits
-                SectionTitle("Drum kits")
-                SectionCard { DrumKitsSection(vm) }
+                // ---------------------------------------------------------------- sounds
+                SectionTitle("Sounds")
+                SectionCard {
+                    Text("Drum kits", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                    Spacer(Modifier.height(6.dp))
+                    DrumKitsSection(vm)
+                }
+                Spacer(Modifier.height(8.dp))
+                SectionCard {
+                    SettingRow(
+                        "Sound library",
+                        "SoundFonts (General MIDI), synth engines, SFZ, Freesound, Wikimedia Commons, Internet Archive, free sites, credits",
+                    ) { libraryOpen = true }
+                }
 
                 // ---------------------------------------------------------------- appearance
                 SectionTitle("Appearance")
@@ -187,7 +203,8 @@ private val GUIDE = listOf(
     ),
     "Rack" to listOf(
         "Tap a step" to "Turn it on or off.",
-        "Tap a channel's name" to "Choose its sound from your drum kits (any channel).",
+        "Tap a channel's name" to "Choose its sound: Kits, Instruments (SoundFont), Synths, SFZ or online (Freesound, Commons, Archive).",
+        "+ Add sound" to "Same picker; the sound becomes a new channel.",
         "Pinch the rack" to "Squeeze to see up to 4 bars at once, spread to go back to 1.",
         "Swipe across the steps" to "Next bars (swipe left) or previous bars (swipe right).",
         "Swipe a channel's name right" to "Delete it. Tap Undo to bring it back.",
@@ -196,6 +213,11 @@ private val GUIDE = listOf(
         "‹  ›  and dots" to "Move between bars. + on the last bar adds one.",
         "Tap a pattern" to "Select it. Tap it again for Save as template, Loop, Delete.",
         "+ next to patterns" to "New empty pattern, or one from a template.",
+    ),
+    "Sound library" to listOf(
+        "Settings → Sounds → Sound library" to "Browse every source, each on its own page.",
+        "Tap a sound" to "Hear it. + adds it to the rack; Save keeps an online sound in Drum kits.",
+        "Credits & licences" to "Who made each saved sound, and a Copy credits button for releases.",
     ),
     "Piano roll" to listOf(
         "Tap empty space" to "Place a note (length = the Grid setting).",
