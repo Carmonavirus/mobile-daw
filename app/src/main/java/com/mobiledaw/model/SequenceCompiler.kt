@@ -17,16 +17,22 @@ object SequenceCompiler {
     fun song(project: Project): Compiled {
         val out = ArrayList<Int>()
         for (clip in project.clips) {
+            if (clip.muted) continue
             val pattern = project.pattern(clip.patternId) ?: continue
-            val offset = clip.bar * TICKS_PER_BAR
+            // Only the part of the pattern the clip shows plays: notes from `trim` to `trim + length`,
+            // shifted so `trim` lands on the clip's start and cut off at the clip's end.
+            val from = clip.trim
+            val to = minOf(pattern.lengthTicks, from + project.clipLength(clip))
+            val offset = clip.startTick - from
             project.channels.forEachIndexed { index, ch ->
                 pattern.notesFor(ch.id).forEach { n ->
-                    if (n.start < pattern.lengthTicks) add(out, index, offset + n.start, n, pattern.lengthTicks - n.start)
+                    if (n.start in from until to) add(out, index, offset + n.start, n, to - n.start)
                 }
             }
         }
         // Audio clips play on hidden engine slots after the channels (see DawViewModel.syncEngine).
         audioSlots(project).forEach { (slot, clip) ->
+            if (clip.muted) return@forEach
             out += slot
             out += clip.startTick
             out += clip.lengthTicks(project.bpm)

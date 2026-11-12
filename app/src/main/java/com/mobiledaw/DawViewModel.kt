@@ -30,6 +30,7 @@ import com.mobiledaw.model.Project
 import com.mobiledaw.model.ProjectStore
 import com.mobiledaw.model.SequenceCompiler
 import com.mobiledaw.model.TICKS_PER_BAR
+import com.mobiledaw.model.TICKS_PER_BEAT
 import com.mobiledaw.model.TICKS_PER_STEP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -227,8 +228,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         }
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
-            NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
-            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, 0, false)
+            NativeEngine.setChannel(slot, Instrument.SAMPLE.id, clip.gain, 0f, clip.muted, false)
+            val (trimA, trimB) = com.mobiledaw.model.ClipEdit.trimFractions(clip)
+            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, clip.pitchSemis, clip.reverse)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
@@ -783,19 +785,82 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val before = project
         update { p -> p.copy(audioClips = p.audioClips.filter { it.id != id }) }
         undoSnapshot = before
-        undoLabel = "Deleted recording"
+        undoLabel = "Deleted audio clip"
     }
 
-    fun toggleClip(lane: Int, bar: Int) {
+    // ---------------------------------------------------------------- playlist editing
+
+    /** Playlist tool, like FL's pencil / slice / mute tools. */
+    var playlistTool by mutableStateOf(PlaylistTool.PENCIL)
+
+    /** Grid that moving, resizing, cutting and placing snap to, in ticks (0 = no snap). */
+    var playlistSnap by mutableIntStateOf(TICKS_PER_BEAT)
+
+    fun snapTick(tick: Int): Int {
+        val g = playlistSnap
+        if (g <= 1) return tick.coerceAtLeast(0)
+        return (Math.round(tick.toFloat() / g) * g).coerceAtLeast(0)
+    }
+
+    /** Index of the pattern clip at [tick] on [lane], topmost (last drawn) first. */
+    fun patternClipAt(lane: Int, tick: Int): Int =
+        project.clips.indexOfLast { it.lane == lane && tick >= it.startTick && tick < project.clipEnd(it) }
+
+    /** Pencil on an empty spot: places the selected pattern there, on the snap grid. */
+    fun addPatternClip(lane: Int, tick: Int) {
+        val g = playlistSnap.coerceAtLeast(1)
+        val start = (tick / g) * g
+        update { it.copy(clips = it.clips + Clip(lane, 0, selectedPatternId).movedTo(lane, start)) }
+    }
+
+    fun deletePatternClip(index: Int) {
+        if (index !in project.clips.indices) return
+        val before = project
+        update { p -> p.copy(clips = p.clips.filterIndexed { i, _ -> i != index }) }
+        undoSnapshot = before
+        undoLabel = "Deleted pattern clip"
+    }
+
+    fun setPatternClip(index: Int, clip: Clip) {
+        if (index !in project.clips.indices) return
+        update { p -> p.copy(clips = p.clips.mapIndexed { i, c -> if (i == index) clip else c }) }
+    }
+
+    fun updateAudioClip(id: Long, transform: (AudioClip) -> AudioClip) {
+        update { p -> p.copy(audioClips = p.audioClips.map { if (it.id == id) transform(it) else it }) }
+    }
+
+    /** Cut tool: splits the clip under [tick] (snapped) in two. Returns false when nothing was cut. */
+    fun cutAt(lane: Int, tick: Int): Boolean {
         val p = project
-        val hit = p.clips.firstOrNull { it.lane == lane && bar >= it.bar && bar < it.bar + p.clipBars(it) }
-        if (hit != null) {
-            update { it.copy(clips = it.clips - hit) }
+        val at = snapTick(tick)
+        val audio = audioClipAt(lane, tick)
+        if (audio != null) {
+            val (a, b) = com.mobiledaw.model.ClipEdit.split(audio, at, p.bpm, p.nextId())
+                ?: com.mobiledaw.model.ClipEdit.split(audio, tick, p.bpm, p.nextId())
+                ?: return false
+            update { q -> q.copy(audioClips = q.audioClips.flatMap { if (it.id == audio.id) listOf(a, b) else listOf(it) }) }
+            return true
+        }
+        val index = patternClipAt(lane, tick)
+        if (index < 0) return false
+        val clip = p.clips[index]
+        val (a, b) = com.mobiledaw.model.ClipEdit.split(p, clip, at)
+            ?: com.mobiledaw.model.ClipEdit.split(p, clip, tick)
+            ?: return false
+        update { q -> q.copy(clips = q.clips.flatMapIndexed { i, c -> if (i == index) listOf(a, b) else listOf(c) }) }
+        return true
+    }
+
+    /** Mute tool: mutes or unmutes the clip under [tick]. */
+    fun toggleMuteAt(lane: Int, tick: Int) {
+        val audio = audioClipAt(lane, tick)
+        if (audio != null) {
+            updateAudioClip(audio.id) { it.copy(muted = !it.muted) }
             return
         }
-        val bars = selectedPattern.bars
-        val overlaps = p.clips.any { it.lane == lane && bar < it.bar + p.clipBars(it) && it.bar < bar + bars }
-        if (!overlaps) update { it.copy(clips = it.clips + Clip(lane, bar, selectedPatternId)) }
+        val index = patternClipAt(lane, tick)
+        if (index >= 0) setPatternClip(index, project.clips[index].let { it.copy(muted = !it.muted) })
     }
 
     // ---------------------------------------------------------------- recording
@@ -898,7 +963,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val path = file.relativeTo(getApplication<Application>().filesDir).path
         val number = project.audioClips.size + 1
         update { p ->
-            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number"))
+            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number", fileSeconds = seconds))
         }
     }
 
@@ -971,14 +1036,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 val trackId = if (p.mixerTracks.size < MAX_MIXER_TRACKS) p.nextMixerTrackId() else null
                 if (trackId == null) full = true
                 val laneEnd = maxOf(
-                    p.clips.filter { it.lane == lane }.maxOfOrNull { (it.bar + p.clipBars(it)) * TICKS_PER_BAR } ?: 0,
+                    p.clips.filter { it.lane == lane }.maxOfOrNull { p.clipEnd(it) } ?: 0,
                     p.audioClips.filter { it.lane == lane }.maxOfOrNull { it.endTick(p.bpm) } ?: 0,
                 )
                 // Start on a bar line.
                 val startTick = (laneEnd + TICKS_PER_BAR - 1) / TICKS_PER_BAR * TICKS_PER_BAR
                 p = p.copy(
                     mixerTracks = if (trackId != null) p.mixerTracks + MixerTrack(trackId, f.name.take(24)) else p.mixerTracks,
-                    audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, f.path, f.seconds, f.name, trackId),
+                    audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, f.path, f.seconds, f.name, trackId, fileSeconds = f.seconds),
                 )
             }
             p
@@ -1206,3 +1271,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT
     }
 }
+
+/** Playlist tools: pencil adds, moves and resizes clips; cut slices them; mute silences them. */
+enum class PlaylistTool { PENCIL, CUT, MUTE }
