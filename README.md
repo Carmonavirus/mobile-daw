@@ -32,6 +32,12 @@ with folders matching the channel (e.g. "Kick" → Kicks) already open. Tap a so
 **Use** to pick it. **+ Add sound** below the channels adds a kit sound as a new channel. Sample
 channels follow the piano roll too: C4 plays the sound as-is, other notes pitch it.
 
+### Pattern templates
+
+Tap the selected pattern chip and choose **Save as template** to keep a pattern (say a basic trap
+beat) together with the sounds it uses. Later, in any project, tap **+** next to the patterns and
+pick the template: it is added as a new pattern, reusing matching channels or adding missing ones.
+
 ## Architecture
 
 ```

@@ -35,6 +35,9 @@ enum class PlayMode { PATTERN, SONG }
 class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProjectStore(app)
     val kits = KitLibrary(app)
+    private val templateStore = com.mobiledaw.model.TemplateStore(app)
+    var templates by mutableStateOf(templateStore.list())
+        private set
 
     /** Which sample path each engine channel slot currently holds. */
     private val loadedSamples = arrayOfNulls<String>(NativeEngine.MAX_CHANNELS)
@@ -190,6 +193,24 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val bars = count.coerceIn(1, com.mobiledaw.model.MAX_BARS)
         // Notes past the end are kept (just not played), so shortening by accident loses nothing.
         pat.copy(bars = bars)
+    }
+
+    /** Saves the selected pattern, with the sounds it uses, as a reusable template. */
+    fun saveTemplate(name: String) {
+        val clean = name.trim().ifEmpty { selectedPattern.name }
+        templateStore.save(com.mobiledaw.model.PatternTemplate.from(clean, project, selectedPattern))
+        templates = templateStore.list()
+    }
+
+    fun applyTemplate(template: com.mobiledaw.model.PatternTemplate) {
+        val (updated, patternId) = template.applyTo(project, NativeEngine.MAX_CHANNELS)
+        update { updated }
+        selectPattern(patternId)
+    }
+
+    fun deleteTemplate(name: String) {
+        templateStore.delete(name)
+        templates = templateStore.list()
     }
 
     fun deletePattern(id: Long) {

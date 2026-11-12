@@ -28,6 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -131,16 +134,92 @@ fun PatternBar(vm: DawViewModel) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             vm.project.patterns.forEachIndexed { i, pat ->
-                DawChip(
-                    pat.name,
-                    selected = pat.id == vm.selectedPatternId,
-                    dotColor = DawColors.PatternColors[i % DawColors.PatternColors.size],
-                ) { vm.selectPattern(pat.id) }
+                PatternChip(vm, pat, DawColors.PatternColors[i % DawColors.PatternColors.size])
             }
-            DawChip("+", selected = false, dotColor = null, onClick = vm::addPattern)
+            NewPatternChip(vm)
         }
         Spacer(Modifier.width(8.dp))
         BarsStepper(vm.selectedPattern.bars, vm::setPatternBars)
+    }
+}
+
+/** Tap to select; tap the selected pattern again for its menu (save as template, delete). */
+@Composable
+private fun PatternChip(vm: DawViewModel, pat: com.mobiledaw.model.Pattern, color: Color) {
+    var menu by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val selected = pat.id == vm.selectedPatternId
+    Box {
+        DawChip(pat.name, selected = selected, dotColor = color) {
+            if (selected) menu = true else vm.selectPattern(pat.id)
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Save as template") }, onClick = { menu = false; saving = true })
+            if (vm.project.patterns.size > 1) {
+                DropdownMenuItem(text = { Text("Delete pattern", color = DawColors.Mute) }, onClick = {
+                    menu = false
+                    vm.deletePattern(pat.id)
+                })
+            }
+        }
+    }
+    if (saving) {
+        var name by remember { mutableStateOf(pat.name) }
+        AlertDialog(
+            onDismissRequest = { saving = false },
+            title = { Text("Save as template") },
+            text = {
+                Column {
+                    Text("Saves this pattern and its sounds. Load it later from the + next to your patterns, in any project.", fontSize = 13.sp, color = DawColors.InkSoft)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Name") })
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.saveTemplate(name); saving = false }) { Text("Save", color = DawColors.Ink) } },
+            dismissButton = { TextButton(onClick = { saving = false }) { Text("Cancel", color = DawColors.Muted) } },
+            containerColor = DawColors.Card,
+        )
+    }
+}
+
+/** "+": a new empty pattern, or one built from a saved template. */
+@Composable
+private fun NewPatternChip(vm: DawViewModel) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        DawChip("+", selected = false, dotColor = null) { menu = true }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Empty pattern") }, onClick = { menu = false; vm.addPattern() })
+            Text(
+                "TEMPLATES",
+                fontSize = 11.sp,
+                letterSpacing = 2.sp,
+                color = DawColors.Muted,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            if (vm.templates.isEmpty()) {
+                Text(
+                    "None yet. Tap a selected pattern\nand choose Save as template.",
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+            vm.templates.forEach { t ->
+                DropdownMenuItem(
+                    text = { Text(t.name) },
+                    onClick = { menu = false; vm.applyTemplate(t) },
+                    trailingIcon = {
+                        Text(
+                            "×",
+                            fontSize = 18.sp,
+                            color = DawColors.Muted,
+                            modifier = Modifier.clip(CircleShape).clickable { vm.deleteTemplate(t.name) }.padding(horizontal = 8.dp),
+                        )
+                    },
+                )
+            }
+        }
     }
 }
 
