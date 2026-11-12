@@ -101,6 +101,8 @@ data class AudioClip(
     val path: String,
     val seconds: Float,
     val name: String = "Audio",
+    /** Mixer track this clip plays through; null = the project's recording track. */
+    val trackId: Long? = null,
 ) {
     fun lengthTicks(bpm: Int): Int = maxOf(1, (seconds * bpm / 60f * TICKS_PER_BEAT).toInt())
     fun endTick(bpm: Int): Int = startTick + lengthTicks(bpm)

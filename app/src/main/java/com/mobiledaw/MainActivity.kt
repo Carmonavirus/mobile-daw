@@ -1,5 +1,6 @@
 package com.mobiledaw
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -35,6 +36,14 @@ class MainActivity : ComponentActivity() {
             }
             DawTheme { DawApp(vm) }
         }
+        // Opened with "Share" or "Open with" on an audio file (not again after a rotation/restore).
+        if (savedInstanceState == null) vm.receiveShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        vm.receiveShared(intent)
     }
 
     override fun onStart() {
