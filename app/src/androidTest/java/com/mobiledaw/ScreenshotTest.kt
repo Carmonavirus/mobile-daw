@@ -32,10 +32,23 @@ class ScreenshotTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         device.wait(Until.hasObject(By.text("Rack")), 10_000)
         Thread.sleep(1500)
+        dismissSystemDialogs()
     }
 
     @After
     fun close() = scenario.close()
+
+    /**
+     * The emulator sometimes shows "Process system isn't responding" while it is still busy after boot.
+     * That dialog belongs to Android, not the app; tap "Wait" so it doesn't cover the screen.
+     */
+    private fun dismissSystemDialogs() {
+        repeat(3) {
+            if (device.findObject(By.textContains("isn't responding")) == null) return
+            (device.findObject(By.text("Wait")) ?: device.findObject(By.res("android:id/aerr_wait")))?.click()
+            Thread.sleep(500)
+        }
+    }
 
     private fun onVm(block: (DawViewModel) -> Unit) {
         scenario.onActivity { block(ViewModelProvider(it)[DawViewModel::class.java]) }
@@ -43,6 +56,7 @@ class ScreenshotTest {
 
     /** Whole screen, including dialogs, saved as screenshots/<name>.png in the test output. */
     private fun shot(name: String) {
+        dismissSystemDialogs()
         Thread.sleep(800) // let the screen settle
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         TestStorage().openOutputFile("screenshots/$name.png").use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -50,6 +64,7 @@ class ScreenshotTest {
 
     /** Taps the first visible element showing exactly [text] (or containing it with [partial]). */
     private fun tap(text: String, partial: Boolean = false) {
+        dismissSystemDialogs()
         val selector = if (partial) By.textContains(text) else By.text(text)
         val obj = device.wait(Until.findObject(selector), 5_000) ?: error("\"$text\" not on screen")
         obj.click()
@@ -58,6 +73,7 @@ class ScreenshotTest {
     /** Like [tap], but scrolls down first when [text] is below the fold. */
     private fun tapScrolling(text: String) {
         repeat(8) {
+            dismissSystemDialogs()
             device.findObject(By.text(text))?.let { it.click(); return }
             device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 20)
             Thread.sleep(300)
