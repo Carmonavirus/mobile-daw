@@ -200,7 +200,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.release, c.pitchSemis, c.reverse)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.attack, c.hold, c.decay, c.sustain, c.release, c.pitchSemis, c.reverse)
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -212,7 +212,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Audio clips each get a hidden sample slot after the channels.
         audioSlots.forEach { (slot, clip) ->
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, 1f, 0f, false, false)
-            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0.005f, 0, false)
+            NativeEngine.setChannelSampler(slot, false, 0f, 1f, 0f, 0f, 0f, 1f, 0.005f, 0, false)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {

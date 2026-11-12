@@ -80,6 +80,9 @@ SampleShape Core::shapeFor(int channel) const {
     shape.start = a * n;
     shape.end = b * n;
     shape.attack = std::max(0.0f, p.attack.load()) * data->sampleRate;
+    shape.hold = std::max(0.0f, p.hold.load()) * data->sampleRate;
+    shape.decay = std::max(0.0f, p.decay.load()) * data->sampleRate;
+    shape.sustain = std::clamp(p.sustain.load(), 0.0f, 1.0f);
     shape.release = std::max(0.0f, p.release.load()) * data->sampleRate;
     return shape;
 }
@@ -105,16 +108,28 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
     const float frac = static_cast<float>(pos - static_cast<double>(i));
     float s = f[i] + (f[i + 1] - f[i]) * frac;
     if (shape) {
-        // Attack fades in from the playback start edge, release fades out before the end edge
-        // (edges flip when the sample plays in reverse).
-        const double fromStart = forward ? (pos - lo) : (hi - pos);
+        // Time-based attack / hold / decay / sustain from the trigger, plus a position-based
+        // release that fades the tail before the end edge (edges flip for reverse playback).
+        const double t = static_cast<double>(v.age);
+        const double a = shape->attack;
+        const double h = shape->hold;
+        const double d = shape->decay;
+        double env;
+        if (a > 1.0 && t < a) {
+            env = t / a;  // attack ramp 0 -> 1
+        } else if (t < a + h) {
+            env = 1.0;  // hold at full
+        } else if (d > 1.0 && t < a + h + d) {
+            env = 1.0 - (1.0 - shape->sustain) * ((t - a - h) / d);  // decay 1 -> sustain
+        } else {
+            env = shape->sustain;  // held at the sustain level
+        }
         const double toEnd = forward ? (hi - pos) : (pos - lo);
-        double env = 1.0;
-        if (shape->attack > 1.0) env = std::min(env, fromStart / shape->attack);
         if (shape->release > 1.0) env = std::min(env, toEnd / shape->release);
         s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
     }
     v.phase1 += v.phase2;  // phase2 holds the signed playback rate for sample voices
+    v.age++;               // envelope time advances even though samples bypass Synth::tick
     return s * v.velocity;
 }
 
@@ -155,14 +170,17 @@ void Core::jumpTo(int64_t tick) {
         current_->events.begin()) : 0;
 }
 
-void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float release,
-                             int pitchSemis, bool reverse) {
+void Core::setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float attack, float hold,
+                             float decay, float sustain, float release, int pitchSemis, bool reverse) {
     if (index < 0 || index >= kMaxChannels) return;
     auto& p = params_[index];
     p.cutItself.store(cutItself);
     p.trimStart.store(trimStart);
     p.trimEnd.store(trimEnd);
     p.attack.store(attack);
+    p.hold.store(hold);
+    p.decay.store(decay);
+    p.sustain.store(sustain);
     p.release.store(release);
     p.pitchSemis.store(pitchSemis);
     p.reverse.store(reverse);
