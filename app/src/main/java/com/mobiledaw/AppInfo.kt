@@ -28,7 +28,7 @@ object AppInfo {
         Release(
             "0.4.3", "2026-11-12T13:15:00Z",
             listOf(
-                "Piano roll: FL-style scale colouring — in "Key" mode, notes in your scale are light and the rest are dark.",
+                "Piano roll: FL-style scale colouring — in Key mode, notes in your scale are light and the rest are dark.",
                 "Piano roll: optional one-finger scroll (Settings → Editing); tap still places notes.",
                 "Piano roll: the track chips no longer overlap the note grid.",
             ),
