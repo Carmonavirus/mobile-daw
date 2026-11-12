@@ -3,6 +3,7 @@
 
     <!-- Sound library: Freesound, Wikimedia Commons and Internet Archive search and downloads. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:allowBackup="true"

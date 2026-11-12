@@ -71,7 +71,8 @@ jobs:
     needs: launch-test
     runs-on: ubuntu-latest
     # The synth branch is merged into the main work branch before release, so it never publishes.
-    if: github.ref_name != 'claude/project-thread-n1suni'
+    # Same for the recording branch: it reaches the phone once merged into claude/sample-import.
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy'
     # Pushes to different branches must not update the release at the same time.
     concurrency: publish-apk
     permissions:

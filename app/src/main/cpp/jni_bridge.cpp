@@ -48,6 +48,11 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelSampler(
                                        release, pitchSemis, reverse == JNI_TRUE);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelClip(
+    JNIEnv*, jobject, jint index, jboolean resumeMidway) {
+    engine()->core().setChannelClip(index, resumeMidway == JNI_TRUE);
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelCount(JNIEnv*, jobject, jint count) {
     engine()->core().setChannelCount(count);
 }
