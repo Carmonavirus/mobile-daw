@@ -155,6 +155,9 @@ private fun PatternChip(vm: DawViewModel, pat: com.mobiledaw.model.Pattern, colo
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Save as template") }, onClick = { menu = false; saving = true })
+            if (pat.bars * 2 <= MAX_BARS) {
+                DropdownMenuItem(text = { Text("Loop to ${pat.bars * 2} bars") }, onClick = { menu = false; vm.loopPattern() })
+            }
             if (vm.project.patterns.size > 1) {
                 DropdownMenuItem(text = { Text("Delete pattern", color = DawColors.Mute) }, onClick = {
                     menu = false
@@ -382,6 +385,23 @@ private fun ChannelRow(
                         menu = false
                         onChangeSound()
                     })
+                    for (every in listOf(2, 4, 8)) {
+                        DropdownMenuItem(text = { Text("Fill every $every steps") }, onClick = {
+                            menu = false
+                            vm.fillSteps(channel, every)
+                        })
+                    }
+                    DropdownMenuItem(text = { Text("Clear steps") }, onClick = {
+                        menu = false
+                        vm.clearSteps(channel)
+                    })
+                    val bars = vm.selectedPattern.bars
+                    if (bars * 2 <= MAX_BARS) {
+                        DropdownMenuItem(text = { Text("Loop pattern to ${bars * 2} bars") }, onClick = {
+                            menu = false
+                            vm.loopPattern()
+                        })
+                    }
                     DropdownMenuItem(text = { Text("Delete channel") }, onClick = {
                         menu = false
                         vm.deleteChannel(channel.id)

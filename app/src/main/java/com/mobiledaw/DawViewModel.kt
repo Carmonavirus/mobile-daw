@@ -206,6 +206,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         pat.copy(bars = bars)
     }
 
+    /** Replaces a channel's steps with one hit every [every] steps across the whole pattern. */
+    fun fillSteps(channel: Channel, every: Int) {
+        val pattern = selectedPattern
+        val pitch = channel.instrument.defaultPitch
+        val steps = pattern.lengthTicks / TICKS_PER_STEP
+        updateNotes(channel.id) { (0 until steps step every).map { Note(it * TICKS_PER_STEP, TICKS_PER_STEP, pitch) } }
+    }
+
+    fun clearSteps(channel: Channel) = updateNotes(channel.id) { emptyList() }
+
+    /** Doubles the selected pattern by copying its bars after themselves (4 bars -> 8). */
+    fun loopPattern() = updatePattern(selectedPatternId) { pat ->
+        if (pat.bars * 2 > com.mobiledaw.model.MAX_BARS) return@updatePattern pat
+        val len = pat.lengthTicks
+        pat.copy(
+            bars = pat.bars * 2,
+            notes = pat.notes.mapValues { (_, list) ->
+                val inside = list.filter { it.start < len }
+                inside + inside.map { it.copy(start = it.start + len) }
+            },
+        )
+    }
+
     /** Saves the selected pattern, with the sounds it uses, as a reusable template. */
     fun saveTemplate(name: String) {
         val clean = name.trim().ifEmpty { selectedPattern.name }
