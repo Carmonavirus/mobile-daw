@@ -26,11 +26,17 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.8.9", "2026-11-13T23:00:00Z",
+            "0.9.0", "2026-11-13T23:20:00Z",
             listOf(
                 "Share projects with friends: Projects → Share packs a project and every sound it uses (imported loops, recordings, kit samples, SoundFonts, SFZ) into one .zip. Send it from the share sheet or save it to Download/Mobile DAW/Shared projects.",
                 "Projects → Import project opens a .zip a friend sent, on the phone and in the web app. You can also share or open the .zip straight into the app.",
                 "Imports never replace anything: a project with a name you already use gets a number (\"Beat 2\"), and a sound that clashes with one of yours is saved under a new name.",
+            ),
+        ),
+        Release(
+            "0.8.9", "2026-11-13T22:50:00Z",
+            listOf(
+                "Web app on phones: pinching the playlist with two fingers zooms in and out again (the browser only passed on the finger that moved, so a pinch never started). Two-finger scrolling and zooming in the piano roll work in the browser too.",
             ),
         ),
         Release(
