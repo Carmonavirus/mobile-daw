@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.8", "2026-11-13T15:40:00Z",
+            listOf(
+                "Export: when Stems or MIDI are on, everything comes as one .zip (the mix, a stems folder and the .mid), saved to Download › Mobile DAW › <song name>. Share .zip sends it in one go.",
+                "Projects: each saved project has a Delete button (tap the song name). It asks first. Deleting the open project opens your most recent other one, or a new empty project.",
+                "Freesound: the \"Under 30 s\" chip is now a length filter. Tap it to pick Any length, Under 1 s, Under 5 s, Under 30 s, 30 s – 2 min or Over 2 min, or drag the two handles to set your own range.",
+            ),
+        ),
+        Release(
             "0.7.7", "2026-11-13T15:20:00Z",
             listOf(
                 "New effect: Soft Clipper. It rounds off loud peaks so a track or the whole song gets louder and punchier without harsh clipping. Three knobs: Gain (how hard the sound hits it), Threshold (where clipping starts) and Post (how loud it comes out).",

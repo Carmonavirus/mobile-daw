@@ -97,7 +97,8 @@ fun TextAction(label: String, modifier: Modifier = Modifier, strong: Boolean = f
 @Composable
 fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(vm.project.name) }
-    val saved = remember { vm.savedProjects() }
+    var saved by remember { mutableStateOf(vm.savedProjects()) }
+    var confirmDelete by remember { mutableStateOf<String?>(null) }
     DawDialog(onDismiss, "Projects") {
         OutlinedTextField(
             value = name,
@@ -115,22 +116,74 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text("OPEN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
         LazyColumn(Modifier.heightIn(max = 280.dp)) {
-            items(saved) { item ->
-                val current = item == vm.project.name
+            items(saved, key = { it }) { item ->
+                val current = vm.isCurrentProject(item)
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .clickable { vm.openProject(item); onDismiss() }
-                        .padding(vertical = 12.dp, horizontal = 4.dp),
+                        .padding(start = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(6.dp).clip(CircleShape).background(if (current) DawColors.Ink else DawColors.Line))
                     Spacer(Modifier.size(10.dp))
-                    Text(item, fontSize = 15.sp, color = DawColors.Ink)
+                    Text(
+                        item,
+                        fontSize = 15.sp,
+                        color = DawColors.Ink,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+                    )
+                    Box(
+                        Modifier
+                            .clip(CircleShape)
+                            .clickable { confirmDelete = item }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Delete", fontSize = 13.sp, color = DawColors.Mute, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
         }
+    }
+    confirmDelete?.let { target ->
+        val current = vm.isCurrentProject(target)
+        DawDialog({ confirmDelete = null }, "Delete \"$target\"?") {
+            Text(
+                "This project will be gone for good. Your recordings and drum kits stay in the library." +
+                    if (current) " It's the one that's open now, so ${if (saved.size > 1) "your most recent other project opens" else "a new empty project opens"} instead." else "",
+                fontSize = 14.sp,
+                color = DawColors.InkSoft,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextAction("Cancel") { confirmDelete = null }
+                DangerAction("Delete") {
+                    vm.deleteProject(target)
+                    confirmDelete = null
+                    saved = vm.savedProjects()
+                    name = vm.project.name
+                }
+            }
+        }
+    }
+}
+
+/** A red pill button for an action that can't be undone. */
+@Composable
+private fun DangerAction(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(DawColors.Mute)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 14.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.SemiBold)
     }
 }
 
