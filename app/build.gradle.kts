@@ -22,11 +22,6 @@ android {
         versionName = "0.3.$build"
         buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
 
-        // Screenshot tests (app/src/androidTest) save their images through the test storage
-        // service, which Gradle copies into build/outputs/connected_android_test_additional_output.
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArguments["useTestStorageService"] = "true"
-
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17", "-O2")
@@ -95,14 +90,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.oboe)
     implementation(libs.androidx.documentfile)
-
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.services:storage:1.5.0")
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-    androidTestUtil("androidx.test.services:test-services:1.5.0")
 }
 
 // GeneralUser GS, a free General MIDI SoundFont by S. Christian Collins (see THIRD_PARTY_NOTICES.md),

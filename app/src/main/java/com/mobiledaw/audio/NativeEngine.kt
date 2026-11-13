@@ -26,6 +26,8 @@ object NativeEngine {
     external fun setChannelSampler(index: Int, cutItself: Boolean, trimStart: Float, trimEnd: Float, envDelay: Float, attack: Float, hold: Float, decay: Float, sustain: Float, release: Float, tension: Float, pitchSemis: Int, reverse: Boolean)
 
     /** Marks a slot as an audio-clip lane: starting playback inside one of its notes plays from there. */
+    /** Linear gain applied to a sample channel's sound (Boost / Normalize); soft clipped above 1. */
+    external fun setChannelBoost(index: Int, gain: Float)
     external fun setChannelClip(index: Int, resumeMidway: Boolean)
 
     /** [events] is flat: channel, startTick, lengthTicks, pitch, velocity (0..127) per note. */

@@ -1,6 +1,8 @@
 package com.mobiledaw.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -8,22 +10,30 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -100,38 +110,18 @@ fun PianoRollScreen(vm: DawViewModel) {
             return@Column
         }
 
+        // One compact row: grid size (dropdown), note labels and the Chords button.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         ) {
-            Text("GRID", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
-            Segmented(
-                options = listOf(
-                    TICKS_PER_STEP / 2 to "1/32",
-                    TICKS_PER_STEP to "1/16",
-                    TICKS_PER_STEP * 2 to "1/8",
-                    TICKS_PER_BEAT to "1/4",
-                    TICKS_PER_BEAT * 2 to "1/2",
-                ),
-                selected = vm.drawLength,
-                onSelect = { vm.drawLength = it },
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Text("NOTES", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
+            GridDropdown(vm)
             Segmented(
                 options = listOf(false to "Key ${vm.project.keyLabel}", true to "All"),
                 selected = vm.labelAllNotes,
                 onSelect = vm::changeLabelAllNotes,
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 10.dp))
             DawChip("Chords", selected = false, dotColor = DawColors.Note) { vm.openChordGen() }
         }
         WaveformStrip(
@@ -141,6 +131,43 @@ fun PianoRollScreen(vm: DawViewModel) {
                 .height(56.dp)
                 .padding(horizontal = 16.dp, vertical = 4.dp),
         )
+    }
+}
+
+/** The note length for drawing, as a compact dropdown (tap to choose 1/32 … 1/2). */
+@Composable
+private fun GridDropdown(vm: DawViewModel) {
+    val options = listOf(
+        TICKS_PER_STEP / 2 to "1/32",
+        TICKS_PER_STEP to "1/16",
+        TICKS_PER_STEP * 2 to "1/8",
+        TICKS_PER_BEAT to "1/4",
+        TICKS_PER_BEAT * 2 to "1/2",
+    )
+    var open by remember { mutableStateOf(false) }
+    val label = options.firstOrNull { it.first == vm.drawLength }?.second ?: "1/16"
+    Box {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, DawColors.Line, RoundedCornerShape(10.dp))
+                .clickable { open = true }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Grid", fontSize = 11.sp, letterSpacing = 1.sp, color = DawColors.Muted)
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+            Text(" ▾", fontSize = 12.sp, color = DawColors.Muted)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (ticks, name) ->
+                DropdownMenuItem(
+                    text = { Text(name, color = if (ticks == vm.drawLength) DawColors.Accent else DawColors.Ink) },
+                    onClick = { vm.drawLength = ticks; open = false },
+                )
+            }
+        }
     }
 }
 
@@ -217,9 +244,9 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                         val down = awaitFirstDown()
                         val hit = hitNote(down.position)
                         val original: Note? = notesState.value.getOrNull(hit)
-                        // One-finger-scroll mode: a drag always pans; a tap still places/deletes.
+                        // A touch that starts on a note resizes (near its right edge) or moves it;
+                        // a touch on empty grid scrolls with one finger. A tap still places/deletes.
                         var mode = when {
-                            vm.oneFingerScroll -> DragMode.PAN
                             original == null -> DragMode.PAN
                             noteX(original.start + original.length) - down.position.x < edgeGrab -> DragMode.RESIZE
                             else -> DragMode.MOVE

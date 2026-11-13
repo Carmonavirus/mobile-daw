@@ -26,11 +26,28 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.6.5", "2026-11-12T23:45:00Z",
+            "0.6.7", "2026-11-13T10:30:00Z",
             listOf(
                 "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",
                 "Use for new takes (in that window) saves the fix for your earbuds, so the next takes land right. Also in Settings → Audio sync → Recording timing.",
                 "Takes keep the count-in audio hidden before them, so they can be slid later as well as earlier.",
+            ),
+        ),
+        Release(
+            "0.6.6", "2026-11-13T03:45:00Z",
+            listOf(
+                "Pitch Correct sounds much cleaner: notes are moved without the sped-up, chipmunk tone, so your voice keeps its own sound even on big jumps.",
+                "Hard tune is truly hard now: at instant speed each note sits dead flat on the key and snaps to the next one, the classic tuned-vocal sound.",
+                "Pick a sound with one tap: Natural, Classic, Hard tune, Double, Deep duet, Harmony and Choir. Harmony and Choir sing extra notes in the song's key.",
+                "Simpler screen: Sound, Key and four knobs (Speed, Strength, Voices, Mix). Note switches, transpose, humanize and singer's range are under More options.",
+                "New Pitch Correct effects start on Classic (fast, tight tuning).",
+            ),
+        ),
+        Release(
+            "0.6.5", "2026-11-12T23:40:00Z",
+            listOf(
+                "Piano roll: dragging a note now always resizes or moves it — only dragging empty space scrolls.",
+                "Piano roll: the grid and note-label controls are now on one line, with the grid as a dropdown, leaving more room for the notes.",
             ),
         ),
         Release(
