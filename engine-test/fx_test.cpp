@@ -8,6 +8,7 @@
 #include "DawCore.h"
 #include "fx/ParametricEq.h"
 #include "fx/PitchCorrector.h"
+#include "fx/SoftClipper.h"
 
 using namespace daw;
 using namespace daw::fx;
@@ -286,6 +287,75 @@ int main() {
     check(std::fabs(routed.first - direct.first) < 0.02, "core: through a flat mixer track, same level", routed.first);
     check(routed.second > 0.05, "core: mixer track meter moves", routed.second);
     check(muted.first < 1e-4, "core: muted mixer track silences its channels", muted.first);
+
+    // ---- soft clipper
+    {
+        check(SoftClipper::shape(0.3f, 0.5f) == 0.3f, "clip: below threshold untouched", SoftClipper::shape(0.3f, 0.5f));
+        check(SoftClipper::shape(50.f, 0.5f) <= 1.0f && SoftClipper::shape(50.f, 0.5f) > 0.99f, "clip: ceiling is 0 dBFS", SoftClipper::shape(50.f, 0.5f));
+        const float a = SoftClipper::shape(0.5001f, 0.5f), b = SoftClipper::shape(0.5f, 0.5f);
+        check(std::fabs((a - b) / 0.0001f - 1.0f) < 0.01f, "clip: knee is smooth (slope 1 at threshold)", (a - b) / 0.0001f);
+        auto runClip = [](double hz, float gainDb, float thrDb, float postDb, std::vector<float>* keep) {
+            SoftClipper c;
+            c.prepare(kSr);
+            const int n = 48000;
+            std::vector<float> l(n), r(n);
+            for (int i = 0; i < n; ++i) l[i] = r[i] = static_cast<float>(0.5 * std::sin(2 * kPi * hz * i / kSr));
+            const float params[3] = {gainDb, thrDb, postDb};
+            for (int i = 0; i < n; i += 192) c.process(&l[i], &r[i], std::min(192, n - i), params);
+            if (keep) *keep = l;
+            double peak = 0;
+            for (int i = n / 2; i < n; ++i) peak = std::max(peak, double(std::fabs(l[i])));
+            return peak;
+        };
+        const double clean = runClip(1000, 0, 0, 0, nullptr);
+        check(std::fabs(clean - 0.5) < 0.01, "clip: 0 dB settings pass a -6 dB sine", clean);
+        const double driven = runClip(1000, 18, -6, 0, nullptr);
+        check(driven <= 1.02 && driven > 0.8, "clip: +18 dB gain stays under the ceiling", driven);
+        const double post = runClip(1000, 18, -6, -6, nullptr);
+        check(std::fabs(post / driven - 0.5012) < 0.02, "clip: post lowers the output 6 dB", post / driven);
+        // Aliasing: a hard-driven 7 kHz tone makes 21, 35 kHz... harmonics. Without oversampling
+        // 35 kHz folds to 13 kHz and 49 kHz to 1 kHz; measure those against the fundamental.
+        std::vector<float> out;
+        runClip(7000, 24, -12, 0, &out);
+        const double fund = toneLevel(out, 24000, 9600, 7000);
+        const double alias = std::max(toneLevel(out, 24000, 9600, 13000), toneLevel(out, 24000, 9600, 1000));
+        check(20 * std::log10(alias / fund) < -50, "clip: folded harmonics 50 dB down (oversampled)", 20 * std::log10(alias / fund + 1e-12));
+        bool nan = false;
+        std::vector<float> l(4096, 0.f), r(4096, 0.f);
+        SoftClipper c;
+        c.prepare(kSr);
+        const float params[3] = {36, -36, 12};
+        c.process(l.data(), r.data(), 4096, params);
+        double peak = 0;
+        for (float s : l) { peak = std::max(peak, double(std::fabs(s))); nan |= std::isnan(s); }
+        check(peak < 1e-6 && !nan, "clip: silence stays silent", peak);
+    }
+
+    // ---- master effects chain in the core (exports render through it too)
+    auto masterPeak = [](bool clipOn) {
+        Core core;
+        core.setSampleRate(48000);
+        core.setChannelCount(1);
+        core.setChannel(0, 5, 1.0f, 0.0f, false, false);
+        core.setMasterVolume(1.0f);
+        if (clipOn) {
+            core.setInsertEffect(kMasterInsert, 0, kFxClip, false);
+            core.setEffectParam(kMasterInsert, 0, kClipGain, 0.0f);
+            core.setEffectParam(kMasterInsert, 0, kClipThreshold, -12.0f);
+            core.setEffectParam(kMasterInsert, 0, kClipPost, -12.0f);
+        }
+        std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat * 4, 69, 1.0f}};
+        core.setSequence(ev, kTicksPerBeat * 4);
+        core.setPlaying(true);
+        std::vector<float> buf(2 * 9600);
+        core.renderMix(buf.data(), 9600);
+        double peak = 0;
+        for (float s : buf) peak = std::max(peak, double(std::fabs(s)));
+        return peak;
+    };
+    const double mOff = masterPeak(false), mOn = masterPeak(true);
+    check(mOff > 0.1, "core: master without effects is audible", mOff);
+    check(mOn < 0.26 && mOn > 0.01, "core: master soft clipper + post in renderMix", mOn);
 
     std::printf(failures ? "\n%d check(s) failed\n" : "\nall effect checks passed\n", failures);
     return failures ? 1 : 0;
