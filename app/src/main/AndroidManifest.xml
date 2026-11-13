@@ -39,6 +39,21 @@
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/ogg" />
             </intent-filter>
+            <!-- A project a friend shared (Projects > Share), sent or opened as a .zip. -->
+            <intent-filter android:label="@string/import_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
+            <intent-filter android:label="@string/import_label">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
         </activity>
         <!-- Shares exported songs, stems and MIDI files from the cache with other apps. -->
         <provider

@@ -487,6 +487,7 @@ function showStartError(msg) { const s = document.getElementById('splash'); if (
 
 /** Test hooks (see web/app/tests). */
 function registerCloudProbe(probe, signIn, syncNow, newProject) { window.dawCloud = { probe, signIn, syncNow, newProject }; }
+function registerShareProbe(probe, share, zipBytes, importZip, importAudio, fileBytes) { window.dawShare = { probe, share, zipBytes, importZip, importAudio, fileBytes }; }
 function registerProbe(probe, togglePlay, addBeat) { window.dawProbe = probe; window.dawTogglePlay = togglePlay; window.dawAddBeat = addBeat; }
 
 /**
