@@ -39,6 +39,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
@@ -500,7 +501,7 @@ private fun SplitPanes(
                     .offset { androidx.compose.ui.unit.IntOffset((share * totalPx).toInt() - halfHandlePx, 0) }
                     .pointerInput(tab, totalPx) {
                         var startShare = defaultShare
-                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                        detectHorizontalDragGestures(
                             onDragStart = { startShare = vm.splitShare[tab] ?: defaultShare },
                             onDragEnd = {
                                 val now = vm.splitShare[tab] ?: defaultShare
