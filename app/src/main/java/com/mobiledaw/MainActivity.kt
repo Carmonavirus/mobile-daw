@@ -48,13 +48,30 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Phones stay portrait (the manifest locks it). Tablets (smallest side 600dp or more) can
-     * turn freely and get the side-by-side layouts. Rotation is handled in place (configChanges
-     * in the manifest), so the activity isn't recreated and playback keeps going.
+     * Tablets (smallest side 600dp or more) turn freely, like any app. Phones also turn to
+     * landscape, but only after a 3-second countdown (see [PhoneTurn]), so a phone tilted by
+     * accident while working doesn't flip. Rotation is handled in place (configChanges in the
+     * manifest), so the activity isn't recreated and playback keeps going.
      */
+    private val isTablet get() = resources.configuration.smallestScreenWidthDp >= TABLET_MIN_DP
+
+    private val phoneTurn by lazy {
+        PhoneTurn(
+            context = this,
+            onCountdown = { vm.turnCountdown = it },
+            onTurn = { landscape ->
+                requestedOrientation =
+                    if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            },
+        )
+    }
+
     private fun allowRotationOnTablets() {
-        if (resources.configuration.smallestScreenWidthDp >= TABLET_MIN_DP) {
+        if (isTablet) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        } else {
+            // A phone keeps whatever it was turned to before (e.g. after coming back to the app).
+            phoneTurn.landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         }
     }
 
@@ -62,8 +79,26 @@ class MainActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         // A foldable opening or closing changes the smallest width: follow it.
         val tablet = newConfig.smallestScreenWidthDp >= TABLET_MIN_DP
-        val want = if (tablet) ActivityInfo.SCREEN_ORIENTATION_FULL_USER else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        if (requestedOrientation != want) requestedOrientation = want
+        if (tablet) {
+            phoneTurn.cancel()
+            if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_USER) {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+            }
+        } else if (requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_FULL_USER) {
+            // Folded back into a phone: start upright, the countdown handles turning from here.
+            phoneTurn.landscape = false
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isTablet) phoneTurn.start()
+    }
+
+    override fun onPause() {
+        phoneTurn.stop()
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {

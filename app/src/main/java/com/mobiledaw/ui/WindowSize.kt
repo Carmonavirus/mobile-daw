@@ -20,3 +20,15 @@ fun windowWidthClass(): WindowWidthClass {
         else -> WindowWidthClass.COMPACT
     }
 }
+
+/** Side by side screens: wide enough (840dp+) and tall enough (480dp+), so a tablet in landscape, not a phone. */
+@Composable
+fun useSplitPanes(): Boolean =
+    windowWidthClass() == WindowWidthClass.EXPANDED && LocalConfiguration.current.screenHeightDp >= 480
+
+/** Landscape window (tablet or phone): the tabs and play controls share one row to save height. */
+@Composable
+fun isLandscapeWindow(): Boolean {
+    val c = LocalConfiguration.current
+    return c.screenWidthDp > c.screenHeightDp
+}

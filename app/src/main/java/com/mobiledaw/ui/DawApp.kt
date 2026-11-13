@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,10 +64,12 @@ fun DawApp(vm: DawViewModel) {
         vm.recordMessage = if (granted) null else "Allow the microphone to record."
     }
 
-    // Tablet in landscape (or any window 840dp+ wide): screens side by side.
-    val wide = windowWidthClass() == WindowWidthClass.EXPANDED
+    // Tablet in landscape: screens side by side. Any landscape window: one bottom row.
+    val wide = useSplitPanes()
+    val landscape = isLandscapeWindow()
     SideEffect { vm.wideLayout = wide }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -110,8 +114,8 @@ fun DawApp(vm: DawViewModel) {
             if (vm.recordMode) vm.exitRecordMode()
             vm.tab = it
         }
-        if (wide) {
-            // Landscape tablet: tabs and transport share one row, leaving more height for the screens.
+        if (landscape) {
+            // Landscape: tabs and transport share one row, leaving more height for the screens.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 BottomTabs(vm.tab, Modifier.weight(1f), selectTab)
                 Box(Modifier.weight(1f)) { transport() }
@@ -120,6 +124,8 @@ fun DawApp(vm: DawViewModel) {
             transport()
             BottomTabs(vm.tab, onSelect = selectTab)
         }
+    }
+    vm.turnCountdown?.let { TurnOverlay(it) }
     }
 
     vm.synthEditorChannelId?.let { com.mobiledaw.ui.synth.SynthEditor(vm, it) }
@@ -405,6 +411,45 @@ private fun SplitPanes(leftShare: Float, left: @Composable () -> Unit, right: @C
         Box(Modifier.weight(leftShare).fillMaxHeight()) { left() }
         Box(Modifier.width(1.dp).fillMaxHeight().background(DawColors.Line))
         Box(Modifier.weight(1f - leftShare).fillMaxHeight()) { right() }
+    }
+}
+
+/**
+ * Phone about to turn: covers the whole screen and swallows every touch while it counts 3, 2, 1.
+ * Turning the phone back cancels it. Playback carries on underneath.
+ */
+@Composable
+private fun TurnOverlay(c: com.mobiledaw.TurnCountdown) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(DawColors.Paper.copy(alpha = 0.94f))
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (c.toLandscape) "Turning sideways" else "Turning upright",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DawColors.Ink,
+            )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier.size(120.dp).clip(CircleShape).background(DawColors.Card),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("${c.seconds}", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = DawColors.Ink)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Turn the phone back to cancel", fontSize = 13.sp, color = DawColors.Muted)
+        }
     }
 }
 

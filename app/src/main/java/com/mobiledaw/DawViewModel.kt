@@ -119,6 +119,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
      */
     var wideLayout by mutableStateOf(false)
 
+    /** Phone turning to/from landscape: the 3, 2, 1 countdown that blocks the screen first. */
+    var turnCountdown by mutableStateOf<TurnCountdown?>(null)
+
     /** The piano roll is on screen: its own tab, or beside the rack on a wide screen. */
     val pianoVisible: Boolean get() = tab == Tab.PIANO || (wideLayout && tab == Tab.RACK)
 
