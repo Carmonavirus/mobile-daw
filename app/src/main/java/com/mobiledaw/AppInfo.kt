@@ -26,6 +26,16 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.9", "2026-11-13T15:45:00Z",
+            listOf(
+                "Fixed: single drums from SoundFont kits (like a closed hi-hat) played much lower than they should in the rack and piano roll, so they sounded like a different drum. They now sound as picked on their own note.",
+                "Piano roll: when a whole drum kit is on one sound, each row shows which drum it plays.",
+                "Piano roll: bar numbers at the top of each bar line.",
+                "Piano roll: \"Loop bars\" repeats your notes in blocks of 4 bars. Notes in bars 1–2 copy bars 1–4 into 5–8; tap again for 9–12. The pattern gets longer if it needs to. Undo takes it back.",
+                "Piano roll: \"Copy\" copies the notes of the sound you're on. Pick another sound in the row above and tap \"Paste\" to clone them there. Drum to drum, the beat lands on the new drum's own note. Undo works here too.",
+            ),
+        ),
+        Release(
             "0.7.8", "2026-11-13T15:40:00Z",
             listOf(
                 "Export: when Stems or MIDI are on, everything comes as one .zip (the mix, a stems folder and the .mid), saved to Download › Mobile DAW › <song name>. Share .zip sends it in one go.",

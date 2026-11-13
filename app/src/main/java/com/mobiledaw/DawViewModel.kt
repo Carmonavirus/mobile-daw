@@ -380,7 +380,12 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             val engineInstrument = if (path != null) Instrument.SAMPLE.id else c.instrument.id
             NativeEngine.setChannel(i, engineInstrument, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, if (canTranspose(c)) c.pitchSemis else 0, c.reverse)
+            // The sampler plays a recording at its own pitch on C4. A single SoundFont drum hit is
+            // recorded on its own key (e.g. 42 for a closed hat), which is also where its steps and
+            // piano-roll notes sit, so shift it to sound as recorded there instead of 18 semitones low.
+            val rootShift = if (path != null) samplerRootShift(c) else 0
+            val transpose = (if (canTranspose(c)) c.pitchSemis else 0) + rootShift
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, transpose, c.reverse)
             NativeEngine.setChannelBoost(i, sampleBoostGain(c))
             syncSynth(i, c)
             if (loadedSamples[i] != path) {
@@ -746,6 +751,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         c.instrument == Instrument.SOUNDFONT && c.pitch != null -> soundFontHitPath(c)
         else -> null
     }
+
+    /** Semitones that put a recorded hit back on its own key: SoundFont single hits play as recorded on their key. */
+    private fun samplerRootShift(c: Channel): Int =
+        if (c.instrument == Instrument.SOUNDFONT && c.pitch != null) 60 - c.pitch else 0
+
+    /** A whole SoundFont drum kit on one channel: each piano-roll row plays a different drum. */
+    fun isWholeDrumKit(c: Channel): Boolean = !canTranspose(c)
 
     /**
      * Whether Channel settings' Pitch applies. Everything but a whole SoundFont drum kit, where
@@ -1298,6 +1310,107 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         pianoCheckpoint(channelId)
         updateNotes(channelId) { list -> list.filterIndexed { i, _ -> i != index } }
         pianoSealTop()
+    }
+
+    // ---------------------------------------------------------------- piano roll tools
+
+    /** A short message shown over the piano roll for a moment ("Copied 12 notes"). */
+    var pianoNotice by mutableStateOf<String?>(null)
+        private set
+    private var noticeJob: Job? = null
+
+    private fun showPianoNotice(text: String) {
+        pianoNotice = text
+        noticeJob?.cancel()
+        noticeJob = viewModelScope.launch {
+            delay(2500)
+            pianoNotice = null
+        }
+    }
+
+    /** Notes copied from one channel's piano roll, ready to paste into another. */
+    class NoteClipboard(val fromName: String, val notes: List<Note>, val drumPitch: Int?)
+
+    var noteClipboard by mutableStateOf<NoteClipboard?>(null)
+        private set
+
+    /** One-shot drums (kits, built-ins, single SoundFont hits) play their sound as is on [stepPitch]. */
+    private fun isOneShotDrum(c: Channel) =
+        c.instrument.isDrum || (c.instrument == Instrument.SOUNDFONT && c.pitch != null)
+
+    /** Copies every note of the selected channel in this pattern. */
+    fun copyNotes() {
+        val ch = selectedChannel ?: return
+        val notes = selectedPattern.notesFor(ch.id).filter { it.start < selectedPattern.lengthTicks }
+        if (notes.isEmpty()) {
+            showPianoNotice("No notes to copy on ${ch.name}")
+            return
+        }
+        noteClipboard = NoteClipboard(ch.name, notes, if (isOneShotDrum(ch)) ch.stepPitch else null)
+        showPianoNotice("Copied ${notes.size} note${if (notes.size == 1) "" else "s"} from ${ch.name}")
+    }
+
+    /**
+     * Pastes the copied notes into the selected channel, on top of what it already has. Drum to
+     * drum keeps the beat on the new drum's own note; the pattern grows if the notes need more bars.
+     */
+    fun pasteNotes() {
+        val ch = selectedChannel ?: return
+        val clip = noteClipboard ?: return
+        val shift = if (clip.drumPitch != null && isOneShotDrum(ch)) ch.stepPitch - clip.drumPitch else 0
+        val maxTicks = com.mobiledaw.model.MAX_BARS * TICKS_PER_BAR
+        val incoming = clip.notes
+            .filter { it.start < maxTicks }
+            .map { it.copy(pitch = (it.pitch + shift).coerceIn(0, 127), length = minOf(it.length, maxTicks - it.start)) }
+        val existing = selectedPattern.notesFor(ch.id)
+        val added = incoming.filter { it !in existing }
+        if (added.isEmpty()) {
+            showPianoNotice("${ch.name} already has these notes")
+            return
+        }
+        val neededBars = (added.maxOf { it.start + it.length } + TICKS_PER_BAR - 1) / TICKS_PER_BAR
+        pianoCheckpoint(ch.id)
+        updatePattern(selectedPatternId) { pat ->
+            pat.copy(
+                bars = maxOf(pat.bars, neededBars.coerceAtMost(com.mobiledaw.model.MAX_BARS)),
+                notes = pat.notes + (ch.id to (pat.notesFor(ch.id) + added)),
+            )
+        }
+        pianoSealTop()
+        showPianoNotice("Pasted ${added.size} note${if (added.size == 1) "" else "s"} into ${ch.name}")
+    }
+
+    /**
+     * "Loop bars": copies the 4-bar block holding the channel's last notes into the next 4 bars.
+     * Notes in bars 1–2 copy bars 1–4 into 5–8; pressing again copies 5–8 into 9–12. The pattern
+     * grows when the copy needs more bars (up to 16).
+     */
+    fun loopBars() {
+        val ch = selectedChannel ?: return
+        val notes = selectedPattern.notesFor(ch.id).filter { it.start < selectedPattern.lengthTicks }
+        if (notes.isEmpty()) {
+            showPianoNotice("Place some notes first, then loop them")
+            return
+        }
+        val block = LOOP_BLOCK_BARS * TICKS_PER_BAR
+        val from = (notes.maxOf { it.start } / block) * block
+        val to = from + block
+        val end = to + block
+        val neededBars = end / TICKS_PER_BAR
+        if (neededBars > com.mobiledaw.model.MAX_BARS) {
+            showPianoNotice("No room: a pattern holds up to ${com.mobiledaw.model.MAX_BARS} bars")
+            return
+        }
+        val copies = notes.filter { it.start in from until to }
+            .map { it.copy(start = it.start + block, length = minOf(it.length, end - (it.start + block))) }
+        pianoCheckpoint(ch.id)
+        updatePattern(selectedPatternId) { pat ->
+            val kept = pat.notesFor(ch.id).filter { it.start !in to until end }
+            pat.copy(bars = maxOf(pat.bars, neededBars), notes = pat.notes + (ch.id to (kept + copies)))
+        }
+        pianoSealTop()
+        val bar = { t: Int -> t / TICKS_PER_BAR }
+        showPianoNotice("Bars ${bar(from) + 1}–${bar(to)} looped into bars ${bar(to) + 1}–${bar(end)}")
     }
 
     // ---------------------------------------------------------------- piano roll undo / redo
@@ -2089,6 +2202,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val ENGINE_PREVIEW_MS = 1500L
         const val SCOPE_BINS = 96
         private const val MAX_PIANO_UNDO = 100
+        /** "Loop bars" always works in blocks of this many bars. */
+        private const val LOOP_BLOCK_BARS = 4
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
         /** Most a sample channel can be boosted, in dB. */
