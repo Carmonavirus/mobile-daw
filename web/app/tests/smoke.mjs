@@ -45,6 +45,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   console.log(viewport.width, 'start', JSON.stringify(start));
   if (start.channels < 1) fail('no channels in the first song');
   if (!(start.textW > 0)) fail('text does not render (no font)');
+  // Android's Roboto puts a capital M nearly centred in its line box (8.7 px above, 9.8 below at 40 px).
+  for (const [k, g] of [['default font', start.gapDefault], ['Roboto', start.gapRoboto]]) {
+    if (!g || Math.abs(g[0] - g[1]) > 3) fail(`text sits off-centre with the ${k}: ${JSON.stringify(g)}`);
+  }
+  if (start.symW !== start.symFontW) fail('symbols (♪ ⇄ ⋯) do not come from the symbol fonts: ' + start.symW + ' vs ' + start.symFontW);
   await page.mouse.click(viewport.width / 2, viewport.height / 2);
   await page.evaluate(() => window.dawTogglePlay());
   let peak = 0;
