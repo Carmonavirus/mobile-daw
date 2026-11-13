@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.4", "2026-11-13T11:25:00Z",
+            listOf(
+                "Rack: \"+ Add drums\" and \"+ Add sounds\" are now separate buttons. Drums opens on your kits with Kick, Snare, Hi-hat and Clap at the top; Sounds opens on Instruments with Bass, Lead, Pluck, Pad and Wavetable at the top.",
+                "Tap a channel's name to open its channel settings. To change its sound, tap the new ⇄ icon next to the ⋯ menu.",
+            ),
+        ),
+        Release(
             "0.7.3", "2026-11-13T11:20:00Z",
             listOf(
                 "Pitch audio clips without changing their tempo: in the clip window (Pencil, tap a clip) pick Resample, Stretch or Vocal under Pitch.",
