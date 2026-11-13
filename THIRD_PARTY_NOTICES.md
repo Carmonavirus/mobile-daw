@@ -258,3 +258,17 @@ Thank you!
 ## Online sounds
 
 Sounds found through Freesound, Wikimedia Commons and the Internet Archive are not bundled. Each one a user saves keeps its author, licence and page link, listed in Settings > Sounds > Sound library > Credits.
+
+## LAME
+
+MP3 encoder used by song export, version 3.100, from https://lame.sourceforge.io (lame-3.100.tar.gz, SHA-256 ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e). Location: `app/src/main/cpp/third_party/lame`. Only the encoder library (`libmp3lame`) and `include/lame.h` are included, plus a hand-written `config.h` for the build; the mp3 decoder (`mpglib_interface.c`) was left out. Nothing else was changed. LAME is licensed under the GNU Library General Public License, version 2 or later; the full licence text is in `app/src/main/cpp/third_party/lame/COPYING`, and LAME's source can be obtained from the address above.
+
+```
+Copyright (c) 1999-2017 The LAME Project
+Copyright (c) 1999-2008 Mark Taylor and others (see the AUTHORS of LAME)
+
+This library is free software; you can redistribute it and/or modify it under
+the terms of the GNU Library General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your option) any
+later version.
+```

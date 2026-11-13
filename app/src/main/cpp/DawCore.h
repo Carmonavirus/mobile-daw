@@ -125,6 +125,15 @@ public:
     void startCountIn(int beats) { countInRequest_.store(beats < 1 ? 1 : (beats > 16 ? 16 : beats)); }
     // 1..beats while counting in (the beat just clicked), 0 otherwise.
     int countInBeat() const { return countInBeat_.load(); }
+    // ---- offline export (control thread, while the live stream is held off, see AudioEngine)
+    // Renders only the channels whose bit is set in `mask` (mute still applies, solo is ignored),
+    // for stems. A negative mask is the normal mix.
+    void setRenderMask(int64_t mask) { renderMask_.store(mask); }
+    // When on, playback stops at the end of the sequence instead of looping, and notes that are
+    // still sounding ring out naturally (no release/fade), so a bounce keeps its tails.
+    void setStopAtEnd(bool on) { stopAtEnd_.store(on); }
+    int sampleRate() const { return sampleRate_; }
+
     // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
     void setChannelClip(int index, bool resumeMidway);
 
@@ -198,6 +207,8 @@ private:
     std::atomic<int64_t> seek_{-1};       // pending seek while playing
     std::atomic<int64_t> startTick_{0};   // where the next play starts
     std::atomic<int> channelCount_{0};
+    std::atomic<int64_t> renderMask_{-1};
+    std::atomic<bool> stopAtEnd_{false};
     std::array<ChannelParams, kMaxChannels> params_;
 
     // Sequence handoff: UI publishes into pending_, audio thread adopts it and

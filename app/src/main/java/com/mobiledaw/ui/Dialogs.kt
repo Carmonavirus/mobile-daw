@@ -110,6 +110,7 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextAction("Rename") { vm.renameProject(name); onDismiss() }
             TextAction("New project", strong = true) { vm.newProject(); onDismiss() }
+            TextAction("Export") { onDismiss(); vm.openExport() }
         }
         Spacer(Modifier.height(16.dp))
         Text("OPEN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
