@@ -25,6 +25,10 @@ jobs:
           mkdir -p engine-test/out
           # Built by engine-test/build.sh in the first step.
           cd engine-test && ./out/metronometest
+      - name: Run the imported-sample quality test (stereo, resampling, clean output)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/samplequalitytest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
           mkdir -p engine-test/out

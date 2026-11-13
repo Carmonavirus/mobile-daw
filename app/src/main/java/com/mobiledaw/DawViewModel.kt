@@ -338,7 +338,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
                 val decoded = path?.let { decodeSample(it) }
-                NativeEngine.setSample(i, decoded?.frames, decoded?.sampleRate ?: 0f)
+                NativeEngine.setSample(i, decoded?.frames, decoded?.right, decoded?.sampleRate ?: 0f)
                 loadedSamples[i] = path
             }
             syncExtraEngine(i, c)
@@ -352,7 +352,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
                 val decoded = decodeSample(clip.path)
-                NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
+                NativeEngine.setSample(slot, decoded?.frames, decoded?.right, decoded?.sampleRate ?: 0f)
                 loadedSamples[slot] = clip.path
             }
         }
@@ -680,7 +680,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         sampleCache[path] ?: run {
             val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
             val max = if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
-            WavDecoder.decode(kits.file(path), max)?.also {
+            // Stereo sounds stay stereo all the way to the engine (folding to mono narrows and dulls loops).
+            WavDecoder.decode(kits.file(path), max, stereo = true)?.also {
                 sampleCache[path] = it
                 trimSampleCache()
             }
@@ -691,24 +692,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
      * would otherwise fill memory. The engine keeps its own copy, so dropping one here is safe.
      */
     private fun trimSampleCache() {
-        var total = sampleCache.values.sumOf { it.frames.size.toLong() }
+        var total = sampleCache.values.sumOf { it.frames.size.toLong() * it.channels }
         val iter = sampleCache.entries.iterator()
         while (total > MAX_CACHED_FRAMES && sampleCache.size > 1 && iter.hasNext()) {
-            total -= iter.next().value.frames.size
+            total -= iter.next().value.let { it.frames.size.toLong() * it.channels }
             iter.remove()
         }
     }
 
     /** Peak values (0..1) across a sample, for drawing its waveform. */
     fun samplePeaks(path: String, bins: Int): FloatArray {
-        val frames = decodeSample(path)?.frames ?: return FloatArray(0)
+        val decoded = decodeSample(path) ?: return FloatArray(0)
+        val frames = decoded.frames
+        val right = decoded.right
         if (frames.isEmpty()) return FloatArray(0)
         val out = FloatArray(bins)
         val per = maxOf(1, frames.size / bins)
         for (b in 0 until bins) {
             var peak = 0f
             val from = b * frames.size / bins
-            for (i in from until minOf(frames.size, from + per)) peak = maxOf(peak, kotlin.math.abs(frames[i]))
+            for (i in from until minOf(frames.size, from + per)) {
+                peak = maxOf(peak, kotlin.math.abs(frames[i]))
+                if (right != null) peak = maxOf(peak, kotlin.math.abs(right[i]))
+            }
             out[b] = peak
         }
         val max = out.maxOrNull()?.takeIf { it > 0f } ?: 1f
@@ -722,7 +728,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** Plays a kit sound without adding it to the project. */
     fun audition(path: String) {
         val decoded = decodeSample(path) ?: return
-        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.sampleRate)
+        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.right, decoded.sampleRate)
         NativeEngine.audition()
     }
 
@@ -816,7 +822,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Plays a decoded sound (an online preview) in the audition slot. */
     fun auditionDecoded(decoded: WavDecoder.Decoded) {
-        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.sampleRate)
+        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.right, decoded.sampleRate)
         NativeEngine.audition()
     }
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <thread>
 
@@ -44,12 +45,22 @@ void Core::collectGarbage() {
     engines_.collectGarbage();
 }
 
-void Core::setSample(int slot, std::vector<float> frames, float sampleRate) {
+void Core::setSample(int slot, std::vector<float> left, std::vector<float> right, float sampleRate) {
     if (slot < 0 || slot >= kSampleSlots) return;
     collectGarbage();
     auto* data = new SampleData();
-    data->frames = std::move(frames);
-    data->sampleRate = sampleRate > 0 ? sampleRate : 44100.0f;
+    const float src = sampleRate > 0 ? sampleRate : 44100.0f;
+    const float dst = static_cast<float>(sampleRate_);
+    if (right.size() != left.size()) right.clear();
+    if (std::fabs(src - dst) > 0.5f && !left.empty()) {
+        data->frames = resampleSinc(left, src, dst);
+        if (!right.empty()) data->right = resampleSinc(right, src, dst);
+        data->sampleRate = dst;
+    } else {
+        data->frames = std::move(left);
+        data->right = std::move(right);
+        data->sampleRate = src;
+    }
     delete pendingSample_[slot].exchange(data);
 }
 
@@ -97,6 +108,120 @@ SampleShape Core::shapeFor(int channel) const {
 namespace {
 // Bends a 0..1 ramp by a tension amount in [-1, 1]. 0 is linear; positive eases out (fast then
 // slow), negative eases in (slow then fast). Same shape FL's envelope tension gives.
+// 4-point cubic Hermite interpolation at fraction t between y1 and y2. Far flatter in the treble
+// than straight-line interpolation (which audibly dulls highs), and exact at t == 0.
+inline float hermite(float y0, float y1, float y2, float y3, float t) {
+    const float c1 = 0.5f * (y2 - y0);
+    const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+    const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+    return ((c3 * t + c2) * t + c1) * t + y1;
+}
+
+inline float interpAt(const std::vector<float>& f, size_t i, float t) {
+    const size_t n = f.size();
+    const float y1 = f[i];
+    if (t == 0.0f) return y1;
+    const float y0 = i > 0 ? f[i - 1] : y1;
+    const float y2 = i + 1 < n ? f[i + 1] : y1;
+    const float y3 = i + 2 < n ? f[i + 2] : y2;
+    return hermite(y0, y1, y2, y3, t);
+}
+
+constexpr double kPi = 3.14159265358979323846;
+
+double besselI0(double x) {
+    double sum = 1.0, term = 1.0;
+    for (int k = 1; k < 32; ++k) {
+        term *= (x / (2.0 * k)) * (x / (2.0 * k));
+        sum += term;
+        if (term < 1e-12 * sum) break;
+    }
+    return sum;
+}
+
+}  // namespace
+
+// Kaiser-windowed sinc resampler (32 zero crossings each side, flat to ~90% of the
+// lower Nyquist, >80 dB stopband). Runs once per sample load on the control thread.
+std::vector<float> resampleSinc(const std::vector<float>& in, double srcRate, double dstRate) {
+    if (in.empty() || srcRate <= 0.0 || dstRate <= 0.0) return in;
+    const double ratio = srcRate / dstRate;  // input samples per output sample
+    const double fc = std::min(1.0, 1.0 / ratio) * 0.92;  // cutoff, relative to the input Nyquist
+    constexpr int kZeroCrossings = 32;
+    const int half = static_cast<int>(std::ceil(kZeroCrossings / fc));  // half width in input samples
+    const int taps = 2 * half;
+    constexpr double kBeta = 8.6;
+    const double i0b = besselI0(kBeta);
+    const auto kernel = [&](double d) {
+        d = std::fabs(d);
+        if (d >= half) return 0.0;
+        const double x = fc * d;
+        const double sinc = x < 1e-9 ? 1.0 : std::sin(kPi * x) / (kPi * x);
+        const double r = d / half;
+        return fc * sinc * besselI0(kBeta * std::sqrt(std::max(0.0, 1.0 - r * r))) / i0b;
+    };
+    const int64_t n = static_cast<int64_t>(in.size());
+    const int64_t outLen = std::max(int64_t{1}, static_cast<int64_t>(std::floor(static_cast<double>(n) / ratio)));
+    std::vector<float> out(static_cast<size_t>(outLen));
+
+    // Whole-number rates (44100 -> 48000 is 147:160) use a precomputed polyphase table, so each
+    // output sample is one straight dot product. Odd rates fall back to an interpolated kernel.
+    const int64_t src = std::llround(srcRate), dst = std::llround(dstRate);
+    int64_t g = src, h = dst;
+    while (h != 0) { const int64_t t = g % h; g = h; h = t; }
+    const bool integral = std::fabs(srcRate - src) < 1e-6 && std::fabs(dstRate - dst) < 1e-6 && g > 0;
+    const int64_t phases = integral ? dst / g : 0;
+    const int64_t step = integral ? src / g : 0;
+    if (integral && phases <= 4096) {
+        std::vector<float> table(static_cast<size_t>(phases * taps));
+        for (int64_t p = 0; p < phases; ++p) {
+            const double frac = static_cast<double>(p) / phases;
+            for (int j = 0; j < taps; ++j)
+                table[static_cast<size_t>(p * taps + j)] = static_cast<float>(kernel(frac + (half - 1 - j)));
+        }
+        for (int64_t o = 0; o < outLen; ++o) {
+            const int64_t num = o * step;
+            const int64_t c = num / phases, p = num % phases;
+            const int64_t first = c - half + 1;
+            const float* w = &table[static_cast<size_t>(p * taps)];
+            float acc = 0.0f;
+            if (first >= 0 && first + taps <= n) {
+                const float* x = &in[static_cast<size_t>(first)];
+                for (int j = 0; j < taps; ++j) acc += x[j] * w[j];
+            } else {
+                for (int j = 0; j < taps; ++j) {
+                    const int64_t k = first + j;
+                    if (k >= 0 && k < n) acc += in[static_cast<size_t>(k)] * w[j];
+                }
+            }
+            out[static_cast<size_t>(o)] = acc;
+        }
+        return out;
+    }
+
+    constexpr int kRes = 512;  // kernel table points per input sample
+    std::vector<float> table(static_cast<size_t>(half * kRes + 2), 0.0f);
+    for (size_t j = 0; j < table.size(); ++j) table[j] = static_cast<float>(kernel(static_cast<double>(j) / kRes));
+    const auto lookup = [&](double d) {
+        const double q = std::fabs(d) * kRes;
+        const size_t j = static_cast<size_t>(q);
+        if (j + 1 >= table.size()) return 0.0f;
+        const float t = static_cast<float>(q - static_cast<double>(j));
+        return table[j] + (table[j + 1] - table[j]) * t;
+    };
+    for (int64_t o = 0; o < outLen; ++o) {
+        const double t = static_cast<double>(o) * ratio;
+        const int64_t c = static_cast<int64_t>(std::floor(t));
+        const int64_t a = std::max(int64_t{0}, c - half + 1), b = std::min(n - 1, c + half);
+        float acc = 0.0f;
+        for (int64_t k = a; k <= b; ++k) acc += in[static_cast<size_t>(k)] * lookup(t - static_cast<double>(k));
+        out[static_cast<size_t>(o)] = acc;
+    }
+    return out;
+}
+
+namespace {
+
 double envWarp(double x, double tension) {
     if (std::fabs(tension) < 1e-4) return x;
     const double k = tension * 5.0;
@@ -104,7 +229,7 @@ double envWarp(double x, double tension) {
 }
 }  // namespace
 
-float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shape) {
+float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shape, float* right) {
     if (!data || data->frames.empty()) {
         v.active = false;
         return 0.0f;
@@ -123,7 +248,9 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
     const size_t i = static_cast<size_t>(pos);
     if (i + 1 >= f.size()) { v.active = false; return 0.0f; }
     const float frac = static_cast<float>(pos - static_cast<double>(i));
-    float s = f[i] + (f[i + 1] - f[i]) * frac;
+    float s = interpAt(f, i, frac);
+    const bool stereo = !data->right.empty();
+    float sr = stereo ? interpAt(data->right, i, frac) : s;
     if (shape) {
         // Time-based delay / attack / hold / decay / sustain from the trigger, plus a position-based
         // release that fades the tail before the end edge (edges flip for reverse playback). Tension
@@ -148,10 +275,13 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
         }
         const double toEnd = forward ? (hi - pos) : (pos - lo);
         if (shape->release > 1.0) env = std::min(env, envWarp(toEnd / shape->release, tn));
-        s *= static_cast<float>(std::clamp(env, 0.0, 1.0));
+        const float e = static_cast<float>(std::clamp(env, 0.0, 1.0));
+        s *= e;
+        sr *= e;
     }
     v.phase1 += v.phase2;  // phase2 holds the signed playback rate for sample voices
     v.age++;               // envelope time advances even though samples bypass Synth::tick
+    if (right) *right = sr * v.velocity;
     return s * v.velocity;
 }
 
@@ -635,18 +765,27 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
             if (instruments[c] == kWavetable) {
                 synths_[static_cast<size_t>(c)].tick(sumL, sumR);
             } else {
-                float sum = SoundEngines::handles(instruments[c]) ? engines_.tick(c) : 0.0f;
+                const float engine = SoundEngines::handles(instruments[c]) ? engines_.tick(c) : 0.0f;
+                sumL = sumR = engine;
                 for (auto& v : voices_[c]) {
                     if (!v.active) continue;
-                    float x = instruments[c] == kSample ? sampleTick(v, sample_[c], &shapes[c]) : Synth::tick(v, instruments[c], sr);
+                    float xr = 0.0f;
+                    float x;
+                    if (instruments[c] == kSample) {
+                        x = sampleTick(v, sample_[c], &shapes[c], &xr);
+                    } else {
+                        x = Synth::tick(v, instruments[c], sr);
+                        xr = x;
+                    }
                     if (v.fadeStep > 0.0f) {
                         x *= v.fade;
+                        xr *= v.fade;
                         v.fade -= v.fadeStep;
                         if (v.fade <= 0.0f) v.active = false;
                     }
-                    sum += x;
+                    sumL += x;
+                    sumR += xr;
                 }
-                sumL = sumR = sum;
             }
             if (!audible[c]) continue;
             float l = sumL * gains[c][0];
@@ -666,9 +805,10 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
             right += a;
         }
         if (auditionVoice_.active) {
-            const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot]) * 0.8f;
+            float ar = 0.0f;
+            const float a = sampleTick(auditionVoice_, sample_[kAuditionSlot], nullptr, &ar) * 0.8f;
             left += a;
-            right += a;
+            right += ar * 0.8f;
         }
         out[2 * i] = left;
         out[2 * i + 1] = right;
@@ -700,8 +840,8 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
     for (int b = insertCount; b < fx::kMaxInserts; ++b) (*inserts_)[static_cast<size_t>(b)].level.store(0.0f);
 
     for (int i = 0; i < frames; ++i) {
-        const float left = std::tanh(out[2 * i] * master);
-        const float right = std::tanh(out[2 * i + 1] * master);
+        const float left = outputClip(out[2 * i] * master);
+        const float right = outputClip(out[2 * i + 1] * master);
         out[2 * i] = left;
         out[2 * i + 1] = right;
         float mono = 0.5f * (left + right);
