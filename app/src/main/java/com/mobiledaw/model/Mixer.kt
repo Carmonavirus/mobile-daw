@@ -11,10 +11,14 @@ const val MAX_EFFECTS = 8
 /** Id of the "Vocals" track every project starts with; recordings play through it. */
 const val VOCALS_TRACK_ID = 1L
 
+/** Pseudo track id for the master's own effects chain (real mixer track ids start at 1). */
+const val MASTER_TRACK_ID = 0L
+
 /** Effect plugins. The id must match fx::EffectType in app/src/main/cpp/fx/Mixer.h. */
 enum class EffectType(val id: Int, val label: String, val blurb: String) {
     EQ(1, "Parametric EQ", "Shape the tone with up to 8 bands"),
     PITCH(2, "Pitch Correct", "Pull the voice to the notes of a key"),
+    CLIP(3, "Soft Clipper", "Drive it in and round off the peaks"),
 }
 
 /** Band shapes. The id must match fx::BandType in app/src/main/cpp/fx/ParametricEq.h. */
@@ -167,6 +171,27 @@ data class PitchSettings(
     }
 }
 
+/** Soft Clipper settings, all in dB. Matches fx::SoftClipParam in app/src/main/cpp/fx/SoftClipper.h. */
+@Serializable
+data class ClipSettings(
+    /** How hard the sound is pushed into the clipper. */
+    val gain: Float = 0f,
+    /** Where the curve starts to bend; peaks never pass 0 dB. */
+    val threshold: Float = -6f,
+    /** Level coming out. */
+    val post: Float = 0f,
+) {
+    fun toParams() = floatArrayOf(gain, threshold, post)
+
+    companion object {
+        const val GAIN_MIN = -24f
+        const val GAIN_MAX = 36f
+        const val THRESHOLD_MIN = -36f
+        const val POST_MIN = -36f
+        const val POST_MAX = 12f
+    }
+}
+
 @Serializable
 data class Effect(
     val id: Long,
@@ -174,10 +199,12 @@ data class Effect(
     val bypass: Boolean = false,
     val eq: EqSettings? = null,
     val pitch: PitchSettings? = null,
+    val clip: ClipSettings? = null,
 ) {
     fun params(project: Project): FloatArray = when (type) {
         EffectType.EQ -> (eq ?: EqSettings.flat()).toParams()
         EffectType.PITCH -> (pitch ?: PitchSettings()).toParams(project)
+        EffectType.CLIP -> (clip ?: ClipSettings()).toParams()
     }
 }
 

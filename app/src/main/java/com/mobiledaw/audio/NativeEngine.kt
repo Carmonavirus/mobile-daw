@@ -95,6 +95,8 @@ object NativeEngine {
     // ---- mixer tracks (see app/src/main/cpp/fx)
     const val MAX_INSERTS = 8
     const val MAX_SLOTS = 8
+    /** Insert index of the master's own effects chain (fx::kMasterInsert). */
+    const val MASTER_INSERT = MAX_INSERTS
 
     /** Routes a channel slot to mixer track [insert] (0 until MAX_INSERTS), or -1 for the master. */
     external fun setChannelInsert(channel: Int, insert: Int)

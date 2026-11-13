@@ -72,11 +72,14 @@ fun MixerScreen(vm: DawViewModel) {
         item {
             Strip(
                 name = "Master",
+                subtitle = "the whole song",
                 level = levels.getOrElse(NativeEngine.MAX_CHANNELS) { 0f },
                 volume = p.masterVolume,
                 onVolume = vm::setMasterVolume,
                 emphasized = true,
-            )
+            ) {
+                EffectChain(vm, p, p.masterTrack)
+            }
         }
         item {
             SectionHeader(
@@ -185,25 +188,31 @@ private fun TrackCard(vm: DawViewModel, p: Project, track: MixerTrack, level: Fl
             }
         },
     ) {
-        Spacer(Modifier.height(4.dp))
-        Text("EFFECTS", fontSize = 10.sp, letterSpacing = 2.sp, color = DawColors.Muted)
-        Spacer(Modifier.height(6.dp))
-        track.effects.forEachIndexed { i, fx ->
-            EffectRow(
-                index = i,
-                fx = fx,
-                summary = summary(fx, p),
-                canUp = i > 0,
-                canDown = i < track.effects.size - 1,
-                onOpen = { vm.openEffect(track.id, fx.id) },
-                onToggle = { vm.updateEffect(track.id, fx.id) { it.copy(bypass = !it.bypass) } },
-                onMove = { by -> vm.moveEffect(track.id, fx.id, by) },
-                onRemove = { vm.removeEffect(track.id, fx.id) },
-            )
-            Spacer(Modifier.height(6.dp))
-        }
-        if (track.effects.size < MAX_EFFECTS) AddEffect { vm.addEffect(track.id, it) }
+        EffectChain(vm, p, track)
     }
+}
+
+/** A track's (or the master's) effects, in order, with "+ Add effect". */
+@Composable
+private fun EffectChain(vm: DawViewModel, p: Project, track: MixerTrack) {
+    Spacer(Modifier.height(4.dp))
+    Text("EFFECTS", fontSize = 10.sp, letterSpacing = 2.sp, color = DawColors.Muted)
+    Spacer(Modifier.height(6.dp))
+    track.effects.forEachIndexed { i, fx ->
+        EffectRow(
+            index = i,
+            fx = fx,
+            summary = summary(fx, p),
+            canUp = i > 0,
+            canDown = i < track.effects.size - 1,
+            onOpen = { vm.openEffect(track.id, fx.id) },
+            onToggle = { vm.updateEffect(track.id, fx.id) { it.copy(bypass = !it.bypass) } },
+            onMove = { by -> vm.moveEffect(track.id, fx.id, by) },
+            onRemove = { vm.removeEffect(track.id, fx.id) },
+        )
+        Spacer(Modifier.height(6.dp))
+    }
+    if (track.effects.size < MAX_EFFECTS) AddEffect { vm.addEffect(track.id, it) }
 }
 
 private fun summary(fx: Effect, p: Project): String = when (fx.type) {
@@ -217,6 +226,11 @@ private fun summary(fx: Effect, p: Project): String = when (fx.type) {
         val style = com.mobiledaw.model.PitchStyle.entries.firstOrNull { it.matches(s) }?.label
             ?: if (s.retuneMs < 1f) "instant" else "${s.retuneMs.roundToInt()} ms"
         "${NOTE_NAMES[s.keyFor(p)]} ${s.scaleFor(p).label.lowercase()} · $style"
+    }
+    EffectType.CLIP -> {
+        val c = fx.clip ?: com.mobiledaw.model.ClipSettings()
+        fun db(v: Float) = (if (v > 0.05f) "+" else "") + "%.1f".format(v)
+        "gain ${db(c.gain)} · threshold ${db(c.threshold)} · post ${db(c.post)} dB"
     }
 }
 

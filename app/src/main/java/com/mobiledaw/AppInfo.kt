@@ -26,13 +26,21 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.7.7", "2026-11-13T16:00:00Z",
+            "0.7.8", "2026-11-13T16:00:00Z",
             listOf(
                 "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",
                 "Playlist zoom: pinch the playlist with two fingers, or use the − and + buttons in the bottom-right corner. Zoomed in far enough you see every bar number and the beats.",
                 "Follow: the playlist no longer jumps to the playhead while you're touching, dragging or have a clip open. It waits 4 seconds after you let go. Turn Follow off in the bottom-right corner to stop it paging along at all.",
                 "Play from your spot: tap or drag to a point, press play, then stop, and the playhead goes back to that point instead of the beginning (like FL).",
                 "Pattern clips: tap one for Copy (the same pattern again, right after it), Clone (this clip gets its own copy of the pattern, so you can change it alone) and Split by channel (one pattern per sound, each on its own row). Clone pattern is also in the pattern's menu at the top.",
+            ),
+        ),
+        Release(
+            "0.7.7", "2026-11-13T15:20:00Z",
+            listOf(
+                "New effect: Soft Clipper. It rounds off loud peaks so a track or the whole song gets louder and punchier without harsh clipping. Three knobs: Gain (how hard the sound hits it), Threshold (where clipping starts) and Post (how loud it comes out).",
+                "The Master in the Mixer now has its own effects, so you can put the Soft Clipper (or EQ) on the whole song. Effects on the master are in your exports too.",
+                "To clip just your drums: add a mixer track, send the drum channels to it, and add the Soft Clipper there.",
             ),
         ),
         Release(

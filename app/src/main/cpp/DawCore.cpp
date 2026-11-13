@@ -8,7 +8,7 @@
 
 namespace daw {
 
-Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts>>()) {
+Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts + 1>>()) {
     for (auto& l : levels_) l.store(0.0f);
     for (int i = 0; i < kSampleSlots; ++i) {
         pendingSample_[i].store(nullptr);
@@ -417,14 +417,14 @@ void Core::setInsert(int index, float volume, float pan, bool mute) {
 }
 
 void Core::setInsertEffect(int index, int slot, int type, bool bypass) {
-    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
     auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
     s.type.store(type);
     s.bypass.store(bypass);
 }
 
 void Core::setEffectParam(int index, int slot, int param, float value) {
-    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
+    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
     (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].params[static_cast<size_t>(param)].store(value);
 }
 
@@ -433,7 +433,7 @@ void Core::readInsertLevels(float* out, int count) const {
 }
 
 void Core::readInsertSignal(int index, float* out, int count) const {
-    if (index < 0 || index >= fx::kMaxInserts) return;
+    if (index < 0 || index > fx::kMasterInsert) return;
     const auto& ins = (*inserts_)[static_cast<size_t>(index)];
     count = std::min(count, fx::kSpectrumSize);
     const int end = ins.spectrumWrite.load();
@@ -443,7 +443,7 @@ void Core::readInsertSignal(int index, float* out, int count) const {
 
 void Core::readPitch(int index, int slot, float* out) const {
     out[0] = out[1] = 0.0f;
-    if (index < 0 || index >= fx::kMaxInserts || slot < 0 || slot >= fx::kMaxSlots) return;
+    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
     const auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
     out[0] = s.pitch.detectedHz();
     out[1] = s.pitch.targetHz();
@@ -893,6 +893,31 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         ins.level.store(std::max(std::min(peak, 1.0f), ins.level.load() * 0.85f));
     }
     for (int b = insertCount; b < fx::kMaxInserts; ++b) (*inserts_)[static_cast<size_t>(b)].level.store(0.0f);
+
+    // The master's own effects (e.g. a soft clipper on the whole song) run on the summed mix,
+    // before the master volume, so exports and bounces include them.
+    {
+        auto& ins = (*inserts_)[fx::kMasterInsert];
+        float* ml = busL_[fx::kMasterInsert].data();
+        float* mr = busR_[fx::kMasterInsert].data();
+        bool any = false;
+        for (auto& slot : ins.slots) any |= slot.type.load(std::memory_order_relaxed) != fx::kFxNone || slot.activeType != fx::kFxNone;
+        if (any) {
+            for (int i = 0; i < frames; ++i) {
+                ml[i] = out[2 * i];
+                mr[i] = out[2 * i + 1];
+            }
+            for (auto& slot : ins.slots) slot.process(ml, mr, frames, sr);
+            int w = ins.spectrumWrite.load(std::memory_order_relaxed);
+            for (int i = 0; i < frames; ++i) {
+                out[2 * i] = ml[i];
+                out[2 * i + 1] = mr[i];
+                ins.spectrum[static_cast<size_t>(w)] = 0.5f * (ml[i] + mr[i]);
+                w = (w + 1) % fx::kSpectrumSize;
+            }
+            ins.spectrumWrite.store(w, std::memory_order_relaxed);
+        }
+    }
 
     for (int i = 0; i < frames; ++i) {
         const float left = outputClip(out[2 * i] * master);
