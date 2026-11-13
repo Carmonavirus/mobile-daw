@@ -3,6 +3,9 @@
 A minimal, portrait-only music maker for Android. The workflow borrows the familiar
 playlist / channel rack / piano roll / mixer layout, with its own light, paper-like design.
 
+**Web version:** https://carmonavirus.github.io/mobile-daw/ runs in any modern browser (phone or
+computer) with the same sound engine, compiled to WebAssembly. See [web/README.md](web/README.md).
+
 ## What's in it
 
 | Screen | What you do there |

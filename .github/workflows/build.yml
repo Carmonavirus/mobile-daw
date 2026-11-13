@@ -92,7 +92,7 @@ jobs:
     needs: launch-test
     runs-on: ubuntu-latest
     # Feature branches are merged into the main work branch before release, so they never publish.
-    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy' && github.ref_name != 'claude/project-thread-hr3nbu' && github.ref_name != 'claude/project-thread-289y4e' && github.ref_name != 'claude/project-thread-0rnesk'
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy' && github.ref_name != 'claude/project-thread-hr3nbu' && github.ref_name != 'claude/project-thread-289y4e' && github.ref_name != 'claude/project-thread-0rnesk' && github.ref_name != 'claude/project-thread-5cuiq8'
     # Pushes to different branches must not update the release at the same time.
     concurrency: publish-apk
     permissions:
