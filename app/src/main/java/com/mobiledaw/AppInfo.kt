@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.9", "2026-11-13T22:50:00Z",
+            listOf(
+                "Web app on phones: pinching the playlist with two fingers zooms in and out again (the browser only passed on the finger that moved, so a pinch never started). Two-finger scrolling and zooming in the piano roll work in the browser too.",
+            ),
+        ),
+        Release(
             "0.8.8", "2026-11-13T22:45:00Z",
             listOf(
                 "Piano roll: Play now starts from the beginning every time, and Pause goes back to the start.",
