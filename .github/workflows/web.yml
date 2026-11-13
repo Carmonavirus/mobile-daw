@@ -84,6 +84,13 @@ jobs:
           rm -f site/*.map
           cp -r web/dist site/classic
           echo "window.DAW_BUILD = { version: 'web-${GITHUB_SHA::7}', time: $(date +%s)000 };" > site/build-info.js
+          # Cache-busting: every script and .wasm is fetched as name?v=<build>, so an update always
+          # reaches the browser in one piece (no new page running old code from the cache).
+          v="web-${GITHUB_SHA::7}"
+          sed -i -E "s/__BUILD__/$v/; s/src=\"([a-z-]+\.js)\"/src=\"\1?v=$v\"/g" site/index.html
+          sed -i "s|\"./daw.wasm\"|\"./daw.wasm?v=$v\"|" site/daw.js
+          sed -i "s|fetch('engine.wasm')|fetch('engine.wasm?v=$v')|; s|addModule('engine-worklet.js')|addModule('engine-worklet.js?v=$v')|" site/platform.js
+          grep -q "daw.wasm?v=$v" site/daw.js && grep -q "daw.js?v=$v" site/index.html && grep -q "engine.wasm?v=$v" site/platform.js
       - uses: actions/upload-artifact@v4
         with:
           name: web-app

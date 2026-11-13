@@ -182,6 +182,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("label_all_notes", all).apply()
     }
 
+    /**
+     * Piano roll Play/Pause: off (default) = every press of Play starts from the beginning, and
+     * Pause goes back there. On = Pause holds the spot and Play carries on from it (the "Resume" chip).
+     */
+    var pianoResume by mutableStateOf(prefs.getBoolean("piano_resume", false))
+        private set
+
+    fun changePianoResume(on: Boolean) {
+        pianoResume = on
+        prefs.edit().putBoolean("piano_resume", on).apply()
+    }
+
     // ---------------------------------------------------------------- output latency (Bluetooth sync)
     // Declared before init{}: the engine polling loop reads them.
 
@@ -541,9 +553,19 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun togglePlay() {
         when {
             takeState != TakeState.IDLE -> stopTake()
+            pianoVisible && !pianoResume -> playFromStart()
             playing -> pause()
             else -> applyPlaying(true)
         }
+    }
+
+    /** Piano roll default: Play starts at the beginning; Pause stops and goes back to the beginning. */
+    private fun playFromStart() {
+        val start = !playing
+        if (playing) applyPlaying(false)
+        NativeEngine.seek(0L)
+        showLive(0L)
+        if (start) applyPlaying(true)
     }
 
     /** Pause: stops where you are, so the next play carries on from there. Stop goes back instead. */
