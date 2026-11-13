@@ -281,6 +281,37 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Boost: gain on the sample itself; below the knee it is clean, above it the peaks are soft clipped.
+    {
+        auto boosted = [&](float gain) {
+            Core c4;
+            c4.setSampleRate(sr);
+            c4.setMasterVolume(0.25f);  // keep the master stage linear
+            c4.setChannelCount(1);
+            c4.setChannel(0, 8, 1.0f, 0.0f, false, false);
+            std::vector<float> flat(sr, 0.5f);
+            c4.setSample(0, flat, static_cast<float>(sr));
+            c4.setChannelSampler(0, false, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0, false);
+            c4.setChannelBoost(0, gain);
+            c4.previewNote(0, 60, 1.0f);
+            std::vector<float> b4(block * 2);
+            float level = 0.0f;
+            for (int done = 0; done < sr / 2; done += block) {
+                c4.render(b4.data(), block);
+                level = std::fabs(b4[0]);
+            }
+            return level;
+        };
+        const float plain = boosted(1.0f);
+        const float clean = boosted(1.5f);   // 0.75: under the knee, exactly 1.5x
+        const float hot = boosted(4.0f);     // 2.0 before the clipper: rounded off below full scale
+        std::printf("boost: plain=%.3f x1.5=%.3f x4=%.3f\n", plain, clean, hot);
+        if (plain < 0.05f || std::fabs(clean / plain - 1.5f) > 0.03f || hot <= clean || hot / plain > 2.05f) {
+            std::printf("FAIL boost\n");
+            return 1;
+        }
+    }
+
     // Audio clip: a long recording on its own channel starts mid-way when playback starts
     // inside it, and stays silent on a normal sample channel.
     {

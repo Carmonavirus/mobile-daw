@@ -67,6 +67,9 @@ struct ChannelParams {
     std::atomic<float> tension{0.0f};
     std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
     std::atomic<bool> reverse{false};   // play the sample backwards
+    // Boost (FL-style sampler "precomputed" gain): linear gain applied to the sample itself,
+    // before the envelope. Above 1 a soft clipper rounds off peaks instead of hard clipping.
+    std::atomic<float> boost{1.0f};
     // Audio clips on the playlist: when playback starts or seeks into the middle of one of
     // this channel's notes, the sample starts from that point instead of staying silent.
     std::atomic<bool> resumeMidway{false};
@@ -85,6 +88,7 @@ struct SampleShape {
     double sustain = 1.0;
     double release = 0.0;
     double tension = 0.0;
+    float boost = 1.0f;
 };
 
 class Core {
@@ -110,6 +114,8 @@ public:
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float envDelay, float attack,
                            float hold, float decay, float sustain, float release, float tension, int pitchSemis,
                            bool reverse);
+    // Sample gain (Boost / Normalize), linear, 0..64. Peaks above ~0.8 are soft clipped when boosted.
+    void setChannelBoost(int index, float gain);
     void setMasterVolume(float v) { master_.store(v); }
 
     // ---- metronome (control thread)
