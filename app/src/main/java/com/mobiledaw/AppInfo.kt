@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.6", "2026-11-13T12:20:00Z",
+            listOf(
+                "Piano roll: new Undo button right of the play button. It takes back adding, moving, resizing and deleting notes, and chords you put in. Hold it to redo. It's greyed out when there's nothing to undo.",
+            ),
+        ),
+        Release(
             "0.7.5", "2026-11-13T11:50:00Z",
             listOf(
                 "Channel settings are the same for every drum: the built-in Kick, Snare, Hi-hat and Clap and single drums from SoundFont kits now get Trim, Pitch, Reverse, Boost, Normalize and the Envelope, just like sounds from your drum kits.",
