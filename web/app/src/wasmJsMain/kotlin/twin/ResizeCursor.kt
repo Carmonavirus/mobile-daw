@@ -1,7 +1,6 @@
 package com.mobiledaw.ui
 
 import androidx.compose.runtime.DisposableEffect
-import kotlin.js.JsFun
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.PointerEventType
