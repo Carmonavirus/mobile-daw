@@ -6,8 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobiledaw.model.Project
 import com.mobiledaw.model.ProjectStore
-import com.mobiledaw.sound.SfzLibrary
-import com.mobiledaw.sound.SoundFontLibrary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -408,30 +406,9 @@ class CloudSync(private val context: Context, private val store: ProjectStore, p
 
     /** Paths (relative to the files folder) of every sound the saved projects use, and SFZ folders. */
     private fun usedSounds(): Pair<Set<String>, Set<String>> {
-        val paths = LinkedHashSet<String>()
-        val folders = LinkedHashSet<String>()
-        for (f in store.dir.listFiles { f -> f.extension == "json" }.orEmpty()) {
-            val p = runCatching { store.decode(f.readBytes()) }.getOrNull() ?: continue
-            for (c in p.channels) {
-                c.sample?.let { paths += it }
-                val source = c.source ?: continue
-                when {
-                    source.startsWith(SoundFontLibrary.SOURCE_FILE) -> paths += source.removePrefix(SoundFontLibrary.SOURCE_FILE)
-                    source.startsWith(SfzLibrary.SOURCE) -> {
-                        // An SFZ instrument is a text file plus the folder of samples next to it.
-                        val sfz = source.removePrefix(SfzLibrary.SOURCE)
-                        val dir = sfz.substringBeforeLast('/', "")
-                        paths += sfz
-                        if (dir.isNotEmpty()) {
-                            folders += "$dir/"
-                            File(filesDir, dir).walkTopDown().filter { it.isFile }.forEach { paths += it.relativeTo(filesDir).invariantSeparatorsPath }
-                        }
-                    }
-                }
-            }
-            for (clip in p.audioClips) paths += clip.path
-        }
-        return paths.filter { safePath(it) }.toSet() to folders.filter { safePath(it) }.toSet()
+        val projects = store.dir.listFiles { f -> f.extension == "json" }.orEmpty()
+            .mapNotNull { f -> runCatching { store.decode(f.readBytes()) }.getOrNull() }
+        return com.mobiledaw.model.ProjectShare.soundsOf(projects, filesDir)
     }
 
     private fun safePath(p: String) = p.isNotBlank() && !p.startsWith("/") && !p.contains("..") && !p.contains(':')

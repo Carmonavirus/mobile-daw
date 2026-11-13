@@ -2175,13 +2175,35 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         importAudio(uris) { placeImported(it, lane) }
     }
 
-    /** Called with every intent the activity receives; ignores ones that carry no audio. */
+    /**
+     * Called with every intent the activity receives; ignores ones that carry no files. Audio goes
+     * to the playlist; a .zip is opened as a shared project (or added as a drum kit if it isn't one).
+     */
     fun receiveShared(intent: android.content.Intent?) {
         val uris = audioImport.urisFrom(intent)
         if (uris.isEmpty()) return
         // Copy straight away: the permission to read a shared file doesn't last.
-        importAudio(uris) { sharedAudio = it }
+        viewModelScope.launch {
+            val zip = withContext(Dispatchers.IO) { uris.map { isZip(it) } }
+            val audio = uris.filterIndexed { i, _ -> !zip[i] }
+            if (audio.isNotEmpty()) importAudio(audio) { sharedAudio = it }
+            uris.filterIndexed { i, _ -> zip[i] }.firstOrNull()?.let { importProject(it, kitIfNotProject = true) }
+        }
     }
+
+    /** A .zip starts with "PK" and two bytes no audio format starts with. */
+    private fun isZip(uri: android.net.Uri): Boolean = runCatching {
+        getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+            val head = ByteArray(4)
+            var n = 0
+            while (n < 4) {
+                val r = input.read(head, n, 4 - n)
+                if (r < 0) break
+                n += r
+            }
+            n == 4 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte() && head[2] == 3.toByte() && head[3] == 4.toByte()
+        } ?: false
+    }.getOrDefault(false)
 
     private fun importAudio(uris: List<android.net.Uri>, then: (List<com.mobiledaw.model.AudioImport.Imported>) -> Unit) {
         importingAudio = true
@@ -2314,6 +2336,114 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         store.rename(project.name, clean)
         project = project.copy(name = clean)
         store.save(project)
+    }
+
+    // ---------------------------------------------------------------- sharing projects with friends
+
+    /** The "Share project" / "Import project" sheet: what it shows right now (null = closed). */
+    sealed interface ProjectShareState {
+        data class Busy(val text: String) : ProjectShareState
+        data class Ready(val name: String, val file: java.io.File, val sounds: Int, val missing: Int, val savedTo: String? = null) : ProjectShareState
+        data class Done(val title: String, val text: String) : ProjectShareState
+    }
+
+    var projectShare by mutableStateOf<ProjectShareState?>(null)
+        private set
+
+    private val shareIo = com.mobiledaw.model.ProjectShare(app.filesDir, store)
+
+    /** Packs a saved project and its sounds into one .zip, ready to send to a friend. */
+    fun shareProject(name: String) {
+        val current = isCurrentProject(name)
+        if (current) saveNow()
+        val p = (if (current) project else store.load(name)) ?: run {
+            projectShare = ProjectShareState.Done("Couldn't share", "\"$name\" couldn't be opened.")
+            return
+        }
+        projectShare = ProjectShareState.Busy("Packing \"${p.name}\" and its sounds…")
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = java.io.File(com.mobiledaw.export.ExportStorage.workDir(ctx), "project").apply { deleteRecursively(); mkdirs() }
+                    shareIo.pack(p, java.io.File(dir, com.mobiledaw.model.ProjectShare.fileName(p.name)))
+                }
+            }
+            if (projectShare !is ProjectShareState.Busy) return@launch
+            projectShare = result.fold(
+                { ProjectShareState.Ready(p.name, it.file, it.sounds, it.missing) },
+                { ProjectShareState.Done("Couldn't share", "Packing \"${p.name}\" failed: ${it.message ?: "unknown error"}.") },
+            )
+        }
+    }
+
+    /** Opens the share sheet (or, in a browser without one, downloads the file). */
+    fun sendSharedProject() {
+        val ready = projectShare as? ProjectShareState.Ready ?: return
+        runCatching { com.mobiledaw.export.ExportStorage.share(getApplication(), listOf(ready.file)) }
+    }
+
+    /** Saves the packed project to Download/Mobile DAW/Projects. */
+    fun saveSharedProject() {
+        val ready = projectShare as? ProjectShareState.Ready ?: return
+        val ctx = getApplication<Application>()
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, ready.file, SHARED_PROJECTS_FOLDER, null) }.isSuccess
+            }
+            val now = projectShare as? ProjectShareState.Ready ?: return@launch
+            projectShare = now.copy(savedTo = if (ok) com.mobiledaw.export.ExportStorage.folderLabel(ctx, SHARED_PROJECTS_FOLDER) else "")
+        }
+    }
+
+    /**
+     * Imports a project .zip a friend sent and opens it. It is saved under a new name if one of
+     * your projects already has that name, so nothing of yours is overwritten. With
+     * [kitIfNotProject] (files shared to the app), a .zip that isn't a project becomes a drum kit.
+     */
+    fun importProject(uri: android.net.Uri, kitIfNotProject: Boolean = false) {
+        saveNow()
+        projectShare = ProjectShareState.Busy("Importing project…")
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    ctx.contentResolver.openInputStream(uri)?.use { shareIo.import(it) }
+                }
+            }
+            val imported = result.getOrNull()
+            when {
+                imported != null -> {
+                    closeChordGen(keep = true)
+                    clearPianoHistory()
+                    showProject(imported.project)
+                    val sounds = when (imported.sounds) {
+                        0 -> ""
+                        1 -> " with its sound"
+                        else -> " with its ${imported.sounds} sounds"
+                    }
+                    projectShare = ProjectShareState.Done("Project imported", "\"${imported.project.name}\" was added to your projects$sounds and is open now.")
+                }
+                result.isFailure -> projectShare = ProjectShareState.Done(
+                    "Couldn't import",
+                    result.exceptionOrNull()?.message?.takeIf { it.startsWith("This project") } ?: "That file couldn't be read as a project.",
+                )
+                kitIfNotProject -> {
+                    val kit = withContext(Dispatchers.IO) { runCatching { kits.importZip(uri) }.getOrNull() }
+                    kitsVersion++
+                    projectShare = if (kit != null) ProjectShareState.Done("Drum kit added", "That .zip isn't a project, so its sounds were added as the drum kit \"$kit\".")
+                    else ProjectShareState.Done("Nothing to import", "That .zip has no project and no .wav sounds in it.")
+                }
+                else -> projectShare = ProjectShareState.Done(
+                    "Not a project",
+                    "That file isn't a project shared from Mobile DAW. To add drum sounds from a .zip, use Settings → Drum kits.",
+                )
+            }
+        }
+    }
+
+    fun closeProjectShare() {
+        projectShare = null
     }
 
     // ---------------------------------------------------------------- mixer tracks & effects
@@ -2620,6 +2750,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         /** "Loop bars" always works in blocks of this many bars. */
         private const val LOOP_BLOCK_BARS = 4
         const val RECORDINGS_DIR = "recordings"
+        /** Download/Mobile DAW/<this>: where "Save to Downloads" puts a shared project. */
+        const val SHARED_PROJECTS_FOLDER = "Shared projects"
         /** Playlist zoom: default, narrowest and widest bar, in dp. */
         const val PLAYLIST_BAR_DP = 56f
         const val PLAYLIST_BAR_MIN_DP = 14f
