@@ -163,6 +163,10 @@ fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
                 selected = vm.labelAllNotes,
                 onSelect = vm::changeLabelAllNotes,
             )
+            // Resume: Play/Pause carries on from where it paused. Off = Play starts from the beginning.
+            DawChip("Resume", selected = vm.pianoResume, dotColor = DawColors.Accent) {
+                vm.changePianoResume(!vm.pianoResume)
+            }
             DawChip("Chords", selected = false, dotColor = DawColors.Note) { vm.openChordGen() }
             // Loop: repeat the 4 bars holding the notes into the next 4 bars.
             DawChip("Loop bars", selected = false, dotColor = null) { vm.loopBars() }
