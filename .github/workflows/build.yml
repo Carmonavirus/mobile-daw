@@ -5,7 +5,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Works out whether this push touches the APK, the web app, or both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.diff.outputs.apk }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/changed-areas.sh
+
   engine-test:
+    needs: changes
+    # Skipped (which counts as passed) when only web code changed.
+    if: needs.changes.outputs.apk == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +63,9 @@ jobs:
           cd engine-test && ./out/synthtest
 
   apk:
+    needs: changes
+    # Skipped (which counts as passed) when only web code changed.
+    if: needs.changes.outputs.apk == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
