@@ -115,6 +115,8 @@ fun DawApp(vm: DawViewModel) {
                 }
             }
             CountInOverlay(vm.countIn, Modifier.align(Alignment.Center))
+            // "Piano added to the channel rack": top of the screen, clear of the piano roll's own notices.
+            AddedNotice(vm, Modifier.align(Alignment.TopCenter))
             // Keyboard shortcut feedback ("Saved", "Typing keyboard on") on screens without the piano roll,
             // which shows these itself.
             val pianoShown = vm.tab == Tab.PIANO || (wide && vm.tab == Tab.RACK)

@@ -26,11 +26,17 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.9.0", "2026-11-13T23:20:00Z",
+            "0.9.1", "2026-11-13T23:40:00Z",
             listOf(
                 "Share projects with friends: Projects → Share packs a project and every sound it uses (imported loops, recordings, kit samples, SoundFonts, SFZ) into one .zip. Send it from the share sheet or save it to Download/Mobile DAW/Shared projects.",
                 "Projects → Import project opens a .zip a friend sent, on the phone and in the web app. You can also share or open the .zip straight into the app.",
                 "Imports never replace anything: a project with a name you already use gets a number (\"Beat 2\"), and a sound that clashes with one of yours is saved under a new name.",
+            ),
+        ),
+        Release(
+            "0.9.0", "2026-11-13T23:20:00Z",
+            listOf(
+                "Piano roll: the moving soundwave above the play bar is now hidden by default, so the note grid is bigger. Tap the new Wave chip in the bottom row (next to Resume) to show it again. The app and the web app remember your choice.",
             ),
         ),
         Release(

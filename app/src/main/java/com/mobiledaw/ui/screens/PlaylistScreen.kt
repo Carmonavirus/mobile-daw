@@ -35,6 +35,7 @@ import com.mobiledaw.model.Project
 import com.mobiledaw.model.TICKS_PER_BEAT
 import com.mobiledaw.model.TICKS_PER_STEP
 import com.mobiledaw.ui.LabeledSlider
+import com.mobiledaw.ui.formatVolume
 import com.mobiledaw.ui.Segmented
 import com.mobiledaw.ui.TextAction
 import com.mobiledaw.ui.inkSliderColors
@@ -972,7 +973,7 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
             label = "Volume",
             value = clip.gain,
             range = 0f..2f,
-            display = "${(clip.gain * 100).roundToInt()}%" + if (clip.gain > 1.001f) " boost" else "",
+            display = formatVolume(clip.gain),
             snapTo = 1f,
         ) { v -> set { it.copy(gain = v) } }
 

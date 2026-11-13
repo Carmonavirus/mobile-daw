@@ -77,6 +77,7 @@ internal fun formatValue(name: String, v: Float): String = when {
     name.endsWith("_a") || name.endsWith("_d") || name.endsWith("_r") || name == "glide" ->
         if (v < 1f) "${(v * 1000).roundToInt()} ms" else "%.2f s".format(v)
     name == "mod_pitch" || name == "lfo_pitch" -> "%+.1f st".format(v)
+    name == "volume" -> com.mobiledaw.ui.formatGainDb(v)
     name.endsWith("_fine") -> "%+d ct".format(v.roundToInt())
     name.endsWith("_semi") || name.endsWith("_oct") -> "%+d".format(v.roundToInt())
     (SynthParams.byName(name)?.min ?: 0f) < 0f -> "%+d%%".format((v * 100).roundToInt())

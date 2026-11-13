@@ -167,6 +167,10 @@ fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
             DawChip("Resume", selected = vm.pianoResume, dotColor = DawColors.Accent) {
                 vm.changePianoResume(!vm.pianoResume)
             }
+            // Wave: show or hide the moving soundwave above the play bar (remembered).
+            DawChip("Wave", selected = vm.showWaveform, dotColor = DawColors.Accent) {
+                vm.changeShowWaveform(!vm.showWaveform)
+            }
             DawChip("Chords", selected = false, dotColor = DawColors.Note) { vm.openChordGen() }
             // Loop: repeat the 4 bars holding the notes into the next 4 bars.
             DawChip("Loop bars", selected = false, dotColor = null) { vm.loopBars() }
@@ -176,13 +180,15 @@ fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
                 DawChip("Paste", selected = false, dotColor = DawColors.Note) { vm.pasteNotes() }
             }
         }
-        WaveformStrip(
-            vm.scope,
-            Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-        )
+        if (vm.showWaveform) {
+            WaveformStrip(
+                vm.scope,
+                Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 

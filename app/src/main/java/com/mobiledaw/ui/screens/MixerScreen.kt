@@ -1,5 +1,6 @@
 package com.mobiledaw.ui.screens
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
@@ -53,6 +55,9 @@ import com.mobiledaw.model.MixerTrack
 import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.model.Project
 import com.mobiledaw.ui.RoundToggle
+import com.mobiledaw.ui.formatGainDb
+import com.mobiledaw.ui.formatMeterDb
+import com.mobiledaw.ui.meterFraction
 import com.mobiledaw.ui.WindowWidthClass
 import com.mobiledaw.ui.windowWidthClass
 import com.mobiledaw.ui.inkSliderColors
@@ -78,6 +83,8 @@ fun MixerScreen(vm: DawViewModel) {
             volume = p.masterVolume,
             onVolume = vm::setMasterVolume,
             emphasized = true,
+            expanded = vm.mixerOpen["master"] == true,
+            onToggle = { vm.toggleMixerStrip("master") },
         ) {
             EffectChain(vm, p, p.masterTrack)
         }
@@ -105,6 +112,8 @@ fun MixerScreen(vm: DawViewModel) {
             onMute = { vm.updateChannel(ch.id) { it.copy(mute = !it.mute) } },
             solo = ch.solo,
             onSolo = { vm.updateChannel(ch.id) { it.copy(solo = !it.solo) } },
+            expanded = vm.mixerOpen["ch-${ch.id}"] == true,
+            onToggle = { vm.toggleMixerStrip("ch-${ch.id}") },
             header = {
                 RouteChip(p, ch.mixerTrack) { vm.routeChannel(ch.id, it) }
             },
@@ -207,8 +216,9 @@ private fun TrackCard(vm: DawViewModel, p: Project, track: MixerTrack, level: Fl
         onPan = { v -> vm.updateMixerTrack(track.id) { it.copy(pan = if (abs(v) < 0.06f) 0f else v) } },
         mute = track.mute,
         onMute = { vm.updateMixerTrack(track.id) { it.copy(mute = !it.mute) } },
-        onName = onRename,
         accent = true,
+        expanded = vm.mixerOpen["track-${track.id}"] == true,
+        onToggle = { vm.toggleMixerStrip("track-${track.id}") },
         header = {
             if (p.recordingTrackId == track.id) Badge("Recordings")
             Box {
@@ -401,7 +411,8 @@ private fun Strip(
     emphasized: Boolean = false,
     accent: Boolean = false,
     maxVolume: Float = 1f,
-    onName: (() -> Unit)? = null,
+    expanded: Boolean = true,
+    onToggle: (() -> Unit)? = null,
     header: @Composable () -> Unit = {},
     content: @Composable () -> Unit = {},
 ) {
@@ -411,20 +422,32 @@ private fun Strip(
             .clip(RoundedCornerShape(18.dp))
             .background(if (emphasized) DawColors.Chip else DawColors.Card)
             .border(if (accent) 1.5.dp else 1.dp, if (accent) DawColors.AccentSoft else DawColors.Line, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .animateContentSize()
+            .padding(horizontal = 14.dp, vertical = if (expanded) 10.dp else 8.dp),
     ) {
+        // Compact: one row (name, where it goes, volume, M/S) and a thin meter. Tap the name to
+        // open the strip and get its sliders and effects; tap again to fold it away.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                Modifier.weight(1f).let { if (onName != null) it.clip(RoundedCornerShape(8.dp)).clickable(onClick = onName) else it },
+            Row(
+                Modifier.weight(1f).let { if (onToggle != null) it.clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle) else it },
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (subtitle != null) {
-                    Text(subtitle, fontSize = 11.sp, color = DawColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (onToggle != null) {
+                    Text(if (expanded) "▾" else "▸", fontSize = 13.sp, color = DawColors.Muted, modifier = Modifier.width(18.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (subtitle != null && (expanded || onToggle == null)) {
+                        Text(subtitle, fontSize = 11.sp, color = DawColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
             header()
             Spacer(Modifier.width(6.dp))
-            Text("${(volume * 100).roundToInt()}%", fontSize = 12.sp, color = DawColors.Muted)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatGainDb(volume), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1)
+                Text("${(volume * 100).roundToInt()}%", fontSize = 10.sp, color = DawColors.Muted, maxLines = 1)
+            }
             if (onMute != null) {
                 Spacer(Modifier.width(8.dp))
                 RoundToggle("M", mute, DawColors.Mute, onMute)
@@ -434,8 +457,9 @@ private fun Strip(
                 RoundToggle("S", solo, DawColors.Solo, onSolo)
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(if (expanded) 6.dp else 4.dp))
         Meter(level)
+        if (!expanded) return@Column
         Slider(value = volume, onValueChange = onVolume, valueRange = 0f..maxVolume, colors = inkSliderColors())
         if (pan != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -456,19 +480,30 @@ private fun Strip(
 
 @Composable
 private fun Meter(level: Float) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(4.dp)
-            .clip(RoundedCornerShape(50))
-            .background(DawColors.Line),
-    ) {
+    // Drawn in decibels (-60..0 dB) like a desk meter, with the live peak written beside it.
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(level.coerceIn(0f, 1f))
+                .weight(1f)
+                .height(4.dp)
                 .clip(RoundedCornerShape(50))
-                .background(if (level > 0.95f) DawColors.Mute else DawColors.Accent),
+                .background(DawColors.Line),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(meterFraction(level))
+                    .clip(RoundedCornerShape(50))
+                    .background(if (level > 0.95f) DawColors.Mute else DawColors.Accent),
+            )
+        }
+        Text(
+            formatMeterDb(level),
+            fontSize = 10.sp,
+            color = if (level > 0.95f) DawColors.Mute else DawColors.Muted,
+            maxLines = 1,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(44.dp),
         )
     }
 }
