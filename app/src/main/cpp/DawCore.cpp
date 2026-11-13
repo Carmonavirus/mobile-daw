@@ -693,6 +693,7 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
     const int channelCount = channelCount_.load();
     bool anySolo = false;
     for (int c = 0; c < channelCount; ++c) anySolo |= params_[c].solo.load();
+    const int64_t renderMask = renderMask_.load();
 
     float gains[kMaxChannels][2];
     int instruments[kMaxChannels];
@@ -706,7 +707,8 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         gains[c][0] = std::cos(angle) * vol * 1.414f;
         gains[c][1] = std::sin(angle) * vol * 1.414f;
         instruments[c] = p.instrument.load();
-        audible[c] = !p.mute.load() && (!anySolo || p.solo.load());
+        audible[c] = renderMask >= 0 ? (((renderMask >> c) & 1) != 0 && !p.mute.load())
+                                     : (!p.mute.load() && (!anySolo || p.solo.load()));
         auto& synth = synths_[static_cast<size_t>(c)];
         if (instruments[c] == kWavetable) {
             wavesynth::Patch patch;
@@ -771,6 +773,16 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
             while (tickFraction_ >= 1.0) {
                 tickFraction_ -= 1.0;
                 ++tick_;
+                if (tick_ >= current_->loopTicks && stopAtEnd_.load()) {
+                    // Export: the song is over. Stop here without releasing anything, so every
+                    // note finishes its own length and its tail rings out.
+                    tick_ = current_->loopTicks;
+                    playing = false;
+                    wasPlaying_ = false;
+                    playing_.store(false);
+                    tickFraction_ = 0.0;
+                    break;
+                }
                 if (tick_ >= current_->loopTicks) {
                     tick_ = 0;
                     eventIndex_ = 0;

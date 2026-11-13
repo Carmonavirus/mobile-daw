@@ -25,6 +25,14 @@ jobs:
           mkdir -p engine-test/out
           # Built by engine-test/build.sh in the first step.
           cd engine-test && ./out/metronometest
+      - name: Run the export test (song end, tails, stems, MP3 encoder)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/exporttest
+      - name: Run the clip stretch test (pitch shift that keeps the tempo)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/stretchtest
       - name: Run the imported-sample quality test (stereo, resampling, clean output)
         run: |
           # Built by engine-test/build.sh in the first step.

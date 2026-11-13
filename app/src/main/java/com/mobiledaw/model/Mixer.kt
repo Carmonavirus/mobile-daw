@@ -94,6 +94,43 @@ enum class PitchScale(val label: String, val steps: Set<Int>) {
     BLUES("Blues", setOf(0, 3, 5, 6, 7, 10)),
 }
 
+/** Extra voices the pitch corrector sings along. The ordinal must match fx::PitchVoices. */
+enum class PitchVoices(val label: String) {
+    OFF("Off"),
+    DOUBLE("Double"),
+    OCTAVE_DOWN("Octave down"),
+    THIRD("3rd above"),
+    CHORD("Chord"),
+}
+
+/**
+ * One-tap sounds for Pitch Correct. Each sets how hard and fast the voice is tuned and which
+ * extra voices sing along; key and scale are left alone.
+ */
+enum class PitchStyle(
+    val label: String,
+    val hint: String,
+    val retuneMs: Float,
+    val humanize: Float,
+    val voices: PitchVoices = PitchVoices.OFF,
+    val voicesLevel: Float = 0.6f,
+) {
+    NATURAL("Natural", "Gentle, keeps your vibrato", 70f, 0.5f),
+    CLASSIC("Classic", "Fast, tight pop tuning", 8f, 0f),
+    ROBOT("Hard tune", "Instant snap, flat robotic notes", 0f, 0f),
+    DOUBLE("Double", "Tight tune, two stacked takes", 8f, 0f, PitchVoices.DOUBLE, 0.6f),
+    DEEP("Deep duet", "Adds the octave below", 8f, 0f, PitchVoices.OCTAVE_DOWN, 0.55f),
+    HARMONY("Harmony", "Adds a third above, in key", 12f, 0f, PitchVoices.THIRD, 0.55f),
+    CHOIR("Choir", "Third and fifth above, in key", 12f, 0f, PitchVoices.CHORD, 0.5f),
+    ;
+
+    fun matches(s: PitchSettings) =
+        s.retuneMs == retuneMs && s.humanize == humanize && s.voices == voices && s.amount == 1f &&
+            (voices == PitchVoices.OFF || s.voicesLevel == voicesLevel)
+
+    fun applyTo(s: PitchSettings) = s.copy(retuneMs = retuneMs, humanize = humanize, amount = 1f, voices = voices, voicesLevel = voicesLevel)
+}
+
 @Serializable
 data class PitchSettings(
     /** Null follows the project's key and major/minor. */
@@ -101,14 +138,16 @@ data class PitchSettings(
     val scale: PitchScale? = null,
     /** Pitch classes (0 = C) switched off by hand on the keyboard. */
     val disabledNotes: Set<Int> = emptySet(),
-    /** 0 = instant, the hard robotic effect; around 50-100 ms sounds natural. */
-    val retuneMs: Float = 50f,
+    /** 0 = instant, the hard robotic effect; around 50-100 ms sounds natural. Defaults to Classic. */
+    val retuneMs: Float = 8f,
     val amount: Float = 1f,
-    val humanize: Float = 0.2f,
+    val humanize: Float = 0f,
     val transpose: Int = 0,
     val mix: Float = 1f,
     /** 0 low voice, 1 mid, 2 high. */
     val range: Int = 1,
+    val voices: PitchVoices = PitchVoices.OFF,
+    val voicesLevel: Float = 0.6f,
 ) {
     fun keyFor(project: Project) = key ?: project.key
     fun scaleFor(project: Project) = scale ?: if (project.minor) PitchScale.MINOR else PitchScale.MAJOR
@@ -123,6 +162,7 @@ data class PitchSettings(
         val mask = allowedNotes(project).fold(0) { m, n -> m or (1 shl n) }
         return floatArrayOf(
             mask.toFloat(), retuneMs, amount, humanize, transpose.toFloat(), mix, range.toFloat(),
+            voices.ordinal.toFloat(), voicesLevel,
         )
     }
 }

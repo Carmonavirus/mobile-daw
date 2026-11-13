@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(mobiledaw LANGUAGES CXX)
+project(mobiledaw LANGUAGES C CXX)
 
 find_package(oboe REQUIRED CONFIG)
 
@@ -25,15 +25,25 @@ target_include_directories(dawengines PUBLIC
 target_compile_definitions(dawengines PRIVATE TEST __LITTLE_ENDIAN__)
 target_compile_options(dawengines PRIVATE -O2 -w)
 
+# LAME, the MP3 encoder used by song export (LGPL, see THIRD_PARTY_NOTICES.md).
+file(GLOB LAME_SOURCES third_party/lame/libmp3lame/*.c)
+add_library(mp3lame STATIC ${LAME_SOURCES})
+target_include_directories(mp3lame PRIVATE third_party/lame third_party/lame/libmp3lame PUBLIC third_party/lame/include)
+target_compile_definitions(mp3lame PRIVATE HAVE_CONFIG_H)
+target_compile_options(mp3lame PRIVATE -O2 -w)
+
 add_library(mobiledaw SHARED
         DawCore.cpp
         fx/ParametricEq.cpp
         fx/PitchCorrector.cpp
+        fx/ClipStretch.cpp
         wavesynth/WaveSynth.cpp
         wavesynth/Wavetables.cpp
         AudioEngine.cpp
         jni_bridge.cpp
-        synth_jni.cpp)
+        synth_jni.cpp
+        export/Mp3Encoder.cpp
+        export_jni.cpp)
 
 target_compile_options(mobiledaw PRIVATE -Wall -Wextra -ffast-math)
-target_link_libraries(mobiledaw dawengines oboe::oboe android log)
+target_link_libraries(mobiledaw dawengines mp3lame oboe::oboe android log)

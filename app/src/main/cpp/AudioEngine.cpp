@@ -1,5 +1,9 @@
 #include "AudioEngine.h"
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 #include <android/log.h>
 
 #define LOG_TAG "MobileDawEngine"
@@ -50,8 +54,25 @@ void AudioEngine::stop() {
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) {
-    core_.render(static_cast<float*>(audioData), numFrames);
+    // inCallback_ is raised before offline_ is read, and beginOffline raises offline_ before it
+    // reads inCallback_, so the two threads can never both be inside the Core.
+    inCallback_.store(true);
+    if (offline_.load()) {
+        std::fill_n(static_cast<float*>(audioData), static_cast<size_t>(numFrames) * 2, 0.0f);
+    } else {
+        core_.render(static_cast<float*>(audioData), numFrames);
+    }
+    inCallback_.store(false);
     return oboe::DataCallbackResult::Continue;
+}
+
+void AudioEngine::beginOffline() {
+    offline_.store(true);
+    while (inCallback_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+void AudioEngine::endOffline() {
+    offline_.store(false);
 }
 
 double AudioEngine::outputLatencyMillis() {

@@ -92,36 +92,6 @@ class Recorder {
         return Take(out, seconds)
     }
 
-    /**
-     * Cuts the first [frames] frames off a finished take (rewrites its WAV in place).
-     * Keeps the take as it is if that would leave almost nothing.
-     */
-    fun trimStart(take: Take, frames: Long): Take {
-        if (frames <= 0) return take
-        return runCatching {
-            RandomAccessFile(take.file, "rw").use { raf ->
-                val total = (raf.length() - 44) / 2
-                if (total - frames < rate / 5) return take
-                val buf = ByteArray(64 * 1024)
-                var read = 44 + frames * 2
-                var write = 44L
-                while (true) {
-                    raf.seek(read)
-                    val n = raf.read(buf)
-                    if (n <= 0) break
-                    raf.seek(write)
-                    raf.write(buf, 0, n)
-                    read += n
-                    write += n
-                }
-                val left = total - frames
-                raf.setLength(44 + left * 2)
-                writeHeader(raf, rate, left)
-                Take(take.file, left.toFloat() / rate)
-            }
-        }.getOrDefault(take)
-    }
-
     @SuppressLint("MissingPermission")
     private fun open(): Pair<AudioRecord, Int>? {
         for (sampleRate in intArrayOf(48000, 44100)) {

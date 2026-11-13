@@ -104,6 +104,7 @@ fun DawApp(vm: DawViewModel) {
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     SharedAudioDialog(vm)
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
+    if (vm.exportOpen) ExportScreen(vm)
     if (vm.settingsOpen) {
         SettingsScreen(
             vm = vm,

@@ -36,6 +36,12 @@ object NativeEngine {
     /** Slot 0..MAX_CHANNELS-1 is a channel, [AUDITION_SLOT] is the kit browser preview. */
     /** [frames] is the left (or mono) channel; [right] is null for mono sounds. */
     external fun setSample(slot: Int, frames: FloatArray?, right: FloatArray?, sampleRate: Float)
+
+    /**
+     * Offline: [frames] pitch shifted by [semis] at the same length (so the clip keeps its tempo).
+     * [mode] is a [com.mobiledaw.model.ClipStretch] id. Slow on long clips: call off the main thread.
+     */
+    external fun shiftKeepLength(frames: FloatArray, sampleRate: Float, semis: Float, mode: Int): FloatArray
     external fun audition()
     external fun positionTicks(): Long
 
@@ -62,6 +68,8 @@ object NativeEngine {
 
     /** What a channel slot plays with an extra engine: preset/model [variant] and SoundFont [bank]. */
     external fun setChannelEngine(slot: Int, instrument: Int, variant: Int, bank: Int)
+    /** A SoundFont drum hit: notes play [key] repitched by their distance from it; -1 plays notes as they are. */
+    external fun setChannelDrumKey(slot: Int, key: Int)
     /** Loads a SoundFont from the APK's assets; returns a bank id, or -1. Slow: call off the main thread. */
     external fun loadSoundFontAsset(assets: android.content.res.AssetManager, name: String): Int
     /** Loads a .sf2/.sf3 file; returns a bank id, or -1. Slow: call off the main thread. */
@@ -91,4 +99,21 @@ object NativeEngine {
     external fun readInsertSignal(index: Int, out: FloatArray)
     /** out[0] = detected Hz, out[1] = corrected Hz; 0 when nothing is sung. */
     external fun readPitch(index: Int, slot: Int, out: FloatArray)
+
+    // ---- export (see app/src/main/cpp/export_jni.cpp)
+
+    /** Takes the engine off the live output (silent meanwhile) for offline rendering. Returns the sample rate. */
+    external fun offlineBegin(): Int
+    /** Starts a bounce from the top of the current sequence; [mask] bit n = slot n is heard, -1 = full mix. */
+    external fun offlineStart(mask: Long)
+    /** Renders [frames] interleaved stereo frames into [out]. False once the song has ended (the tail goes on). */
+    external fun offlineRender(out: FloatArray, frames: Int): Boolean
+    /** Stops, silences and hands the engine back to the live output. */
+    external fun offlineEnd()
+
+    /** A stereo CBR MP3 encoder (LAME); 0 if it can't start. Free it with [mp3Finish]. */
+    external fun mp3Open(sampleRate: Int, kbps: Int): Long
+    external fun mp3Encode(handle: Long, pcm: FloatArray, frames: Int): ByteArray
+    /** Flushes and frees the encoder, returning the last bytes. */
+    external fun mp3Finish(handle: Long): ByteArray
 }
