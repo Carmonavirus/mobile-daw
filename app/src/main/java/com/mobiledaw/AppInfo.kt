@@ -26,13 +26,21 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.7.8", "2026-11-13T16:00:00Z",
+            "0.7.9", "2026-11-13T16:00:00Z",
             listOf(
                 "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",
                 "Playlist zoom: pinch the playlist with two fingers, or use the − and + buttons in the bottom-right corner. Zoomed in far enough you see every bar number and the beats.",
                 "Follow: the playlist no longer jumps to the playhead while you're touching, dragging or have a clip open. It waits 4 seconds after you let go. Turn Follow off in the bottom-right corner to stop it paging along at all.",
                 "Play from your spot: tap or drag to a point, press play, then stop, and the playhead goes back to that point instead of the beginning (like FL).",
                 "Pattern clips: tap one for Copy (the same pattern again, right after it), Clone (this clip gets its own copy of the pattern, so you can change it alone) and Split by channel (one pattern per sound, each on its own row). Clone pattern is also in the pattern's menu at the top.",
+            ),
+        ),
+        Release(
+            "0.7.8", "2026-11-13T15:40:00Z",
+            listOf(
+                "Export: when Stems or MIDI are on, everything comes as one .zip (the mix, a stems folder and the .mid), saved to Download › Mobile DAW › <song name>. Share .zip sends it in one go.",
+                "Projects: each saved project has a Delete button (tap the song name). It asks first. Deleting the open project opens your most recent other one, or a new empty project.",
+                "Freesound: the \"Under 30 s\" chip is now a length filter. Tap it to pick Any length, Under 1 s, Under 5 s, Under 30 s, 30 s – 2 min or Over 2 min, or drag the two handles to set your own range.",
             ),
         ),
         Release(

@@ -64,7 +64,39 @@ object ExportStorage {
         "wav" -> "audio/wav"
         "mp3" -> "audio/mpeg"
         "mid" -> "audio/midi"
+        "zip" -> "application/zip"
         else -> "application/octet-stream"
+    }
+
+    /**
+     * Packs [files] into one .zip at [out], each under "<folder>/" with its path relative to
+     * [root] (so stems keep their own "<song> stems/" folder inside). WAVs barely compress, so the
+     * fastest level is used: the zip is about as big as the files, but made quickly.
+     */
+    fun zip(files: List<File>, root: File, folder: String, out: File, onProgress: (Float) -> Unit = {}, cancelled: () -> Boolean = { false }) {
+        val total = files.sumOf { it.length() }.coerceAtLeast(1L)
+        var done = 0L
+        var shown = -1
+        val buf = ByteArray(1 shl 16)
+        java.util.zip.ZipOutputStream(out.outputStream().buffered(1 shl 16)).use { zip ->
+            zip.setLevel(java.util.zip.Deflater.BEST_SPEED)
+            files.forEach { f ->
+                val rel = f.relativeTo(root).invariantSeparatorsPath
+                zip.putNextEntry(java.util.zip.ZipEntry("$folder/$rel").apply { time = f.lastModified() })
+                f.inputStream().use { input ->
+                    while (true) {
+                        if (cancelled()) throw ExportCancelled()
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        zip.write(buf, 0, n)
+                        done += n
+                        val pct = (done * 100 / total).toInt()
+                        if (pct != shown) { shown = pct; onProgress(pct / 100f) }
+                    }
+                }
+                zip.closeEntry()
+            }
+        }
     }
 
     private fun uriFor(context: Context, file: File): Uri =
