@@ -40,6 +40,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
@@ -490,21 +492,24 @@ private fun SplitPanes(
                 Box(Modifier.width(1.dp).fillMaxHeight().background(DawColors.Line))
                 Box(Modifier.weight(1f - share).fillMaxHeight()) { right() }
             }
-            val handleWidth = 26.dp
+            val handleWidth = 24.dp
+            var dragging by remember { mutableStateOf(false) }
             val density = androidx.compose.ui.platform.LocalDensity.current
             val halfHandlePx = with(density) { (handleWidth / 2).roundToPx() }
             DividerHandle(
                 leftName = leftName,
                 rightName = rightName,
                 width = handleWidth,
+                dragging = dragging,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .offset { androidx.compose.ui.unit.IntOffset((share * totalPx).toInt() - halfHandlePx, 0) }
                     .pointerInput(tab, totalPx) {
                         var startShare = defaultShare
                         detectHorizontalDragGestures(
-                            onDragStart = { startShare = vm.splitShare[tab] ?: defaultShare },
+                            onDragStart = { startShare = vm.splitShare[tab] ?: defaultShare; dragging = true },
                             onDragEnd = {
+                                dragging = false
                                 val now = vm.splitShare[tab] ?: defaultShare
                                 when {
                                     now < CLOSE_SHARE -> { vm.splitShare[tab] = startShare.coerceIn(MIN_SHARE, MAX_SHARE); vm.splitHidden[tab] = com.mobiledaw.PaneSide.LEFT }
@@ -512,7 +517,7 @@ private fun SplitPanes(
                                     else -> vm.splitShare[tab] = now.coerceIn(MIN_SHARE, MAX_SHARE)
                                 }
                             },
-                            onDragCancel = { vm.splitShare[tab] = (vm.splitShare[tab] ?: defaultShare).coerceIn(MIN_SHARE, MAX_SHARE) },
+                            onDragCancel = { dragging = false; vm.splitShare[tab] = (vm.splitShare[tab] ?: defaultShare).coerceIn(MIN_SHARE, MAX_SHARE) },
                         ) { change, dx ->
                             change.consume()
                             val now = vm.splitShare[tab] ?: defaultShare
@@ -527,39 +532,39 @@ private fun SplitPanes(
 }
 
 /**
- * The grip on the split line: drag it sideways to resize. The arrows above and below it close
- * the pane they point into.
+ * The split line, Windows style: hover anywhere along it and the cursor turns into the
+ * two-way resize arrows; press anywhere on it and drag sideways to resize. The whole height is a
+ * comfortably wide touch target. The line lights up while hovered or dragged.
+ * The two small arrows in the middle close the pane they point into.
  */
 @Composable
 private fun DividerHandle(
     leftName: String,
     rightName: String,
     width: androidx.compose.ui.unit.Dp,
+    dragging: Boolean,
     modifier: Modifier,
     onCloseLeft: () -> Unit,
     onCloseRight: () -> Unit,
 ) {
-    Column(modifier.width(width), horizontalAlignment = Alignment.CenterHorizontally) {
-        ArrowButton(pointsLeft = true, label = "Close $leftName", onClick = onCloseLeft)
-        Spacer(Modifier.height(6.dp))
-        Box(
-            Modifier
-                .size(width = 14.dp, height = 56.dp)
-                .clip(RoundedCornerShape(50))
-                .background(DawColors.Card)
-                .semantics { contentDescription = "Drag to resize" },
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.Canvas(Modifier.size(width = 6.dp, height = 20.dp)) {
-                val stroke = 1.5.dp.toPx()
-                for (i in 0..2) {
-                    val y = size.height * (0.2f + 0.3f * i)
-                    drawLine(DawColors.Muted, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
-                }
-            }
+    val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by hover.collectIsHoveredAsState()
+    val active = hovered || dragging
+    Box(
+        modifier
+            .width(width)
+            .fillMaxHeight()
+            .hoverable(hover)
+            .ewResizeCursor()
+            .semantics { contentDescription = "Drag to resize" },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (active) Box(Modifier.width(3.dp).fillMaxHeight().background(DawColors.Accent))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            ArrowButton(pointsLeft = true, label = "Close $leftName", onClick = onCloseLeft)
+            Spacer(Modifier.height(8.dp))
+            ArrowButton(pointsLeft = false, label = "Close $rightName", onClick = onCloseRight)
         }
-        Spacer(Modifier.height(6.dp))
-        ArrowButton(pointsLeft = false, label = "Close $rightName", onClick = onCloseRight)
     }
 }
 
@@ -568,7 +573,7 @@ private fun DividerHandle(
 private fun ArrowButton(pointsLeft: Boolean, label: String, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(26.dp)
+            .size(22.dp)
             .clip(CircleShape)
             .background(DawColors.Card)
             .clickable(onClickLabel = label, onClick = onClick),

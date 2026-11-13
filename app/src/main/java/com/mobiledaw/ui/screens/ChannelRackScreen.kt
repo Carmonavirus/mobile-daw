@@ -568,8 +568,9 @@ private fun ChannelRow(
                         menu = false
                         onChangeSound()
                     })
-                    for (every in listOf(2, 4, 8)) {
-                        DropdownMenuItem(text = { Text("Fill every $every steps") }, onClick = {
+                    for (every in listOf(1, 2, 4, 8)) {
+                        val label = if (every == 1) "Fill every step" else "Fill every $every steps"
+                        DropdownMenuItem(text = { Text(label) }, onClick = {
                             menu = false
                             vm.fillSteps(channel, every)
                         })
