@@ -132,6 +132,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     val splitShare = androidx.compose.runtime.mutableStateMapOf<Tab, Float>()
     val splitHidden = androidx.compose.runtime.mutableStateMapOf<Tab, PaneSide>()
 
+    /**
+     * Mixer strips the user opened (keys like "master", "track-3", "ch-12"). Every strip starts
+     * compact; a tap opens it to show its sliders and effects. Kept for the session only.
+     */
+    val mixerOpen = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    fun toggleMixerStrip(key: String) {
+        if (mixerOpen[key] == true) mixerOpen.remove(key) else mixerOpen[key] = true
+    }
+
     /** The second screen of a tab's split view is showing (wide layout and not closed). */
     private fun rightPaneShown(t: Tab) = wideLayout && tab == t && splitHidden[t] != PaneSide.RIGHT
 
