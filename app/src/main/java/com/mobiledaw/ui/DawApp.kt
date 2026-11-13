@@ -182,6 +182,7 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
         }
         MetronomeToggle(vm.metronomeOn, vm::toggleMetronome, Modifier.align(Alignment.CenterStart))
         MenuGlyph(onMenu, Modifier.align(Alignment.CenterEnd))
+        CloudStatusButton(vm, onMenu, Modifier.align(Alignment.CenterEnd).padding(end = 42.dp))
     }
 }
 

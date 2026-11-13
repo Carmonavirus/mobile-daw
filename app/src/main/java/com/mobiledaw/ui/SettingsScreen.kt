@@ -82,6 +82,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Export", "WAV, MP3, stems and MIDI, saved to Downloads") { vm.openExport() }
                 }
 
+                // ---------------------------------------------------------------- sync
+                SectionTitle("Sync across devices")
+                SectionCard { CloudSyncSection(vm) }
+
                 // ---------------------------------------------------------------- editing
                 SectionTitle("Editing")
                 SectionCard {
