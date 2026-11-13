@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.8", "2026-11-13T22:50:00Z",
+            listOf(
+                "Web app on phones: pinching the playlist with two fingers zooms in and out again (the browser only passed on the finger that moved, so a pinch never started). Two-finger scrolling and zooming in the piano roll work in the browser too.",
+            ),
+        ),
+        Release(
             "0.8.7", "2026-11-13T21:00:00Z",
             listOf(
                 "Web app on a PC or laptop: Space plays and stops, F5 / F6 / F7 / F9 (or 1–4) switch screens, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves, Ctrl+O opens projects. Cmd works instead of Ctrl on a Mac.",

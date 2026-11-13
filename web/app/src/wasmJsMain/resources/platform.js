@@ -521,3 +521,44 @@ function listenDesktopInput(onKey, onBlur, onMouse, onRight) {
   if (window.matchMedia && matchMedia('(any-pointer: fine)').matches) onMouse();
   window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') onMouse(); }, { passive: true });
 }
+
+/**
+ * Phones and tablets: two-finger pinch (playlist zoom, piano roll scroll and zoom).
+ * Compose for web only hands over the fingers that changed in each touch event, but it expects
+ * every event to list every finger that is down, like Android does. So when the second finger
+ * lands, or only one of two fingers moves, Compose thinks the other finger was lifted and a
+ * pinch never starts. Before Compose sees a touch event, make it list all fingers on the screen.
+ * When one finger of several lifts, all of them end together (as one lift) and the rest of the
+ * touch is ignored until every finger is up, so a leftover finger never turns into a tap.
+ */
+(function fixMultiTouch() {
+  const list = (touches) => {
+    const a = Array.from(touches);
+    const l = { length: a.length, item: (i) => a[i] || null };
+    a.forEach((t, i) => { l[i] = t; });
+    return l;
+  };
+  const show = (e, touches) => {
+    try { Object.defineProperty(e, 'changedTouches', { value: touches, configurable: true }); } catch (err) {}
+  };
+  let ignoring = false;
+  const onTouch = (e) => {
+    if (!(e.target instanceof HTMLCanvasElement)) return;
+    if (ignoring) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.touches.length === 0) ignoring = false;
+      return;
+    }
+    if (e.type === 'touchstart' || e.type === 'touchmove') {
+      if (e.touches.length > e.changedTouches.length) show(e, e.touches);
+    } else if (e.touches.length > 0) {
+      // touchend / touchcancel with fingers still down: lift them all now.
+      show(e, list([...e.changedTouches, ...e.touches]));
+      ignoring = true;
+    }
+  };
+  for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    window.addEventListener(t, onTouch, { capture: true, passive: false });
+  }
+})();

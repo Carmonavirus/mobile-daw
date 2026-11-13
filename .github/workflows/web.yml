@@ -64,13 +64,14 @@ jobs:
           echo "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe  $f" | sha256sum -c -
       - name: Build the web app (the APK's own screens)
         run: ./gradlew --no-daemon -p web/app wasmJsBrowserDistribution
-      - name: Smoke test in Chromium (starts, plays sound, saves, survives taps)
+      - name: Smoke test in Chromium (starts, plays sound, saves, survives taps, pinch zoom)
         working-directory: web/app
         run: |
           npm install --no-save --no-package-lock playwright@1.63.0
           npx playwright install --with-deps chromium
           node tests/smoke.mjs build/dist/wasmJs/productionExecutable
           node tests/desktop.mjs build/dist/wasmJs/productionExecutable
+          node tests/touch.mjs build/dist/wasmJs/productionExecutable
       - name: Google Drive sync test (two devices, pretend Drive)
         working-directory: web/app
         run: node tests/cloud-sync.mjs build/dist/wasmJs/productionExecutable
