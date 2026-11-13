@@ -37,6 +37,10 @@ enum class Instrument(
     MULTISAMPLE(12, "Multisample", false, 60, addable = false),
     /** Two-oscillator wavetable synth; its sound lives in [Channel.synth]. */
     WAVETABLE(13, "Wavetable", false, 60),
+    ;
+
+    /** Kick, Snare, Hi-hat and Clap: synthesised hits the app plays through the sampler. */
+    val isBuiltInDrum: Boolean get() = id in 0..3
 }
 
 /** A note inside a pattern. Times are in ticks (96 per beat). */

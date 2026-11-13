@@ -104,6 +104,15 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setSample(
     engine()->core().setSample(slot, copy(frames), copy(right), sampleRate);
 }
 
+// One hit of a built-in drum (0 kick .. 3 clap) as a mono recording at `sampleRate`.
+JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_renderBuiltInDrum(
+    JNIEnv* env, jobject, jint instrument, jfloat sampleRate) {
+    const auto out = daw::Synth::renderOneShot(instrument, sampleRate);
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(out.size()));
+    if (result != nullptr && !out.empty()) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(out.size()), out.data());
+    return result;
+}
+
 // Offline: `frames` pitch shifted by `semis` at the same length (fx/ClipStretch.h). Slow on long
 // clips; called off the main thread.
 JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_shiftKeepLength(
@@ -237,6 +246,15 @@ extern "C" {
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelEngine(
     JNIEnv*, jobject, jint slot, jint instrument, jint variant, jint bank) {
     engine()->core().engines().setChannel(slot, instrument, variant, bank);
+}
+
+JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_renderSoundFontHit(
+    JNIEnv* env, jobject, jint bank, jint variant, jint key, jfloat sampleRate) {
+    const auto out = engine()->core().engines().renderHit(bank, variant, key, sampleRate);
+    if (out.empty()) return nullptr;
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(out.size()));
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(out.size()), out.data());
+    return result;
 }
 
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelDrumKey(

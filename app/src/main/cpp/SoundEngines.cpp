@@ -115,6 +115,42 @@ void SoundEngines::setChannel(int slot, int instrument, int variant, int bank) {
     s.uiBank = bank;
 }
 
+std::vector<float> SoundEngines::renderHit(int bank, int variant, int key, float sampleRate) const {
+    std::vector<float> out;
+    tsf* f = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(banksLock_);
+        if (bank < 0 || bank >= static_cast<int>(banks_.size())) return out;
+        f = tsf_copy(banks_[bank]);
+    }
+    if (!f || sampleRate <= 0.0f) { tsf_close(f); return out; }
+    tsf_set_output(f, TSF_MONO, static_cast<int>(sampleRate), 3.0f);  // same level as a channel slot
+    tsf_set_max_voices(f, 8);
+    tsf_channel_set_presetindex(f, 0, variant);
+    tsf_channel_note_on(f, 0, std::clamp(key, 0, 127), 1.0f);
+    constexpr int kBlock = 64;
+    const auto limit = static_cast<size_t>(4.0f * sampleRate);
+    const auto noteOff = static_cast<size_t>(2.0f * sampleRate);  // hits ring out; long ones fade here
+    float block[kBlock];
+    bool released = false;
+    while (out.size() < limit) {
+        if (!released && out.size() >= noteOff) {
+            tsf_channel_note_off_all(f, 0);
+            released = true;
+        }
+        if (out.size() > 0 && tsf_active_voice_count(f) == 0) break;
+        tsf_render_float(f, block, kBlock, 0);
+        out.insert(out.end(), block, block + kBlock);
+    }
+    tsf_close(f);
+    size_t end = out.size();
+    while (end > 0 && std::fabs(out[end - 1]) < 1e-4f) --end;
+    if (end == 0) return {};
+    end = std::min(out.size(), end + static_cast<size_t>(0.002f * sampleRate));
+    out.resize(std::max<size_t>(end, 2));
+    return out;
+}
+
 void SoundEngines::setDrumKey(int slot, int key) {
     if (slot < 0 || slot >= kEngineSlots) return;
     slots_[slot].drumKey.store(key);

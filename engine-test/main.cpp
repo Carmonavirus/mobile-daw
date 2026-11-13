@@ -184,6 +184,13 @@ static bool testExtraEngines(const char* sf2Path) {
         const double ratio = atKey.first / std::max(1.0, octaveDown.first);
         std::printf("  drum key: crossings at key=%.0f octave down=%.0f ratio=%.2f\n", atKey.first, octaveDown.first, ratio);
         if (atKey.second < 1e-4 || octaveDown.second < 1e-4 || ratio < 1.3) ok = false;
+
+        // The same hit recorded once, to play through the sampler with full channel settings.
+        const auto hit = core.engines().renderHit(bank, drumKit, 42, 48000.0f);
+        float hitPeak = 0;
+        for (float x : hit) hitPeak = std::fmax(hitPeak, std::fabs(x));
+        std::printf("  recorded hit: %.3fs peak=%.3f\n", hit.size() / 48000.0, hitPeak);
+        if (hit.size() < 480 || hit.size() > 48000 * 4 || hitPeak < 0.02f) ok = false;
     }
     writeWav("out/presets.wav", all, sr);
     return ok;
@@ -457,6 +464,84 @@ int main(int argc, char** argv) {
                 std::printf("FAIL drum pitch (%s)\n", names[k]);
                 return 1;
             }
+        }
+    }
+
+    // Built-in drums are recorded once and played through the sampler, so trim, reverse and the
+    // rest of the channel settings work on them; the recording sounds like the synthesised hit.
+    {
+        const char* names[] = {"kick", "snare", "hat", "clap"};
+        for (int inst = 0; inst < 4; ++inst) {
+            const auto rec = Synth::renderOneShot(inst, static_cast<float>(sr));
+            float recPeak = 0;
+            for (float x : rec) recPeak = std::fmax(recPeak, std::fabs(x));
+            // Played live through the old path for comparison.
+            Voice v;
+            Synth::start(v, 60, 1.0f, 0);
+            float livePeak = 0;
+            size_t liveLen = 0;
+            while (v.active && liveLen < static_cast<size_t>(sr) * 3) { livePeak = std::fmax(livePeak, std::fabs(Synth::tick(v, inst, sr))); ++liveLen; }
+            std::printf("recorded %s: %.3fs (live %.3fs) peak=%.3f (live %.3f)\n", names[inst], rec.size() / double(sr),
+                        liveLen / double(sr), recPeak, livePeak);
+            if (rec.size() < static_cast<size_t>(sr / 50) || rec.size() > liveLen + 2 || std::fabs(recPeak - livePeak) > 1e-4f) {
+                std::printf("FAIL recorded drum (%s)\n", names[inst]);
+                return 1;
+            }
+        }
+        // Through the sampler, a trimmed recording stops early and a reversed one starts quiet.
+        auto play = [&](float trimEnd, bool reverse) {
+            Core c;
+            c.setSampleRate(sr);
+            c.setMasterVolume(0.25f);
+            c.setChannelCount(1);
+            c.setChannel(0, kSample, 1.0f, 0.0f, false, false);
+            c.setSample(0, Synth::renderOneShot(0, static_cast<float>(sr)), static_cast<float>(sr));
+            c.setChannelSampler(0, false, 0.0f, trimEnd, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0, reverse);
+            c.previewNote(0, 60, 1.0f);
+            std::vector<float> b(block * 2);
+            std::vector<float> mono;
+            for (int done = 0; done < sr; done += block) {
+                c.render(b.data(), block);
+                for (int i = 0; i < block; ++i) mono.push_back(b[i * 2]);
+            }
+            size_t last = 0;
+            float firstMs = 0;
+            for (size_t i = 0; i < mono.size(); ++i) if (std::fabs(mono[i]) > 1e-3f) last = i;
+            for (size_t i = 0; i < static_cast<size_t>(sr / 200); ++i) firstMs = std::fmax(firstMs, std::fabs(mono[i]));
+            return std::pair<size_t, float>(last, firstMs);
+        };
+        const auto full = play(1.0f, false), trimmed = play(0.25f, false), reversed = play(1.0f, true);
+        std::printf("kick via sampler: full end=%zu trimmed end=%zu start fwd=%.3f rev=%.3f\n", full.first, trimmed.first,
+                    full.second, reversed.second);
+        if (trimmed.first * 2 > full.first || reversed.second >= full.second * 0.5f) {
+            std::printf("FAIL kick via sampler\n");
+            return 1;
+        }
+    }
+
+    // Channel Pitch transposes synth instruments too: +12 on a bass doubles its frequency.
+    {
+        auto crossings = [&](int semis) {
+            Core c;
+            c.setSampleRate(sr);
+            c.setChannelCount(1);
+            c.setChannel(0, kBass, 1.0f, 0.0f, false, false);
+            c.setChannelSampler(0, false, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, semis, false);
+            c.previewNote(0, 36, 1.0f);
+            std::vector<float> b(block * 2);
+            int n = 0;
+            float prev = 0;
+            for (int done = 0; done < sr / 5; done += block) {
+                c.render(b.data(), block);
+                for (int i = 0; i < block; ++i) { const float x = b[i * 2]; if ((prev < 0) != (x < 0)) ++n; prev = x; }
+            }
+            return n;
+        };
+        const int base = crossings(0), up = crossings(12);
+        std::printf("synth transpose: crossings 0st=%d +12st=%d\n", base, up);
+        if (up < base * 1.6) {
+            std::printf("FAIL synth transpose\n");
+            return 1;
         }
     }
 
