@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f7fb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Mobile DAW</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #f6f7fb; overscroll-behavior: none; touch-action: none; }
+    #splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font: 16px system-ui, sans-serif; color: #667; padding: 24px; text-align: center; }
+  </style>
+  <script>
+    // Browsers without WebAssembly GC (e.g. iPhone before iOS 18.2) get the simpler classic version.
+    try {
+      if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0]))) location.replace('classic/');
+    } catch (e) { location.replace('classic/'); }
+  </script>
+  <script src="build-info.js"></script>
+  <script src="fflate.js"></script>
+  <script src="platform.js"></script>
+</head>
+<body>
+  <div id="splash">Loading…</div>
+  <script src="daw.js"></script>
+</body>
+</html>

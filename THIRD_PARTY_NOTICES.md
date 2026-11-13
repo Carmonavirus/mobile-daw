@@ -272,3 +272,8 @@ the terms of the GNU Library General Public License as published by the Free
 Software Foundation; either version 2 of the License, or (at your option) any
 later version.
 ```
+
+## Web version only
+
+- **Roboto** fonts (`web/app/src/wasmJsMain/resources/fonts`), from https://github.com/googlefonts/roboto-2, Copyright 2011 Google Inc., licensed under the Apache License, Version 2.0. The browser version bundles them because browsers give the app no system font (Android has Roboto built in).
+- **fflate** 0.8.2 (`web/app/src/wasmJsMain/resources/fflate.js`), https://github.com/101arrowz/fflate, Copyright (c) 2023 Arjun Barrelet, MIT License. Reads and writes .zip files (kit imports, stem export) in the browser.
