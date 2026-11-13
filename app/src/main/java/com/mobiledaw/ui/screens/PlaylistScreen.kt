@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.ImeAction
 import com.mobiledaw.PlaylistTool
 import com.mobiledaw.Tab
 import com.mobiledaw.model.AudioClip
+import com.mobiledaw.model.ClipStretch
 import com.mobiledaw.model.Clip
 import com.mobiledaw.model.ClipEdit
 import com.mobiledaw.model.Project
@@ -434,7 +435,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                         )
                         val tags = buildList {
                             if (clip.reverse) add("rev")
-                            if (clip.pitchSemis != 0) add(if (clip.pitchSemis > 0) "+${clip.pitchSemis}" else "${clip.pitchSemis}")
+                            if (clip.pitchSemis != 0) add((if (clip.pitchSemis > 0) "+${clip.pitchSemis}" else "${clip.pitchSemis}") + if (clip.keepsTempo) " str" else "")
                             if (clip.muted) add("muted")
                         }
                         val label = measurer.measure(
@@ -686,7 +687,11 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Pitch", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-                Text("Higher also plays faster, like a turntable.", fontSize = 12.sp, color = DawColors.Muted)
+                Text(
+                    if (vm.isStretching(clip)) "Making the new pitch… playing the original meanwhile." else clip.stretch.blurb,
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                )
             }
             StepButton("−", enabled = clip.pitchSemis > -12) { set { it.copy(pitchSemis = (it.pitchSemis - 1).coerceAtLeast(-12)) } }
             Text(
@@ -710,6 +715,60 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
             steps = 23,
             colors = inkSliderColors(),
         )
+        // FL-style stretch mode: resample (turntable) or keep the tempo while changing the pitch.
+        Segmented(
+            ClipStretch.entries.map { it to it.label },
+            clip.stretch,
+            { mode -> set { it.copy(stretch = mode) } },
+        )
+
+        // Timing: slide the sound earlier / later without moving the clip (line a take up by ear).
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Timing", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                Text(
+                    when {
+                        clip.timingMs == 0 -> "As recorded. Slide the sound if it's off the beat."
+                        clip.timingMs > 0 -> "${clip.timingMs} ms later"
+                        else -> "${-clip.timingMs} ms earlier"
+                    },
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Earlier", fontSize = 12.sp, color = DawColors.Muted)
+            StepButton("«", enabled = true) { vm.nudgeAudioTiming(id, -25) }
+            StepButton("−", enabled = true) { vm.nudgeAudioTiming(id, -5) }
+            Text(
+                if (clip.timingMs > 0) "+${clip.timingMs}" else "${clip.timingMs}",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DawColors.Ink,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clickable(enabled = clip.timingMs != 0) { vm.nudgeAudioTiming(id, -clip.timingMs) },
+            )
+            StepButton("+", enabled = true) { vm.nudgeAudioTiming(id, 5) }
+            StepButton("»", enabled = true) { vm.nudgeAudioTiming(id, 25) }
+            Text("Later", fontSize = 12.sp, color = DawColors.Muted)
+        }
+        if (clip.recorded && clip.takeTimingMs + clip.timingMs != vm.recordTimingMs) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Sounds right now? Use this timing for new takes on ${vm.outputDevice.label}.",
+                    fontSize = 12.sp,
+                    color = DawColors.Muted,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                TextAction("Use for new takes") { vm.useTimingForNewTakes(clip) }
+            }
+        }
 
         LabeledSlider(
             label = "Volume",

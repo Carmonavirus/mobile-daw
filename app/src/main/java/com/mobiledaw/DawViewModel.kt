@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobiledaw.audio.NativeEngine
 import com.mobiledaw.audio.Recorder
+import com.mobiledaw.audio.StretchCache
 import com.mobiledaw.audio.WavDecoder
 import com.mobiledaw.model.stepPitch
 import com.mobiledaw.model.KitLibrary
@@ -72,6 +73,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
+
+    // Audio clips pitched with Stretch / Vocal play a rendered copy (see stretchedSample). Before
+    // init{}: syncEngine() reads these.
+    private val stretchPending = HashSet<String>()
+    private val stretchFailed = HashSet<String>()
+
+    /** Clip sounds being rendered at a new pitch right now, by [stretchKey]. */
+    var stretchingKeys by mutableStateOf(emptySet<String>())
+        private set
 
     // Declared before init {} below, which syncs the engine and needs them.
     /** SoundFonts, SFZ, synth engine presets, online libraries and credits. */
@@ -145,6 +155,24 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var latencyOffsetMs by mutableIntStateOf(0)
         private set
 
+    /**
+     * Extra nudge for new recordings on this output, in ms: positive puts takes later, negative
+     * earlier. For when the automatic line-up is off for a phone / earbuds pair. Per output.
+     */
+    var recordTimingMs by mutableIntStateOf(0)
+        private set
+
+    fun changeRecordTiming(ms: Int) {
+        recordTimingMs = ms.coerceIn(-RECORD_TIMING_RANGE, RECORD_TIMING_RANGE)
+        saveLatency()
+    }
+
+    /** Nudges an audio clip's sound earlier (negative) or later (positive) by [ms], clip stays put. */
+    fun nudgeAudioTiming(id: Long, ms: Int) = updateAudioClip(id) { com.mobiledaw.model.ClipEdit.shiftTiming(it, ms, project.bpm) }
+
+    /** Makes a recording's total timing fix the default for new takes on the current output. */
+    fun useTimingForNewTakes(clip: AudioClip) = changeRecordTiming(clip.takeTimingMs + clip.timingMs)
+
     /** True when Auto is on but the phone gave no reading, so [estimatedLatencyMs] stands in. */
     val latencyEstimated: Boolean get() = latencyAuto && measuredLatencyMs == null
 
@@ -175,6 +203,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit()
             .putBoolean("latency_auto:$key", latencyAuto)
             .putInt("latency_offset:$key", latencyOffsetMs)
+            .putInt("record_timing:$key", recordTimingMs)
             .apply()
     }
 
@@ -182,6 +211,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val key = outputDevice.key
         latencyAuto = prefs.getBoolean("latency_auto:$key", true)
         latencyOffsetMs = prefs.getInt("latency_offset:$key", 0)
+        recordTimingMs = prefs.getInt("record_timing:$key", 0)
     }
 
     /** Re-reads which output is in use and how late it is. Called about once a second. */
@@ -312,16 +342,23 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- engine sync
 
     fun onResume() {
+        visible = true
+        // An export in progress owns the engine; the stream comes back when it is done.
+        if (exporting) return
         NativeEngine.start()
         syncEngine()
     }
 
     fun onPause() {
+        visible = false
         if (takeState != TakeState.IDLE) stopTake()
-        applyPlaying(false)
+        // Leaving the app doesn't stop an export: it keeps rendering in the background.
+        if (!exporting) applyPlaying(false)
         NativeEngine.stop()
         saveNow()
     }
+
+    private var visible = true
 
     private fun syncEngine() {
         val p = project
@@ -334,6 +371,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
             NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, c.pitchSemis, c.reverse)
+            NativeEngine.setChannelBoost(i, sampleBoostGain(c))
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -347,14 +385,27 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         audioSlots.forEach { (slot, clip) ->
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, clip.gain, 0f, clip.muted, false)
             val (trimA, trimB) = com.mobiledaw.model.ClipEdit.trimFractions(clip)
-            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, clip.pitchSemis, clip.reverse)
+            // A clip that keeps its tempo plays a copy rendered at the new pitch, at normal speed.
+            val enginePitch = if (clip.keepsTempo) 0 else clip.pitchSemis
+            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, enginePitch, clip.reverse)
+            NativeEngine.setChannelBoost(slot, 1f)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
-            if (loadedSamples[slot] != clip.path) {
-                val decoded = decodeSample(clip.path)
-                NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
-                loadedSamples[slot] = clip.path
+            val key = stretchKey(clip)
+            if (loadedSamples[slot] != key) {
+                val stretched = if (key != clip.path) stretchedSample(clip, key) else null
+                // Until the shifted copy is ready, the clip plays its original sound (in time).
+                val (decoded, loaded) = if (stretched != null) stretched to key else decodeSample(clip.path) to clip.path
+                if (loadedSamples[slot] != loaded) {
+                    NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
+                    loadedSamples[slot] = loaded
+                }
             }
+        }
+        // While exporting, the engine plays the export's sequence; it gets this one back afterwards.
+        if (exporting) {
+            syncMixer()
+            return
         }
         val compiled = when (mode) {
             PlayMode.PATTERN -> SequenceCompiler.pattern(p, selectedPattern)
@@ -678,13 +729,67 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: run {
-            val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
-            val max = if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
-            WavDecoder.decode(kits.file(path), max)?.also {
+            WavDecoder.decode(kits.file(path), maxSecondsFor(path))?.also {
                 sampleCache[path] = it
                 trimSampleCache()
             }
         }
+
+    /** Which sound an audio clip's engine slot plays: its file, or a pitch-shifted copy of it. */
+    private fun stretchKey(clip: AudioClip): String =
+        if (clip.keepsTempo) "${clip.path}#stretch${clip.stretch.id}:${clip.pitchSemis}" else clip.path
+
+    /** True while the clip's new pitch is being rendered (it plays its original sound meanwhile). */
+    fun isStretching(clip: AudioClip): Boolean = stretchKey(clip) in stretchingKeys
+
+    /**
+     * The clip's sound shifted to its pitch at the same length, or null while it's being made.
+     * Rendering runs in the background (a few seconds for a long take) and is kept on disk, so it
+     * only happens once per clip and pitch; syncEngine() runs again when it's ready.
+     */
+    private fun stretchedSample(clip: AudioClip, key: String): WavDecoder.Decoded? {
+        sampleCache[key]?.let { return it }
+        if (key in stretchPending || key in stretchFailed) return null
+        stretchPending += key
+        stretchingKeys = stretchPending.toSet()
+        val src = kits.file(clip.path)
+        val semis = clip.pitchSemis
+        val mode = clip.stretch.id
+        val maxSeconds = maxSecondsFor(clip.path)
+        val cacheDir = java.io.File(getApplication<Application>().cacheDir, "stretched")
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    val file = java.io.File(cacheDir, "%08x.f32".format(
+                        "${clip.path}|${src.length()}|${src.lastModified()}|$mode|$semis".hashCode()))
+                    StretchCache.read(file) ?: WavDecoder.decode(src, maxSeconds)?.let { d ->
+                        WavDecoder.Decoded(NativeEngine.shiftKeepLength(d.frames, d.sampleRate, semis.toFloat(), mode), d.sampleRate)
+                            .also { StretchCache.write(file, it) }
+                    }
+                }.getOrNull()
+            }
+            stretchPending -= key
+            stretchingKeys = stretchPending.toSet()
+            if (result == null) {
+                stretchFailed += key
+                return@launch
+            }
+            sampleCache[key] = result
+            trimSampleCache()
+            syncEngine()
+        }
+        return null
+    }
+
+    /** Waits until every clip's new pitch has been rendered (before an export). */
+    private suspend fun awaitStretches() {
+        while (stretchPending.isNotEmpty()) delay(50)
+    }
+
+    private fun maxSecondsFor(path: String): Int {
+        val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
+        return if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
+    }
 
     /**
      * Keeps decoded sounds under ~24M frames (about 100 MB of floats): a few long imported loops
@@ -714,6 +819,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val max = out.maxOrNull()?.takeIf { it > 0f } ?: 1f
         for (i in out.indices) out[i] /= max
         return out
+    }
+
+    private val samplePeakCache = HashMap<String, Float>()
+
+    /** The loudest absolute sample value in a sound (0..1+), or 0 if it can't be read. */
+    fun samplePeak(path: String): Float = samplePeakCache[path] ?: run {
+        val frames = decodeSample(path)?.frames ?: return 0f
+        var peak = 0f
+        for (x in frames) peak = maxOf(peak, kotlin.math.abs(x))
+        samplePeakCache[path] = peak
+        peak
+    }
+
+    /** Linear gain from a sample channel's Boost and Normalize settings (1 = untouched). */
+    fun sampleBoostGain(c: Channel): Float {
+        if (c.instrument != Instrument.SAMPLE || c.sample == null) return 1f
+        var g = Math.pow(10.0, c.boostDb.coerceIn(0f, BOOST_MAX_DB) / 20.0).toFloat()
+        if (c.normalize) {
+            val peak = samplePeak(c.sample)
+            // Up to +24 dB, so a near-silent file doesn't turn into pure noise.
+            if (peak > 0f) g *= (1f / peak).coerceIn(0.1f, 16f)
+        }
+        return g
     }
 
     fun sampleSeconds(path: String): Float =
@@ -755,6 +883,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 val bank = sounds.soundFonts.loadedBank(source)
                 if (bank == null) loadSoundFont(source)
                 NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, bank ?: -1)
+                // A single hit from a drum kit follows the piano roll like a sample does.
+                NativeEngine.setChannelDrumKey(i, c.pitch ?: -1)
             }
             Instrument.MACRO, Instrument.MODELED -> NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, -1)
             Instrument.MULTISAMPLE -> {
@@ -1237,14 +1367,18 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val leadIn = takeLeadInFrames()
-        val take = recorder.stop()?.let { recorder.trimStart(it, leadIn) }
+        val rate = recorder.sampleRate
+        val take = recorder.stop()
         takePeaks = FloatArray(0)
         val start = takeStartTick
         if (take == null) {
             syncEngine()
             return
         }
-        placeRecording(take.file, take.seconds, takeLane, start)
+        // Keep the whole file (count-in included) and start playing it at the lead-in, so the
+        // take's Timing control can slide it later as well as earlier.
+        val lead = (leadIn.toFloat() / rate).coerceIn(0f, (take.seconds - 0.2f).coerceAtLeast(0f))
+        placeRecording(take.file, take.seconds, takeLane, start, lead)
         // Park the playhead at the start of the take so play replays it.
         NativeEngine.seek(start.toLong())
         positionTicks = start.toLong()
@@ -1258,15 +1392,21 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun takeLeadInFrames(): Long {
         if (playStartNanos == 0L) return 0L
-        return recorder.frameAt(playStartNanos + uiDelayMs * 1_000_000L).coerceAtLeast(0L)
+        val heard = playStartNanos + (uiDelayMs - recordTimingMs) * 1_000_000L
+        return recorder.frameAt(heard).coerceAtLeast(0L)
     }
 
     /** Puts a finished recording (a WAV in the app's files folder) on the playlist. */
-    fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int) {
+    fun placeRecording(file: java.io.File, seconds: Float, lane: Int, startTick: Int, leadIn: Float = 0f) {
         val path = file.relativeTo(getApplication<Application>().filesDir).path
         val number = project.audioClips.size + 1
         update { p ->
-            p.copy(audioClips = p.audioClips + AudioClip(p.nextId(), lane, startTick, path, seconds, "Take $number", fileSeconds = seconds))
+            p.copy(
+                audioClips = p.audioClips + AudioClip(
+                    p.nextId(), lane, startTick, path, seconds - leadIn, "Take $number",
+                    offset = leadIn, fileSeconds = seconds, takeTimingMs = recordTimingMs, recorded = true,
+                ),
+            )
         }
     }
 
@@ -1547,6 +1687,114 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
     }
 
+    // ---------------------------------------------------------------- export
+
+    var exportOpen by mutableStateOf(false)
+        private set
+    var exportOptions by mutableStateOf(com.mobiledaw.export.ExportOptions())
+    var exportState by mutableStateOf<com.mobiledaw.export.ExportState>(com.mobiledaw.export.ExportState.Idle)
+        private set
+    @Volatile private var exporting = false
+    @Volatile private var exportCancel = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** True when the playlist has something to play (otherwise export defaults to the pattern). */
+    val hasArrangement: Boolean
+        get() = project.clips.any { !it.muted } || project.audioClips.any { !it.muted }
+
+    fun openExport() {
+        if (!exporting) {
+            exportState = com.mobiledaw.export.ExportState.Idle
+            exportOptions = exportOptions.copy(song = hasArrangement)
+        }
+        settingsOpen = false
+        exportOpen = true
+    }
+
+    fun closeExport() {
+        if (exporting) return
+        exportOpen = false
+        if (exportState !is com.mobiledaw.export.ExportState.Running) exportState = com.mobiledaw.export.ExportState.Idle
+    }
+
+    fun cancelExport() {
+        exportCancel = true
+    }
+
+    /** Stems the current options would make (rack channels that play, plus audio clips per mixer track). */
+    fun exportStemNames(): List<String> {
+        val compiled = if (exportOptions.song) SequenceCompiler.song(project) else SequenceCompiler.pattern(project, selectedPattern)
+        return com.mobiledaw.export.Exporter.stemsFor(project, compiled, NativeEngine.MAX_CHANNELS).map { it.name }
+    }
+
+    /**
+     * Renders the song (or the selected pattern) offline into the chosen formats, saves them to
+     * Download/Mobile DAW/<name>/ and keeps them in the cache for sharing.
+     */
+    fun startExport(name: String) {
+        if (exporting) return
+        val opts = exportOptions
+        if (!opts.any) return
+        if (takeState != TakeState.IDLE) stopTake()
+        applyPlaying(false)
+        val p = project
+        val compiled = if (opts.song) SequenceCompiler.song(p) else SequenceCompiler.pattern(p, selectedPattern)
+        val stems = com.mobiledaw.export.Exporter.stemsFor(p, compiled, NativeEngine.MAX_CHANNELS)
+        val base = com.mobiledaw.export.Exporter.safeName(name)
+        val ctx = getApplication<Application>()
+        exporting = true
+        exportCancel = false
+        exportState = com.mobiledaw.export.ExportState.Running(0f, "Starting")
+        viewModelScope.launch {
+            try {
+                // Clips pitched with Stretch / Vocal must have their shifted sound ready first.
+                if (stretchPending.isNotEmpty()) {
+                    exportState = com.mobiledaw.export.ExportState.Running(0f, "Preparing pitched clips")
+                    awaitStretches()
+                }
+                val done = withContext(Dispatchers.Default) {
+                    com.mobiledaw.export.ExportStorage.clearWork(ctx)
+                    val dir = com.mobiledaw.export.ExportStorage.workDir(ctx)
+                    val files = com.mobiledaw.export.Exporter(
+                        p, compiled, stems, opts, dir, base,
+                        progress = { f, label ->
+                            mainHandler.post {
+                                if (exportState is com.mobiledaw.export.ExportState.Running) {
+                                    exportState = com.mobiledaw.export.ExportState.Running(f, label)
+                                }
+                            }
+                        },
+                        cancelled = { exportCancel },
+                    ).run()
+                    mainHandler.post { exportState = com.mobiledaw.export.ExportState.Running(1f, "Saving to Downloads") }
+                    files.forEach { f ->
+                        val sub = f.parentFile?.takeIf { it != dir }?.name
+                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
+                    }
+                    com.mobiledaw.export.ExportState.Done(
+                        folder = com.mobiledaw.export.ExportStorage.folderLabel(ctx, base),
+                        mix = files.filter { it.parentFile == dir && it.extension != "mid" },
+                        stems = files.filter { it.parentFile != dir },
+                        midi = files.firstOrNull { it.extension == "mid" },
+                    )
+                }
+                exportState = done
+            } catch (e: com.mobiledaw.export.ExportCancelled) {
+                exportState = com.mobiledaw.export.ExportState.Idle
+            } catch (e: Exception) {
+                exportState = com.mobiledaw.export.ExportState.Failed(e.message ?: e.javaClass.simpleName)
+            } finally {
+                exporting = false
+                if (visible) NativeEngine.start()
+                syncEngine()
+            }
+        }
+    }
+
+    fun shareExport(files: List<java.io.File>) {
+        runCatching { com.mobiledaw.export.ExportStorage.share(getApplication<Application>(), files) }
+    }
+
     override fun onCleared() {
         if (recorder.isRunning) recorder.stop()
         saveNow()
@@ -1556,6 +1804,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** Most a sample channel can be boosted, in dB. */
+        const val BOOST_MAX_DB = 18f
         /** The app is in 4/4: metronome accents and the record count-in use this. */
         const val BEATS_PER_BAR = com.mobiledaw.model.TICKS_PER_BAR / com.mobiledaw.model.TICKS_PER_BEAT
         /** [countIn] value for the "GO" shown as the take starts. */
@@ -1563,6 +1813,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         /** Fine-tune range around the measured delay (Auto), in ms. */
         const val LATENCY_OFFSET_MIN = -300
         const val LATENCY_OFFSET_MAX = 500
+        /** Recording timing range (each way), in ms. */
+        const val RECORD_TIMING_RANGE = 500
         private const val MAX_CACHED_FRAMES = 24_000_000L
         /** Ticks per minute per BPM, i.e. TICKS_PER_BEAT. Used to size the loop while recording. */
         private const val TICKS_PER_BEAT_PER_MINUTE = com.mobiledaw.model.TICKS_PER_BEAT

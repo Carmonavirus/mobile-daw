@@ -93,9 +93,40 @@ fun AudioSyncSection(vm: DawViewModel) {
         fontSize = 12.sp,
         color = DawColors.Muted,
     )
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(16.dp))
+
+    // Recording timing: extra nudge for new takes on this output.
+    val rec = vm.recordTimingMs
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Recording timing", fontSize = 14.sp, color = DawColors.Ink, modifier = Modifier.weight(1f))
+        Text(
+            when {
+                rec == 0 -> "automatic"
+                rec > 0 -> "$rec ms later"
+                else -> "${-rec} ms earlier"
+            },
+            fontSize = 13.sp,
+            color = DawColors.InkSoft,
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StepButton("−") { vm.changeRecordTiming(rec - 5) }
+        Slider(
+            value = rec.toFloat(),
+            onValueChange = { v ->
+                val ms = v.roundToInt()
+                vm.changeRecordTiming(if (kotlin.math.abs(ms) < 10) 0 else ms)
+            },
+            valueRange = -DawViewModel.RECORD_TIMING_RANGE.toFloat()..DawViewModel.RECORD_TIMING_RANGE.toFloat(),
+            colors = inkSliderColors(),
+            modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+        )
+        StepButton("+") { vm.changeRecordTiming(rec + 5) }
+    }
     Text(
-        "Recordings are lined up with the same delay, so takes sit where you sang them.",
+        "New takes are lined up with what you heard automatically. If your voice still lands early " +
+            "or late on ${device.label}, move this (or tap a take on the playlist, fix its Timing by ear, " +
+            "and tap Use for new takes).",
         fontSize = 12.sp,
         color = DawColors.Muted,
     )

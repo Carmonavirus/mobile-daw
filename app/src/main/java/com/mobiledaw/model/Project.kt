@@ -75,6 +75,13 @@ data class Channel(
     /** Transpose in semitones (-12..12) and reverse playback, for sample channels. */
     val pitchSemis: Int = 0,
     val reverse: Boolean = false,
+    /**
+     * Boost for sample channels, like FL's sampler precomputed effects: extra gain in dB (0..18)
+     * baked into the sound before the envelope, with soft clipping instead of harsh clipping.
+     * [normalize] first brings the sound's loudest peak to full scale.
+     */
+    val boostDb: Float = 0f,
+    val normalize: Boolean = false,
     /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
     val synth: SynthPatch? = null,
     /** Extra engines: preset index (SoundFont preset, Macro/Modeled preset). */
@@ -127,6 +134,18 @@ data class Clip(
 }
 
 /**
+ * How an audio clip changes pitch. The id must match ClipStretchMode in cpp/fx/ClipStretch.h.
+ * Resample plays faster/slower (like a turntable); the others render a shifted copy that keeps
+ * the clip's length, so it stays in time.
+ */
+@Serializable
+enum class ClipStretch(val id: Int, val label: String, val blurb: String) {
+    RESAMPLE(0, "Resample", "Higher also plays faster, lower plays slower, like a turntable."),
+    STRETCH(1, "Stretch", "Keeps the tempo and length. Works on anything: loops, beats, voices."),
+    VOCAL(2, "Vocal", "Keeps the tempo and the singer's natural tone. Best for one voice."),
+}
+
+/**
  * A recorded (or imported) piece of audio placed on the playlist.
  * [path] is relative to the app's files folder, e.g. "recordings/take-1731412345.wav".
  * Its length on the timeline follows the tempo, so it is stored in seconds.
@@ -146,14 +165,25 @@ data class AudioClip(
     /** Length of the whole file in seconds; 0 in older projects, where the clip used the whole file. */
     val fileSeconds: Float = 0f,
     val reverse: Boolean = false,
-    /** Transpose in semitones (-12..12). Like a turntable, higher also plays faster (shorter clip). */
+    /** Transpose in semitones (-12..12). With [ClipStretch.RESAMPLE], higher also plays faster (shorter clip). */
     val pitchSemis: Int = 0,
+    /** How [pitchSemis] is applied: resampled, or rendered at the same length. */
+    val stretch: ClipStretch = ClipStretch.RESAMPLE,
     /** Clip volume, 0..2 (1 = as recorded). */
     val gain: Float = 1f,
     val muted: Boolean = false,
+    /** Total "Timing" nudge applied in the clip window, in ms (positive = later). For display. */
+    val timingMs: Int = 0,
+    /** For recordings: the output's recording timing (ms) in effect when this take was made. */
+    val takeTimingMs: Int = 0,
+    /** True for mic recordings made in the app (they keep the count-in before [offset]). */
+    val recorded: Boolean = false,
 ) {
-    /** Playback speed from the pitch change. */
-    val rate: Float get() = 2.0.pow(pitchSemis / 12.0).toFloat()
+    /** True when the pitch change is rendered at the same length (the engine plays it at speed 1). */
+    val keepsTempo: Boolean get() = pitchSemis != 0 && stretch != ClipStretch.RESAMPLE
+
+    /** Playback speed from the pitch change (1 when the clip keeps its tempo). */
+    val rate: Float get() = if (stretch != ClipStretch.RESAMPLE) 1f else 2.0.pow(pitchSemis / 12.0).toFloat()
 
     /** Length of the whole source file in seconds. */
     val sourceSeconds: Float get() = if (fileSeconds > 0f) fileSeconds else offset + seconds

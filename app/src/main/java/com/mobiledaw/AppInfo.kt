@@ -26,6 +26,49 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.3", "2026-11-13T11:20:00Z",
+            listOf(
+                "Pitch audio clips without changing their tempo: in the clip window (Pencil, tap a clip) pick Resample, Stretch or Vocal under Pitch.",
+                "Stretch keeps the clip's length and timing at any pitch, for loops, beats or anything else. Vocal also keeps a singer's natural tone, so a lowered voice doesn't sound slowed down or deep.",
+                "Resample works like before (lower is slower, like a turntable). The new pitch takes a moment to make on long takes; the clip plays its original sound until then.",
+            ),
+        ),
+        Release(
+            "0.7.2", "2026-11-13T11:00:00Z",
+            listOf(
+                "Drums follow the piano roll: put a hi-hat (or clap, or a single drum from a kit) on any note and it plays at that pitch, like a sample. G3 is an octave under G4: lower and longer, higher and shorter.",
+                "Steps from the step sequencer still play the drum as it was (C4 for hi-hat, clap and samples). The channel's Pitch setting and Boost still apply on top.",
+            ),
+        ),
+        Release(
+            "0.7.1", "2026-11-13T10:40:00Z",
+            listOf(
+                "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",
+                "Use for new takes (in that window) saves the fix for your earbuds, so the next takes land right. Also in Settings → Audio sync → Recording timing.",
+                "Takes keep the count-in audio hidden before them, so they can be slid later as well as earlier.",
+            ),
+        ),
+        Release(
+            "0.7", "2026-11-13T04:00:00Z",
+            listOf(
+                "Export: Settings → Export (or tap the song name → Export). Pick Song (the whole playlist) or Pattern, then any of WAV (16/24-bit), MP3 (128/192/320 kbps), Stems and MIDI.",
+                "Stems: one WAV per channel (recordings grouped per mixer track, e.g. Vocals), all exactly the same length so they line up at bar 1 in any DAW.",
+                "Exports are rendered by the engine faster than real time with the same sound you hear (effects included, metronome never), and the last notes ring out at the end.",
+                "Files are saved to Download › Mobile DAW › <song name>, and each one (or all of them) can be shared straight to another app.",
+                "FL Studio: its .flp project format is closed, so use Stems + MIDI — drag the stems into FL's playlist and drop the .mid on a channel for the notes.",
+            ),
+        ),
+        Release(
+            "0.6.6", "2026-11-13T03:45:00Z",
+            listOf(
+                "Pitch Correct sounds much cleaner: notes are moved without the sped-up, chipmunk tone, so your voice keeps its own sound even on big jumps.",
+                "Hard tune is truly hard now: at instant speed each note sits dead flat on the key and snaps to the next one, the classic tuned-vocal sound.",
+                "Pick a sound with one tap: Natural, Classic, Hard tune, Double, Deep duet, Harmony and Choir. Harmony and Choir sing extra notes in the song's key.",
+                "Simpler screen: Sound, Key and four knobs (Speed, Strength, Voices, Mix). Note switches, transpose, humanize and singer's range are under More options.",
+                "New Pitch Correct effects start on Classic (fast, tight tuning).",
+            ),
+        ),
+        Release(
             "0.6.5", "2026-11-12T23:40:00Z",
             listOf(
                 "Piano roll: dragging a note now always resizes or moves it — only dragging empty space scrolls.",

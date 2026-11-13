@@ -22,8 +22,20 @@ done
 [ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
 g++ -std=c++17 -O2 -Wall -Wextra $INC engine-test/main.cpp $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/enginetest"
 # Other tests that link the whole engine (DawCore needs the sound engine objects above).
-for t in fx_test:fxtest metronome_test:metronometest; do
+# The MP3 encoder (LAME) is C.
+lame=()
+for f in $TP/lame/libmp3lame/*.c; do
+  o="$OUT/obj/$(echo "$f" | tr '/' '_').o"
+  lame+=("$o")
+  if [ ! -f "$o" ] || [ "$f" -nt "$o" ]; then
+    gcc -O2 -w -DHAVE_CONFIG_H -I$TP/lame -I$TP/lame/include -I$TP/lame/libmp3lame -c "$f" -o "$o" &
+    pids+=($!)
+  fi
+done
+[ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
+pids=()
+for t in fx_test:fxtest metronome_test:metronometest export_test:exporttest stretch_test:stretchtest; do
   src="engine-test/${t%%:*}.cpp"
-  [ -f "$src" ] && g++ -std=c++17 -O2 -Wall -Wextra $INC "$src" $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp "${objs[@]}" -pthread -o "$OUT/${t##*:}"
+  [ -f "$src" ] && g++ -std=c++17 -O2 -Wall -Wextra $INC "$src" $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp -I$TP/lame/include $CPP/export/*.cpp "${objs[@]}" "${lame[@]}" -pthread -lm -o "$OUT/${t##*:}"
 done
 true

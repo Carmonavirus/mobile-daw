@@ -67,6 +67,9 @@ struct ChannelParams {
     std::atomic<float> tension{0.0f};
     std::atomic<int> pitchSemis{0};     // -12..12 transpose for sample playback
     std::atomic<bool> reverse{false};   // play the sample backwards
+    // Boost (FL-style sampler "precomputed" gain): linear gain applied to the sample itself,
+    // before the envelope. Above 1 a soft clipper rounds off peaks instead of hard clipping.
+    std::atomic<float> boost{1.0f};
     // Audio clips on the playlist: when playback starts or seeks into the middle of one of
     // this channel's notes, the sample starts from that point instead of staying silent.
     std::atomic<bool> resumeMidway{false};
@@ -85,6 +88,7 @@ struct SampleShape {
     double sustain = 1.0;
     double release = 0.0;
     double tension = 0.0;
+    float boost = 1.0f;
 };
 
 class Core {
@@ -110,6 +114,8 @@ public:
     void setChannelSampler(int index, bool cutItself, float trimStart, float trimEnd, float envDelay, float attack,
                            float hold, float decay, float sustain, float release, float tension, int pitchSemis,
                            bool reverse);
+    // Sample gain (Boost / Normalize), linear, 0..64. Peaks above ~0.8 are soft clipped when boosted.
+    void setChannelBoost(int index, float gain);
     void setMasterVolume(float v) { master_.store(v); }
 
     // ---- metronome (control thread)
@@ -125,6 +131,15 @@ public:
     void startCountIn(int beats) { countInRequest_.store(beats < 1 ? 1 : (beats > 16 ? 16 : beats)); }
     // 1..beats while counting in (the beat just clicked), 0 otherwise.
     int countInBeat() const { return countInBeat_.load(); }
+    // ---- offline export (control thread, while the live stream is held off, see AudioEngine)
+    // Renders only the channels whose bit is set in `mask` (mute still applies, solo is ignored),
+    // for stems. A negative mask is the normal mix.
+    void setRenderMask(int64_t mask) { renderMask_.store(mask); }
+    // When on, playback stops at the end of the sequence instead of looping, and notes that are
+    // still sounding ring out naturally (no release/fade), so a bounce keeps its tails.
+    void setStopAtEnd(bool on) { stopAtEnd_.store(on); }
+    int sampleRate() const { return sampleRate_; }
+
     // Marks a channel as an audio-clip lane (see ChannelParams::resumeMidway).
     void setChannelClip(int index, bool resumeMidway);
 
@@ -198,6 +213,8 @@ private:
     std::atomic<int64_t> seek_{-1};       // pending seek while playing
     std::atomic<int64_t> startTick_{0};   // where the next play starts
     std::atomic<int> channelCount_{0};
+    std::atomic<int64_t> renderMask_{-1};
+    std::atomic<bool> stopAtEnd_{false};
     std::array<ChannelParams, kMaxChannels> params_;
 
     // Sequence handoff: UI publishes into pending_, audio thread adopts it and
