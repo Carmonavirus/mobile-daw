@@ -80,7 +80,7 @@ fun CloudSyncSection(vm: DawViewModel) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "Projects sync by themselves when you save or open the app. If a project changed on two devices, the newest one is kept and the other is saved as \"(older copy)\".",
+                "Projects sync by themselves when you save or open the app. If a project changed on two devices, the newest one is kept and the other is saved with \"older copy\" added to its name.",
                 fontSize = 11.sp,
                 color = DawColors.Muted,
             )

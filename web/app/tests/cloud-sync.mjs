@@ -2,7 +2,7 @@
 // Drive (and pretend Google sign-in) answering in place of Google's servers. Checks that a beat
 // made on one device shows up on the other, that a fresh device's empty song doesn't overwrite it,
 // that offline edits wait, and that a project changed on both keeps the newest plus an
-// "(older copy)".
+// "- older copy".
 // Usage: node tests/cloud-sync.mjs <dist folder>
 import http from 'node:http';
 import fs from 'node:fs';
@@ -162,7 +162,8 @@ if (sb.projects.some((n) => n.includes('older copy'))) fail('an empty song shoul
 
 // An edit on the laptop syncs by itself and reaches the phone.
 await b.page.evaluate(() => window.dawAddBeat());
-await b.page.waitForTimeout(800);
+// It syncs by itself 5 s after the save (800 ms after the edit).
+await b.page.waitForTimeout(7000);
 sb = await settle(b);
 await a.page.evaluate(() => window.dawCloud.syncNow());
 sa = await settle(a);
@@ -190,16 +191,16 @@ sa = await settle(a);
 console.log('phone after conflict', JSON.stringify(sa));
 console.log('laptop after conflict', JSON.stringify(sb));
 if (sb.channels !== 4 || sa.channels !== 4) fail('the newest version (laptop, 4 sounds) should win on both');
-for (const s of [sa, sb]) if (!s.projects.includes('New project (older copy)')) fail('older copy missing: ' + s.projects.join(', '));
+for (const s of [sa, sb]) if (!s.projects.includes('New project - older copy')) fail('older copy missing: ' + s.projects.join(', '));
 dp = driveProjects().map((f) => f.meta.name).sort();
 console.log('Drive projects', dp.join(', '));
-if (dp.join() !== 'New project (older copy).json,New project.json') fail('Drive projects: ' + dp.join(', '));
+if (dp.join() !== 'New project - older copy.json,New project.json') fail('Drive projects: ' + dp.join(', '));
 const copy = driveProjects().find((f) => f.meta.name.startsWith('New project (older'));
 if (copy && JSON.parse(copy.content.toString()).channels.length !== 3) fail('the older copy should be the phone\'s 3-sound version');
 
 // A new song on the phone shows up in the laptop's list.
 await a.page.evaluate(() => window.dawCloud.newProject());
-await a.page.waitForTimeout(800);
+await a.page.evaluate(() => window.dawCloud.syncNow());
 sa = await settle(a);
 await b.page.evaluate(() => window.dawCloud.syncNow());
 sb = await settle(b);

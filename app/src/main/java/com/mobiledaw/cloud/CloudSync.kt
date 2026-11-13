@@ -42,7 +42,7 @@ class SyncResult(val changedProjects: Set<String>, val newSounds: Boolean)
  *
  * Each sync compares every project file with Drive and with how both looked after the last sync:
  * only changed here -> upload; only changed in Drive -> download; changed on both -> the newest
- * wins and the other one is kept as "<name> (older copy)". Without a connection the app works
+ * wins and the other one is kept as "<name> - older copy". Without a connection the app works
  * as before and syncs once it's back.
  */
 class CloudSync(private val context: Context, private val store: ProjectStore, private val scope: CoroutineScope) {
@@ -352,7 +352,7 @@ class CloudSync(private val context: Context, private val store: ProjectStore, p
     /** Saves the losing side of a conflict as its own project. Returns its key. */
     private suspend fun keepCopy(bytes: ByteArray): String? = withContext(Dispatchers.IO) {
         val p: Project = store.decode(bytes) ?: return@withContext null
-        val name = store.uniqueName("${p.name} (older copy)")
+        val name = store.uniqueName("${p.name} - older copy")
         store.saveCopy(p.copy(name = name))
         store.key(name)
     }
