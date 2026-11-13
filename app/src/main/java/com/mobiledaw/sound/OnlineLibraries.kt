@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -16,6 +17,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import kotlin.math.roundToInt
 
 /** Small HTTP helper. Requests carry a generic app name only (no personal details). */
 internal object Http {
@@ -92,6 +94,7 @@ private fun plain(html: String?): String =
  * Original files need the user to sign in (OAuth2); without it we save the high-quality preview.
  */
 class FreesoundClient(context: Context) {
+
     private val prefs = context.getSharedPreferences("freesound", Context.MODE_PRIVATE)
 
     var apiKey: String
@@ -113,7 +116,7 @@ class FreesoundClient(context: Context) {
     val hasKey: Boolean get() = apiKey.isNotBlank()
     val signedIn: Boolean get() = refreshToken.isNotBlank()
 
-    fun search(query: String, filter: LicenseFilter, page: Int, shortOnly: Boolean): List<OnlineSound> {
+    fun search(query: String, filter: LicenseFilter, page: Int, shortOnly: Boolean, extra: FreesoundFilters = FreesoundFilters()): List<OnlineSound> {
         val licenses = buildList {
             if (LicenseKind.CC0 in filter.kinds) add("\"Creative Commons 0\"")
             if (LicenseKind.BY in filter.kinds) add("\"Attribution\"")
@@ -122,10 +125,11 @@ class FreesoundClient(context: Context) {
         val filters = buildList {
             if (filter != LicenseFilter.ALL) add("license:(${licenses.joinToString(" OR ")})")
             if (shortOnly) add("duration:[0 TO 30]")
+            addAll(extra.clauses())
         }.joinToString(" ")
         val params = "query=${Http.enc(query)}" +
             (if (filters.isNotEmpty()) "&filter=${Http.enc(filters)}" else "") +
-            "&fields=id,name,username,license,duration,previews,url,type" +
+            "&fields=id,name,username,license,duration,previews,url,type,bpm,tonality,loopable,single_event" +
             "&page_size=30&page=$page&token=${Http.enc(apiKey)}"
         val body = try {
             Http.getJson("$API/search/?$params")
@@ -152,17 +156,48 @@ class FreesoundClient(context: Context) {
                 durationSeconds = o["duration"]?.jsonPrimitive?.doubleOrNull,
                 previewUrl = preview,
                 fileUrl = "$API/sounds/$id/download/",
+                facts = listOfNotNull(
+                    // A one-shot's tempo estimate means nothing, so only loops and phrases show BPM.
+                    o["bpm"]?.jsonPrimitive?.doubleOrNull?.takeIf { it > 0 && o["single_event"]?.jsonPrimitive?.booleanOrNull != true }
+                        ?.let { "${it.roundToInt()} BPM" },
+                    o.str("tonality")?.takeIf { it.isNotBlank() },
+                    when {
+                        o["loopable"]?.jsonPrimitive?.booleanOrNull == true -> "Loop"
+                        o["single_event"]?.jsonPrimitive?.booleanOrNull == true -> "One-shot"
+                        else -> null
+                    },
+                ),
             )
         }
     }
 
     /** Page where the user approves this app; Freesound then shows a code to paste back. */
-    fun authorizeUrl(): String = "$API/oauth2/authorize/?client_id=${Http.enc(clientId)}&response_type=code&state=mobiledaw"
+    /**
+     * Freesound credentials require PKCE (S256) by default: without a code_challenge the
+     * authorize page shows "Oops! there were some errors". A fresh verifier is made per sign-in
+     * and sent back with the code.
+     */
+    fun authorizeUrl(): String {
+        val verifier = newPkceVerifier()
+        pkceVerifier = verifier
+        return "$API/oauth2/authorize/?client_id=${Http.enc(clientId.trim())}&response_type=code&state=mobiledaw" +
+            "&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256"
+    }
+
+    private var pkceVerifier: String
+        get() = prefs.getString("pkce_verifier", "").orEmpty()
+        set(v) = prefs.edit().putString("pkce_verifier", v).apply()
 
     fun signIn(code: String) {
         val r = Http.postForm(
             "$API/oauth2/access_token/",
-            mapOf("client_id" to clientId, "client_secret" to apiKey, "grant_type" to "authorization_code", "code" to code.trim()),
+            buildMap {
+                put("client_id", clientId.trim())
+                put("client_secret", apiKey.trim())
+                put("grant_type", "authorization_code")
+                put("code", code.trim())
+                pkceVerifier.takeIf { it.isNotEmpty() }?.let { put("code_verifier", it) }
+            },
         ).jsonObject
         storeTokens(r)
     }
@@ -187,7 +222,7 @@ class FreesoundClient(context: Context) {
             storeTokens(
                 Http.postForm(
                     "$API/oauth2/access_token/",
-                    mapOf("client_id" to clientId, "client_secret" to apiKey, "grant_type" to "refresh_token", "refresh_token" to refreshToken),
+                    mapOf("client_id" to clientId.trim(), "client_secret" to apiKey.trim(), "grant_type" to "refresh_token", "refresh_token" to refreshToken),
                 ).jsonObject,
             )
             accessToken
@@ -209,8 +244,23 @@ class FreesoundClient(context: Context) {
     }
 
     companion object {
+        /** RFC 7636 code verifier: 64 random URL-safe characters. */
+        internal fun newPkceVerifier(): String {
+            val bytes = ByteArray(48).also { java.security.SecureRandom().nextBytes(it) }
+            return base64Url(bytes)
+        }
+
+        /** S256 challenge: base64url(sha256(verifier)) without padding. */
+        internal fun pkceChallenge(verifier: String): String =
+            base64Url(java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
+
+        private fun base64Url(bytes: ByteArray): String =
+            java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+
         const val API = "https://freesound.org/apiv2"
         const val APPLY_URL = "https://freesound.org/apiv2/apply"
+        /** Freesound's own page that shows the sign-in code; the API credential must use it as its Callback URL. */
+        const val CALLBACK_URL = "https://freesound.org/home/app_permissions/permission_granted/"
     }
 }
 
@@ -311,5 +361,78 @@ object ArchiveClient {
     private fun first(e: JsonElement?): String? = when (e) {
         is JsonArray -> e.firstOrNull().str()
         else -> e.str()
+    }
+}
+
+/**
+ * Freesound's audio-analysis and tag filters (APIv2 /search/ `filter` fields: bpm, tonality,
+ * loopable, single_event, brightness/warmth/hardness/depth/roughness 0-100, tag).
+ */
+data class FreesoundFilters(
+    val bpmMin: Int? = null,
+    val bpmMax: Int? = null,
+    /** Root note such as "A" or "F#"; null for any key. */
+    val key: String? = null,
+    /** "major" or "minor"; null for either. */
+    val scale: String? = null,
+    val kind: Kind = Kind.ANY,
+    val vibes: Set<Vibe> = emptySet(),
+    val genres: Set<Genre> = emptySet(),
+) {
+    enum class Kind(val label: String) { ANY("Any"), LOOP("Loops"), ONE_SHOT("One-shots") }
+
+    enum class Vibe(val label: String, val field: String) {
+        BRIGHT("Bright", "brightness"),
+        WARM("Warm", "warmth"),
+        HARD("Hard", "hardness"),
+        DEEP("Deep", "depth"),
+        ROUGH("Rough", "roughness"),
+    }
+
+    enum class Genre(val label: String, val tags: List<String>) {
+        TRAP("Trap", listOf("trap")),
+        LOFI("Lo-fi", listOf("lofi", "lo-fi")),
+        HIPHOP("Hip hop", listOf("hiphop", "hip-hop")),
+        DRILL("Drill", listOf("drill")),
+        HOUSE("House", listOf("house")),
+        TECHNO("Techno", listOf("techno")),
+        EDM("EDM", listOf("edm")),
+        RNB("R&B", listOf("rnb")),
+        AMBIENT("Ambient", listOf("ambient")),
+        CINEMATIC("Cinematic", listOf("cinematic")),
+    }
+
+    /** How many filters are on, for the "Filters (n)" chip. */
+    val count: Int
+        get() = listOf(bpmMin != null || bpmMax != null, key != null || scale != null, kind != Kind.ANY).count { it } +
+            vibes.size + genres.size
+
+    val isEmpty: Boolean get() = count == 0
+
+    /** Solr filter clauses, ANDed with the licence and duration filters. */
+    fun clauses(): List<String> = buildList {
+        if (bpmMin != null || bpmMax != null) add("bpm:[${bpmMin ?: "*"} TO ${bpmMax ?: "*"}]")
+        val tonalities = when {
+            key != null && scale != null -> listOf("$key $scale")
+            key != null -> listOf("$key major", "$key minor")
+            scale != null -> KEYS.map { "$it $scale" }
+            else -> emptyList()
+        }
+        if (tonalities.isNotEmpty()) add("tonality:(${tonalities.joinToString(" OR ") { "\"$it\"" }})")
+        when (kind) {
+            Kind.LOOP -> add("loopable:true")
+            Kind.ONE_SHOT -> add("single_event:true")
+            Kind.ANY -> Unit
+        }
+        // Freesound's timbre descriptors run 0-100; "bright" means clearly above the middle.
+        vibes.forEach { add("${it.field}:[$VIBE_MIN TO *]") }
+        if (genres.isNotEmpty()) {
+            add("tag:(${genres.flatMap { it.tags }.joinToString(" OR ") { "\"$it\"" }})")
+        }
+    }
+
+    companion object {
+        val KEYS = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+        const val VIBE_MIN = 60
     }
 }

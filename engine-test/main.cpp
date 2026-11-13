@@ -196,7 +196,37 @@ static bool testExtraEngines(const char* sf2Path) {
     return ok;
 }
 
+// The library's stop button silences a long preview at once.
+static bool testStopAudition() {
+    const int sr = 48000;
+    Core core;
+    core.setSampleRate(sr);
+    std::vector<float> tone(sr * 3);
+    for (size_t n = 0; n < tone.size(); ++n) tone[n] = 0.5f * std::sin(2 * 3.14159 * 220 * n / sr);
+    core.setSample(kAuditionSlot, tone, static_cast<float>(sr));
+    core.audition();
+    std::vector<float> buf(256 * 2);
+    auto loud = [&](int blocks) {
+        float peak = 0;
+        for (int b = 0; b < blocks; ++b) {
+            core.render(buf.data(), 256);
+            for (float v : buf) peak = std::fmax(peak, std::fabs(v));
+        }
+        return peak;
+    };
+    const float before = loud(20);
+    core.stopAudition();
+    loud(1);
+    const float after = loud(20);
+    std::printf("stop audition: before=%.3f after=%.4f\n", before, after);
+    return before > 0.1f && after < 0.001f;
+}
+
 int main(int argc, char** argv) {
+    if (!testStopAudition()) {
+        std::printf("FAIL (stop audition)\n");
+        return 1;
+    }
     if (!testExtraEngines(argc > 1 ? argv[1] : nullptr)) {
         std::printf("FAIL (extra engines)\n");
         return 1;

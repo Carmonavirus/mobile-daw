@@ -907,10 +907,33 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         decodeSample(path)?.let { it.frames.size / it.sampleRate } ?: 0f
 
     /** Plays a kit sound without adding it to the project. */
-    fun audition(path: String) {
+    fun audition(path: String, name: String = java.io.File(path).nameWithoutExtension) {
         val decoded = decodeSample(path) ?: return
-        NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.right, decoded.sampleRate)
-        NativeEngine.audition()
+        auditionDecoded(decoded, name)
+    }
+
+    /** The library preview that is playing, for the player bar under the sound lists. */
+    class LibraryPreview(val name: String, val durationMs: Long, val startedAt: Long)
+
+    var libraryPreview by mutableStateOf<LibraryPreview?>(null)
+        private set
+    private var libraryPreviewEnd: Job? = null
+
+    private fun startLibraryPreview(name: String, durationMs: Long) {
+        val p = LibraryPreview(name, durationMs.coerceAtLeast(100), android.os.SystemClock.uptimeMillis())
+        libraryPreview = p
+        libraryPreviewEnd?.cancel()
+        libraryPreviewEnd = viewModelScope.launch {
+            delay(p.durationMs)
+            if (libraryPreview === p) libraryPreview = null
+        }
+    }
+
+    /** The stop button: silences any library preview at once. */
+    fun stopAudition() {
+        NativeEngine.stopAudition()
+        libraryPreviewEnd?.cancel()
+        libraryPreview = null
     }
 
     fun addSampleChannel(sound: KitLibrary.Sound) {
@@ -982,9 +1005,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** Plays a sound from the library without changing the project. */
     fun auditionChoice(choice: com.mobiledaw.sound.SoundChoice) {
         when (choice) {
-            is com.mobiledaw.sound.SoundChoice.Sample -> audition(choice.path)
+            is com.mobiledaw.sound.SoundChoice.Sample -> audition(choice.path, choice.name)
             is com.mobiledaw.sound.SoundChoice.Engine -> {
                 val pitch = choice.pitch ?: 60
+                // A preset preview is a half-second note plus its tail.
+                startLibraryPreview(choice.name, ENGINE_PREVIEW_MS)
                 when (choice.instrument) {
                     Instrument.SOUNDFONT -> {
                         val source = choice.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
@@ -1004,9 +1029,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Plays a decoded sound (an online preview) in the audition slot. */
-    fun auditionDecoded(decoded: WavDecoder.Decoded) {
+    fun auditionDecoded(decoded: WavDecoder.Decoded, name: String) {
         NativeEngine.setSample(NativeEngine.AUDITION_SLOT, decoded.frames, decoded.right, decoded.sampleRate)
         NativeEngine.audition()
+        startLibraryPreview(name, (decoded.frames.size * 1000L / decoded.sampleRate.coerceAtLeast(1f)).toLong())
     }
 
     /** Adds the sound as a new channel ([channelId] null) or gives it to an existing channel. */
@@ -1860,6 +1886,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
+        /** How long a preset preview is shown in the library player bar. */
+        const val ENGINE_PREVIEW_MS = 1500L
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"

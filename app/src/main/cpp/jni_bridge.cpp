@@ -134,6 +134,10 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_audition(JNIEnv*, j
     engine()->core().audition();
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_stopAudition(JNIEnv*, jobject) {
+    engine()->core().stopAudition();
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setMetronome(JNIEnv*, jobject, jboolean on, jint beatsPerBar) {
     engine()->core().setBeatsPerBar(beatsPerBar);
     engine()->core().setMetronome(on == JNI_TRUE);

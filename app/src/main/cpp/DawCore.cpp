@@ -637,6 +637,7 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
     }
 
     adoptSamples();
+    if (auditionStop_.exchange(false)) auditionVoice_.active = false;
     if (auditionTrigger_.exchange(false)) {
         const SampleData* data = sample_[kAuditionSlot];
         Synth::start(auditionVoice_, 60, 0.9f, 0);

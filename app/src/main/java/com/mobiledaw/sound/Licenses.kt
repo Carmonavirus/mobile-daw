@@ -61,6 +61,8 @@ data class OnlineSound(
     val previewUrl: String,
     /** The original file, when it can be fetched directly. */
     val fileUrl: String?,
+    /** Facts from the source's analysis, e.g. "120 BPM", "A minor", "Loop". */
+    val facts: List<String> = emptyList(),
 )
 
 /** Who made a sound saved from an online library, and under what licence. */

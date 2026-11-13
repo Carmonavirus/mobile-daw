@@ -100,7 +100,7 @@ fun KitPicker(
         )
     }
 
-    FullScreen(onDismiss) {
+    PreviewScreen(vm, onDismiss) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(if (replacing != null) "Sound for ${replacing.name}" else if (forDrums) "Add drums" else "Add sounds", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
@@ -139,7 +139,7 @@ fun KitPicker(
                 vm.applyChoice(replacing?.id, choice)
                 if (replacing != null) onDismiss() else added = "Added ${choice.name} to the rack."
             }
-            return@FullScreen
+            return@PreviewScreen
         }
 
         if (kits.isEmpty()) {
@@ -150,7 +150,7 @@ fun KitPicker(
                 Spacer(Modifier.height(14.dp))
                 TextAction("Open Drum kits", strong = true, onClick = onOpenSettings)
             }
-            return@FullScreen
+            return@PreviewScreen
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -186,7 +186,7 @@ fun KitPicker(
                                     actionLabel = if (replacing != null) "Use" else "+",
                                     onPlay = {
                                         lastPlayed = sound.path
-                                        vm.audition(sound.path)
+                                        vm.audition(sound.path, sound.name)
                                     },
                                     onAction = {
                                         if (replacing != null) {

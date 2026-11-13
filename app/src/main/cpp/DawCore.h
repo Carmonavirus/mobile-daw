@@ -187,6 +187,8 @@ public:
     void setSample(int slot, std::vector<float> left, std::vector<float> right, float sampleRate);
     // Plays the audition sample once.
     void audition() { auditionTrigger_.store(true); }
+    // Stops every library preview: the audition sample and the engines' audition slot.
+    void stopAudition() { auditionStop_.store(true); engines_.stopAudition(); }
     int64_t positionTicks() const { return position_.load(); }
     bool isPlaying() const { return playing_.load(); }
     void readLevels(float* out, int count) const;
@@ -273,6 +275,7 @@ private:
     std::array<SampleData*, kSampleSlots> sample_{};
     Voice auditionVoice_{};
     std::atomic<bool> auditionTrigger_{false};
+    std::atomic<bool> auditionStop_{false};
 
     SoundEngines engines_;
     // Mixer tracks and their per-block buses (audio thread).

@@ -49,6 +49,9 @@ object NativeEngine {
      */
     external fun shiftKeepLength(frames: FloatArray, sampleRate: Float, semis: Float, mode: Int): FloatArray
     external fun audition()
+
+    /** Stops every library preview (sample and engine). */
+    external fun stopAudition()
     external fun positionTicks(): Long
 
     /** Metronome click, made in the engine on each beat (beat 1 accented). Never in a bounce/export. */
