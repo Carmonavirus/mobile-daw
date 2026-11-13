@@ -172,12 +172,32 @@ class FreesoundClient(context: Context) {
     }
 
     /** Page where the user approves this app; Freesound then shows a code to paste back. */
-    fun authorizeUrl(): String = "$API/oauth2/authorize/?client_id=${Http.enc(clientId)}&response_type=code&state=mobiledaw"
+    /**
+     * Freesound credentials require PKCE (S256) by default: without a code_challenge the
+     * authorize page shows "Oops! there were some errors". A fresh verifier is made per sign-in
+     * and sent back with the code.
+     */
+    fun authorizeUrl(): String {
+        val verifier = newPkceVerifier()
+        pkceVerifier = verifier
+        return "$API/oauth2/authorize/?client_id=${Http.enc(clientId.trim())}&response_type=code&state=mobiledaw" +
+            "&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256"
+    }
+
+    private var pkceVerifier: String
+        get() = prefs.getString("pkce_verifier", "").orEmpty()
+        set(v) = prefs.edit().putString("pkce_verifier", v).apply()
 
     fun signIn(code: String) {
         val r = Http.postForm(
             "$API/oauth2/access_token/",
-            mapOf("client_id" to clientId, "client_secret" to apiKey, "grant_type" to "authorization_code", "code" to code.trim()),
+            buildMap {
+                put("client_id", clientId.trim())
+                put("client_secret", apiKey.trim())
+                put("grant_type", "authorization_code")
+                put("code", code.trim())
+                pkceVerifier.takeIf { it.isNotEmpty() }?.let { put("code_verifier", it) }
+            },
         ).jsonObject
         storeTokens(r)
     }
@@ -202,7 +222,7 @@ class FreesoundClient(context: Context) {
             storeTokens(
                 Http.postForm(
                     "$API/oauth2/access_token/",
-                    mapOf("client_id" to clientId, "client_secret" to apiKey, "grant_type" to "refresh_token", "refresh_token" to refreshToken),
+                    mapOf("client_id" to clientId.trim(), "client_secret" to apiKey.trim(), "grant_type" to "refresh_token", "refresh_token" to refreshToken),
                 ).jsonObject,
             )
             accessToken
@@ -224,6 +244,19 @@ class FreesoundClient(context: Context) {
     }
 
     companion object {
+        /** RFC 7636 code verifier: 64 random URL-safe characters. */
+        internal fun newPkceVerifier(): String {
+            val bytes = ByteArray(48).also { java.security.SecureRandom().nextBytes(it) }
+            return base64Url(bytes)
+        }
+
+        /** S256 challenge: base64url(sha256(verifier)) without padding. */
+        internal fun pkceChallenge(verifier: String): String =
+            base64Url(java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
+
+        private fun base64Url(bytes: ByteArray): String =
+            java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+
         const val API = "https://freesound.org/apiv2"
         const val APPLY_URL = "https://freesound.org/apiv2/apply"
         /** Freesound's own page that shows the sign-in code; the API credential must use it as its Callback URL. */
