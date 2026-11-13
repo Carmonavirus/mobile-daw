@@ -114,3 +114,14 @@ class DawProcessor extends AudioWorkletProcessor {
 }
 
 registerProcessor('daw-engine', DawProcessor);
+
+// Microphone capture for recording: hands each block of the first input channel to the page.
+class MicProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch && ch.length) this.port.postMessage(ch.slice());
+    return true;
+  }
+}
+
+registerProcessor('daw-mic', MicProcessor);

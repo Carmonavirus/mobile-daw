@@ -43,10 +43,21 @@ kotlin {
     }
 }
 
-// Use the machine's Node and Yarn instead of downloading them.
+// Locally, use the machine's Node and Yarn (the sandbox can't download them); CI downloads its own.
+val downloadTools = System.getenv("CI") == "true"
 rootProject.plugins.withType<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin> {
-    rootProject.the<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension>().download = false
+    rootProject.the<org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootExtension>().download = downloadTools
 }
 rootProject.plugins.withType<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin> {
-    rootProject.the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension>().download = false
+    rootProject.the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension>().download = downloadTools
 }
+
+// The APK's assets (presets, and the GeneralUser GS SoundFont when present) under assets/, and the
+// engine built by web/engine/build.sh, served next to the page.
+val webExtras = layout.buildDirectory.dir("generated/webExtras")
+val copyWebExtras = tasks.register<Copy>("copyWebExtras") {
+    into(webExtras)
+    from(rootDir.resolve("../../app/src/main/assets")) { into("assets") }
+    from(rootDir.resolve("../public/engine.wasm"))
+}
+kotlin.sourceSets.named("wasmJsMain") { resources.srcDir(copyWebExtras) }

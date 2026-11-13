@@ -1,13 +1,16 @@
 name: Web app
 
-# Builds the browser version (web/): the app's C++ audio engine compiled to WebAssembly plus
-# the web UI. Pushes to the install branch publish it to GitHub Pages (gh-pages branch).
+# Builds the browser version: the APK's own Kotlin/Compose screens compiled to WebAssembly
+# (web/app) on top of the app's C++ audio engine compiled to WebAssembly (web/engine). The older
+# Preact version (web/src) is published under classic/ for browsers without WebAssembly GC.
+# Pushes to the install branch publish it to GitHub Pages (gh-pages branch).
 on:
   push:
     paths:
       - 'web/**'
       - 'app/src/main/cpp/**'
-      - 'app/src/main/assets/wavesynth/**'
+      - 'app/src/main/assets/**'
+      - 'app/src/main/java/**'
       - '.github/workflows/web.yml'
   workflow_dispatch:
 
@@ -31,13 +34,39 @@ jobs:
         run: |
           npm ci
           npm test
-      - name: Build the web app
+      - name: Build the classic web app
         working-directory: web
         run: npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Fetch the GeneralUser GS SoundFont (same file as the APK)
+        run: |
+          f=app/src/main/assets/soundfonts/GeneralUser-GS.sf2
+          mkdir -p "$(dirname "$f")"
+          curl -sSfL -o "$f" https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
+          echo "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe  $f" | sha256sum -c -
+      - name: Build the web app (the APK's own screens)
+        run: ./gradlew --no-daemon -p web/app wasmJsBrowserDistribution
+      - name: Smoke test in Chromium (starts, plays sound, saves, survives taps)
+        working-directory: web/app
+        run: |
+          npm install --no-save --no-package-lock playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node tests/smoke.mjs build/dist/wasmJs/productionExecutable
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r web/app/build/dist/wasmJs/productionExecutable/. site/
+          rm -f site/*.map
+          cp -r web/dist site/classic
+          echo "window.DAW_BUILD = { version: 'web-${GITHUB_SHA::7}', time: $(date +%s)000 };" > site/build-info.js
       - uses: actions/upload-artifact@v4
         with:
           name: web-app
-          path: web/dist
+          path: site
 
   # The site always shows the install branch, the same code as the latest APK.
   publish:
