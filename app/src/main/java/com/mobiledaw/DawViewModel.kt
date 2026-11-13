@@ -50,6 +50,9 @@ enum class Tab(val label: String) { PLAYLIST("Playlist"), RACK("Rack"), PIANO("P
 /** PATTERN loops the selected pattern; SONG plays the playlist arrangement. */
 enum class PlayMode { PATTERN, SONG }
 
+/** A side of the wide-screen split view. */
+enum class PaneSide { LEFT, RIGHT }
+
 /** Where a mic recording is: idle, counting in (1, 2, 3, GO) or recording. */
 enum class TakeState { IDLE, COUNTING, RECORDING }
 
@@ -122,17 +125,31 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     /** Phone turning to/from landscape: the 3, 2, 1 countdown that blocks the screen first. */
     var turnCountdown by mutableStateOf<TurnCountdown?>(null)
 
-    /** The piano roll is on screen: its own tab, or beside the rack on a wide screen. */
-    val pianoVisible: Boolean get() = tab == Tab.PIANO || (wideLayout && tab == Tab.RACK)
+    /**
+     * Wide-screen split view, per tab: how much of the width the left pane takes (dragged with the
+     * divider), and which pane, if any, the user closed. Kept for the session only.
+     */
+    val splitShare = androidx.compose.runtime.mutableStateMapOf<Tab, Float>()
+    val splitHidden = androidx.compose.runtime.mutableStateMapOf<Tab, PaneSide>()
 
-    /** Go to the piano roll, unless it is already showing beside the rack. */
+    /** The second screen of a tab's split view is showing (wide layout and not closed). */
+    private fun rightPaneShown(t: Tab) = wideLayout && tab == t && splitHidden[t] != PaneSide.RIGHT
+
+    /** The piano roll is on screen: its own tab, or beside the rack on a wide screen. */
+    val pianoVisible: Boolean get() = tab == Tab.PIANO || rightPaneShown(Tab.RACK)
+
+    /** Go to the piano roll, unless it is (or can be) showing beside the rack. */
     fun showPianoRoll() {
-        if (!(wideLayout && tab == Tab.RACK)) tab = Tab.PIANO
+        if (wideLayout && tab == Tab.RACK) splitHidden.remove(Tab.RACK) else tab = Tab.PIANO
     }
 
-    /** Go to the channel rack, unless it is already showing beside the playlist. */
+    /** Go to the channel rack, unless it is (or can be) showing beside the playlist. */
     fun showRack() {
-        if (!(wideLayout && tab == Tab.PLAYLIST)) tab = Tab.RACK
+        when {
+            wideLayout && tab == Tab.PLAYLIST -> splitHidden.remove(Tab.PLAYLIST)
+            wideLayout && tab == Tab.RACK -> splitHidden.remove(Tab.RACK)
+            else -> tab = Tab.RACK
+        }
     }
     var settingsOpen by mutableStateOf(false)
 
@@ -488,12 +505,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun togglePlay() {
         when {
             takeState != TakeState.IDLE -> stopTake()
-            playing -> {
-                applyPlaying(false)
-                returnToPlayFrom()
-            }
+            playing -> pause()
             else -> applyPlaying(true)
         }
+    }
+
+    /** Pause: stops where you are, so the next play carries on from there. Stop goes back instead. */
+    private fun pause() {
+        val tick = positionTicks.coerceIn(0L, maxOf(0, loopTicks - TICKS_PER_STEP).toLong())
+        applyPlaying(false)
+        NativeEngine.seek(tick)
+        showLive(tick)
     }
 
     /** The "stop all sound" button: stops playback (and a take in progress) and cuts every sound. */

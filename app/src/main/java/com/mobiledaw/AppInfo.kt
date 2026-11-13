@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.3", "2026-11-13T19:50:00Z",
+            listOf(
+                "The play button turns into a pause button (two bars) while playing. Pause stops right where you are, and play carries on from there.",
+                "Stop is still its own button: it stops, cuts every sound and goes back to where play started.",
+                "Sideways, the play button now sits in the middle of the screen, and Stop sits where play used to be.",
+                "Tablet side-by-side view: drag the handle on the dividing line to make either side bigger. Tap its arrows, or drag it all the way to an edge, to close a side. A closed side leaves a slim strip on the edge: tap it to open it again. Sizes are kept until you close the app.",
+            ),
+        ),
+        Release(
             "0.8.2", "2026-11-13T19:20:00Z",
             listOf(
                 "New projects now start empty: no demo beat, no preloaded sounds, no notes and nothing on the playlist. Tap + Add drums or + Add sounds in the Rack to begin.",
