@@ -2,6 +2,7 @@ package com.mobiledaw
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -456,14 +457,35 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- transport
 
     fun togglePlay() {
-        if (takeState != TakeState.IDLE) stopTake() else applyPlaying(!playing)
+        when {
+            takeState != TakeState.IDLE -> stopTake()
+            playing -> {
+                applyPlaying(false)
+                returnToPlayFrom()
+            }
+            else -> applyPlaying(true)
+        }
     }
 
     /** The "stop all sound" button: stops playback (and a take in progress) and cuts every sound. */
     fun stopAllSound() {
         if (takeState != TakeState.IDLE) stopTake()
+        val wasPlaying = playing
         playing = false
         NativeEngine.panic()
+        if (wasPlaying) returnToPlayFrom()
+    }
+
+    /**
+     * Where play starts: the spot you last scrubbed or tapped to (0 if you haven't). Stopping goes
+     * back there, FL-style, so play / stop / play keeps starting from your spot, not the beginning.
+     */
+    private var playFromTick = 0
+
+    private fun returnToPlayFrom() {
+        val tick = playFromTick.coerceIn(0, maxOf(0, loopTicks - TICKS_PER_STEP))
+        NativeEngine.seek(tick.toLong())
+        showLive(tick.toLong())
     }
 
     /** Moves the playhead to a fraction (0..1) of the pattern or song, snapped to a step. */
@@ -471,6 +493,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val raw = (fraction.coerceIn(0f, 1f) * loopTicks).toInt()
         val tick = ((raw / TICKS_PER_STEP) * TICKS_PER_STEP).coerceIn(0, maxOf(0, loopTicks - TICKS_PER_STEP))
         NativeEngine.seek(tick.toLong())
+        playFromTick = tick
         // Playing: hold the playhead here while the earbuds finish what was already sent, then go on in sync.
         showLive(tick.toLong())
     }
@@ -494,6 +517,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun switchMode(value: PlayMode) {
         if (mode == value) return
         mode = value
+        playFromTick = 0
         syncEngine()
     }
 
@@ -1476,6 +1500,155 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    // ---------------------------------------------------------------- playlist rows, zoom, follow
+
+    /** Adds an empty row at the bottom of the playlist. */
+    fun addPlaylistRow() = update { p ->
+        p.copy(playlistRows = (p.rowCount + 1).coerceAtMost(com.mobiledaw.model.MAX_PLAYLIST_ROWS))
+    }
+
+    /** Puts an empty row above [lane]; everything from that row down moves one row lower. */
+    fun insertPlaylistRow(lane: Int) = update { p ->
+        if (p.rowCount >= com.mobiledaw.model.MAX_PLAYLIST_ROWS) return@update p
+        p.copy(
+            playlistRows = p.rowCount + 1,
+            clips = p.clips.map { if (it.lane >= lane) it.copy(lane = it.lane + 1) else it },
+            audioClips = p.audioClips.map { if (it.lane >= lane) it.copy(lane = it.lane + 1) else it },
+        )
+    }
+
+    /** Removes row [lane] and what is on it (can be undone); the rows below move up. */
+    fun deletePlaylistRow(lane: Int) {
+        if (project.rowCount <= 1) return
+        val before = project
+        val hadClips = project.clips.any { it.lane == lane } || project.audioClips.any { it.lane == lane }
+        update { p ->
+            p.copy(
+                playlistRows = p.rowCount - 1,
+                clips = p.clips.filter { it.lane != lane }.map { if (it.lane > lane) it.copy(lane = it.lane - 1) else it },
+                audioClips = p.audioClips.filter { it.lane != lane }.map { if (it.lane > lane) it.copy(lane = it.lane - 1) else it },
+            )
+        }
+        if (hadClips) {
+            undoSnapshot = before
+            undoLabel = "Deleted row ${lane + 1}"
+        }
+    }
+
+    /** Width of one bar on the playlist, in dp (pinch or the − / + buttons). Remembered. */
+    var playlistBarDp by mutableFloatStateOf(prefs.getFloat("playlist_bar_dp", PLAYLIST_BAR_DP).coerceIn(PLAYLIST_BAR_MIN_DP, PLAYLIST_BAR_MAX_DP))
+        private set
+
+    fun changePlaylistZoom(barDp: Float) {
+        playlistBarDp = barDp.coerceIn(PLAYLIST_BAR_MIN_DP, PLAYLIST_BAR_MAX_DP)
+        prefs.edit().putFloat("playlist_bar_dp", playlistBarDp).apply()
+    }
+
+    /** The playlist pages along with the song playhead while playing (paused while you edit). Remembered. */
+    var playlistFollow by mutableStateOf(prefs.getBoolean("playlist_follow", true))
+        private set
+
+    fun changePlaylistFollow(on: Boolean) {
+        playlistFollow = on
+        prefs.edit().putBoolean("playlist_follow", on).apply()
+    }
+
+    // ---------------------------------------------------------------- copy, clone, split
+
+    /**
+     * Copy: another clip of the same pattern, right after this one on the same row (or the first row
+     * below with room). Editing the pattern changes both. Returns the new clip's index.
+     */
+    fun duplicatePatternClip(index: Int): Int? {
+        val p = project
+        val clip = p.clips.getOrNull(index) ?: return null
+        val len = p.clipLength(clip)
+        val start = clip.startTick + len
+        val lane = freeLane(p, clip.lane, start, start + len)
+        val copy = clip.movedTo(lane, start)
+        update { q -> q.copy(clips = q.clips + copy, playlistRows = maxOf(q.rowCount, lane + 1)) }
+        return project.clips.lastIndex
+    }
+
+    /** A new pattern with the same notes and length, named "Name 2" (then 3, ...). */
+    private fun clonedPattern(p: Project, source: Pattern, id: Long): Pattern {
+        val base = source.name.replace(Regex(" \\d+$"), "")
+        var n = 2
+        while (p.patterns.any { it.name == "$base $n" }) n++
+        return source.copy(id = id, name = "$base $n")
+    }
+
+    /** Clone: a new, independent copy of a pattern (FL's "Make unique" / "Clone"). Selects it. */
+    fun clonePattern(id: Long) {
+        val source = project.pattern(id) ?: return
+        val newId = project.nextId()
+        update { p ->
+            val i = p.patterns.indexOfFirst { it.id == id }
+            val list = p.patterns.toMutableList().apply { add(i + 1, clonedPattern(p, source, newId)) }
+            p.copy(patterns = list)
+        }
+        selectPattern(newId)
+    }
+
+    /** Clone for one playlist clip: it gets its own copy of the pattern, so edits only change it. */
+    fun makeClipUnique(index: Int) {
+        val clip = project.clips.getOrNull(index) ?: return
+        val source = project.pattern(clip.patternId) ?: return
+        val newId = project.nextId()
+        update { p ->
+            val i = p.patterns.indexOfFirst { it.id == source.id }
+            val list = p.patterns.toMutableList().apply { add(i + 1, clonedPattern(p, source, newId)) }
+            p.copy(patterns = list, clips = p.clips.mapIndexed { j, c -> if (j == index) c.copy(patternId = newId) else c })
+        }
+        selectPattern(newId)
+    }
+
+    /** Channels that have notes in [pattern], in rack order. */
+    fun channelsIn(pattern: Pattern): List<Channel> =
+        project.channels.filter { c -> pattern.notesFor(c.id).any { it.start < pattern.lengthTicks } }
+
+    /**
+     * Split by channel, like FL: one new pattern per channel that has notes, each placed where
+     * the clip was, on its own row (this row first, then free rows below; rows are added if needed).
+     * The original pattern stays in the list. Can be undone.
+     */
+    fun splitClipByChannel(index: Int) {
+        val p = project
+        val clip = p.clips.getOrNull(index) ?: return
+        val source = p.pattern(clip.patternId) ?: return
+        val channels = channelsIn(source)
+        if (channels.size < 2) return
+        val before = project
+        var next = p.nextId()
+        var q = p.copy(clips = p.clips.filterIndexed { i, _ -> i != index })
+        val start = clip.startTick
+        val end = p.clipEnd(clip)
+        var lane = clip.lane
+        val newPatterns = ArrayList<Pattern>()
+        channels.forEach { c ->
+            val pat = Pattern(next++, "${source.name} - ${c.name}".take(40), source.bars, mapOf(c.id to source.notesFor(c.id)))
+            newPatterns += pat
+            lane = freeLane(q, lane, start, end)
+            q = q.copy(
+                clips = q.clips + clip.copy(lane = lane, patternId = pat.id),
+                playlistRows = maxOf(q.rowCount, lane + 1),
+            )
+            lane++
+        }
+        val i = q.patterns.indexOfFirst { it.id == source.id }
+        q = q.copy(patterns = q.patterns.toMutableList().apply { addAll(i + 1, newPatterns) })
+        update { q }
+        undoSnapshot = before
+        undoLabel = "Split ${source.name} into ${channels.size}"
+    }
+
+    /** First row from [from] down that has nothing between the two ticks (may be past the last row). */
+    private fun freeLane(p: Project, from: Int, startTick: Int, endTick: Int): Int {
+        var lane = from.coerceAtLeast(0)
+        while (!p.laneFree(lane, startTick, endTick) && lane < com.mobiledaw.model.MAX_PLAYLIST_ROWS * 2) lane++
+        return lane
+    }
+
     /** Mute tool: mutes or unmutes the clip under [tick]. */
     fun toggleMuteAt(lane: Int, tick: Int) {
         val audio = audioClipAt(lane, tick)
@@ -1511,8 +1684,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         switchMode(PlayMode.SONG)
         val start = (positionTicks.toInt()).coerceAtLeast(0)
         takeStartTick = start
-        takeLane = (0 until PLAYLIST_LANES).firstOrNull { project.laneFree(it, start, Int.MAX_VALUE) }
-            ?: (0 until PLAYLIST_LANES).firstOrNull { project.laneFree(it, start, start + TICKS_PER_BAR) }
+        takeLane = (0 until project.rowCount).firstOrNull { project.laneFree(it, start, Int.MAX_VALUE) }
+            ?: (0 until project.rowCount).firstOrNull { project.laneFree(it, start, start + TICKS_PER_BAR) }
             ?: 0
         takePeaks = FloatArray(0)
         takeState = TakeState.COUNTING
@@ -1731,6 +1904,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         clearPianoHistory()
         val loaded = store.load(name) ?: return
         applyPlaying(false)
+        playFromTick = 0
         project = loaded
         selectedPatternId = loaded.patterns.first().id
         selectedChannelId = loaded.channels.firstOrNull()?.id ?: 0L
@@ -1743,6 +1917,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         closeChordGen(keep = true)
         clearPianoHistory()
         applyPlaying(false)
+        playFromTick = 0
         val p = DemoProject.empty(store.uniqueName("New project"))
         project = p
         selectedPatternId = p.patterns.first().id
@@ -2025,8 +2200,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val ENGINE_PREVIEW_MS = 1500L
         const val SCOPE_BINS = 96
         private const val MAX_PIANO_UNDO = 100
-        const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** Playlist zoom: default, narrowest and widest bar, in dp. */
+        const val PLAYLIST_BAR_DP = 56f
+        const val PLAYLIST_BAR_MIN_DP = 14f
+        const val PLAYLIST_BAR_MAX_DP = 220f
         /** Most a sample channel can be boosted, in dB. */
         const val BOOST_MAX_DB = 18f
         /** Pseudo sample path for a built-in drum's recorded hit, e.g. "builtin:hat". */

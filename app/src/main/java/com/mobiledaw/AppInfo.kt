@@ -26,6 +26,16 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.7", "2026-11-13T16:00:00Z",
+            listOf(
+                "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",
+                "Playlist zoom: pinch the playlist with two fingers, or use the − and + buttons in the bottom-right corner. Zoomed in far enough you see every bar number and the beats.",
+                "Follow: the playlist no longer jumps to the playhead while you're touching, dragging or have a clip open. It waits 4 seconds after you let go. Turn Follow off in the bottom-right corner to stop it paging along at all.",
+                "Play from your spot: tap or drag to a point, press play, then stop, and the playhead goes back to that point instead of the beginning (like FL).",
+                "Pattern clips: tap one for Copy (the same pattern again, right after it), Clone (this clip gets its own copy of the pattern, so you can change it alone) and Split by channel (one pattern per sound, each on its own row). Clone pattern is also in the pattern's menu at the top.",
+            ),
+        ),
+        Release(
             "0.7.6", "2026-11-13T12:20:00Z",
             listOf(
                 "Piano roll: new Undo button right of the play button. It takes back adding, moving, resizing and deleting notes, and chords you put in. Hold it to redo. It's greyed out when there's nothing to undo.",

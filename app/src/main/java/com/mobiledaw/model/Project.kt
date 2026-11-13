@@ -8,6 +8,8 @@ const val TICKS_PER_STEP = TICKS_PER_BEAT / 4
 const val STEPS_PER_BAR = 16
 const val TICKS_PER_BAR = TICKS_PER_STEP * STEPS_PER_BAR
 const val MAX_BARS = 16
+const val DEFAULT_PLAYLIST_ROWS = 8
+const val MAX_PLAYLIST_ROWS = 64
 
 /** Built-in instruments. The id must match the enum in app/src/main/cpp/Synth.h. */
 enum class Instrument(
@@ -214,7 +216,17 @@ data class Project(
     val mixerTracks: List<MixerTrack> = listOf(MixerTrack.vocals()),
     /** Mixer track recorded audio plays through (the Vocals track unless changed); null = master. */
     val recordingTrackId: Long? = VOCALS_TRACK_ID,
+    /** Rows on the playlist. More can be added; there are always enough to show every clip. */
+    val playlistRows: Int = DEFAULT_PLAYLIST_ROWS,
 ) {
+    /** Rows the playlist shows: [playlistRows], or more if a clip sits lower down. */
+    val rowCount: Int get() = maxOf(
+        1,
+        playlistRows,
+        (clips.maxOfOrNull { it.lane } ?: -1) + 1,
+        (audioClips.maxOfOrNull { it.lane } ?: -1) + 1,
+    )
+
     fun pattern(id: Long): Pattern? = patterns.firstOrNull { it.id == id }
 
     /** Ticks a pattern clip lasts: the shown part of its pattern, never past the pattern's end. */

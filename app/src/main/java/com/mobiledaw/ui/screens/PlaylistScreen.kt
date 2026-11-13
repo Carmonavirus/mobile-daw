@@ -17,7 +17,9 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
+import com.mobiledaw.model.MAX_PLAYLIST_ROWS
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.KeyboardActions
@@ -88,17 +90,15 @@ import androidx.compose.ui.platform.LocalDensity
 import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.ui.theme.DawColors
 
-private const val LANES = 8
 private val LANE_H = 52.dp
-private val BAR_W = 56.dp
 private val HEADER_H = 24.dp
 private val GUTTER_W = 40.dp
 private val HANDLE_R = 6.dp
 private val HANDLE_HIT = 18.dp
 /** How far the playhead may glide past the last engine reading (they arrive every ~33 ms). */
 private const val PLAYHEAD_LEAD_NANOS = 60_000_000L
-/** After you swipe the playlist yourself, it stops following the playhead for this long. */
-private const val FOLLOW_PAUSE_NANOS = 2_500_000_000L
+/** After you touch the playlist (swipe, tap, drag, pinch), it stops following the playhead for this long. */
+private const val FOLLOW_PAUSE_NANOS = 4_000_000_000L
 
 /** What a touch on the playlist grid landed on. */
 private sealed interface Hit {
@@ -123,20 +123,20 @@ private class Grid(val bw: Float, val lh: Float, val header: Float, val gap: Flo
     }
 }
 
-private fun hitTest(p: Project, g: Grid, pos: Offset, handleHit: Float): Hit? {
+private fun hitTest(p: Project, g: Grid, pos: Offset, handleHit: Float, rows: Int): Hit? {
     // Round handles first (they hang under the clip's bottom corners); nearest one wins.
     var best: Hit? = null
     var bestD = handleHit
     fun consider(d: Float, hit: Hit) { if (d < bestD) { bestD = d; best = hit } }
     p.clips.forEachIndexed { i, c ->
-        if (c.lane >= LANES) return@forEachIndexed
+        if (c.lane >= rows) return@forEachIndexed
         val (l, r) = g.edges(c.startTick, p.clipLength(c))
         val y = g.bottom(c.lane)
         consider((pos - Offset(l, y)).getDistance(), Hit.PatternEdge(i, c, true))
         consider((pos - Offset(r, y)).getDistance(), Hit.PatternEdge(i, c, false))
     }
     p.audioClips.forEach { c ->
-        if (c.lane >= LANES) return@forEach
+        if (c.lane >= rows) return@forEach
         val (l, r) = g.edges(c.startTick, c.lengthTicks(p.bpm))
         val y = g.bottom(c.lane)
         consider((pos - Offset(l, y)).getDistance(), Hit.AudioEdge(c, true))
@@ -145,7 +145,7 @@ private fun hitTest(p: Project, g: Grid, pos: Offset, handleHit: Float): Hit? {
     if (best != null) return best
     if (pos.y < g.header) return null
     val lane = ((pos.y - g.header) / g.lh).toInt()
-    if (lane !in 0 until LANES) return null
+    if (lane !in 0 until rows) return null
     // Audio clips are drawn on top, so they win.
     p.audioClips.lastOrNull { c ->
         val (l, r) = g.edges(c.startTick, c.lengthTicks(p.bpm))
@@ -173,7 +173,17 @@ fun PlaylistScreen(vm: DawViewModel) {
     val bars = maxOf(32, project.songBars + 8, liveEndBar + 8)
     val measurer = rememberTextMeasurer()
     val projectState = rememberUpdatedState(project)
+    val rows = project.rowCount
+    val rowsState = rememberUpdatedState(rows)
+    // Zoom: the width of one bar (pinch the grid, or the − / + buttons).
+    val barW = vm.playlistBarDp.dp
+    val barWState = rememberUpdatedState(barW)
     val hScroll = rememberScrollState()
+    // When the finger last touched the grid (System.nanoTime), and whether one is down now:
+    // the playlist doesn't page along with the song while you're working on it.
+    val touch = remember { LongArray(2) }
+    // Scroll position to land on after a zoom, once the new width is laid out (-1 = none).
+    val pendingScroll = remember { IntArray(2).also { it[0] = -1 } }
     var viewportPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     // Waveforms of the audio files, worked out once per clip list.
@@ -187,6 +197,7 @@ fun PlaylistScreen(vm: DawViewModel) {
     // The clip whose window is open.
     var openAudioId by remember { mutableStateOf<Long?>(null) }
     var openPatternIndex by remember { mutableStateOf<Int?>(null) }
+    val windowOpen = rememberUpdatedState(openAudioId != null || openPatternIndex != null)
 
     // Song playhead: glides every frame between engine readings (which already include the
     // Bluetooth delay), and the playlist pages along to keep it in view, FL-style.
@@ -212,9 +223,23 @@ fun PlaylistScreen(vm: DawViewModel) {
             // Never step back a hair when a fresh reading lands just behind the glide.
             headTick = if (vm.playing && target < headTick && headTick - target < TICKS_PER_STEP) headTick else target
 
-            if (hScroll.isScrollInProgress) userScrollUntil = now + FOLLOW_PAUSE_NANOS
-            if (vm.mode == PlayMode.SONG && vm.playing && viewportPx > 0 && now > userScrollUntil) {
-                val x = with(density) { headTick / TICKS_PER_BAR * BAR_W.toPx() }
+            // A zoom asked for a new scroll position: apply it once the wider/narrower grid is laid out.
+            if (pendingScroll[0] >= 0) {
+                hScroll.scrollTo(pendingScroll[0])
+                if (hScroll.value == pendingScroll[0] || ++pendingScroll[1] > 3) {
+                    pendingScroll[0] = -1
+                    pendingScroll[1] = 0
+                }
+            }
+
+            // Follow mode pauses while you touch, scroll, drag or have a clip window open, and
+            // for a few seconds after, so the view never jumps away from what you're editing.
+            if (hScroll.isScrollInProgress || touch[1] != 0L || windowOpen.value || dragAudio != null || dragPattern != null) {
+                userScrollUntil = now + FOLLOW_PAUSE_NANOS
+            }
+            if (touch[0] != 0L) userScrollUntil = maxOf(userScrollUntil, touch[0] + FOLLOW_PAUSE_NANOS)
+            if (vm.playlistFollow && vm.mode == PlayMode.SONG && vm.playing && viewportPx > 0 && now > userScrollUntil) {
+                val x = with(density) { headTick / TICKS_PER_BAR * barWState.value.toPx() }
                 if (x > hScroll.value + viewportPx * 0.85f || x < hScroll.value) {
                     hScroll.scrollTo((x - viewportPx * 0.1f).toInt().coerceAtLeast(0))
                 }
@@ -246,33 +271,86 @@ fun PlaylistScreen(vm: DawViewModel) {
                     .clickable(enabled = vm.audioImportMessage != null) { vm.audioImportMessage = null },
             )
         }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         Row(
             Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 52.dp),
         ) {
             // Track names stay put while the grid scrolls.
             Column(Modifier.width(GUTTER_W)) {
                 Box(Modifier.height(HEADER_H))
-                for (lane in 0 until LANES) {
-                    LaneNumber(lane, onAddAudio = { pickLane = lane; pickAudio.launch(AUDIO_TYPES) })
+                for (lane in 0 until rows) {
+                    LaneNumber(
+                        lane,
+                        canDelete = rows > 1,
+                        canAdd = rows < MAX_PLAYLIST_ROWS,
+                        onAddAudio = { pickLane = lane; pickAudio.launch(AUDIO_TYPES) },
+                        onInsertRow = { vm.insertPlaylistRow(lane) },
+                        onDeleteRow = { vm.deletePlaylistRow(lane) },
+                    )
                 }
+                if (rows < MAX_PLAYLIST_ROWS) AddRowButton(vm::addPlaylistRow)
             }
-            Box(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .onSizeChanged { viewportPx = it.width }
+                    // Sees every touch first: notes it (to pause follow mode) and turns two fingers
+                    // into a pinch zoom, keeping the spot between the fingers in place.
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            var zooming = false
+                            var startDist = 0f
+                            var startBar = 0f
+                            var anchorX = 0f
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val now = System.nanoTime()
+                                touch[0] = now
+                                val pressed = event.changes.filter { it.pressed }
+                                touch[1] = if (pressed.isEmpty()) 0L else now
+                                if (pressed.size >= 2) {
+                                    val a = pressed[0].position
+                                    val b = pressed[1].position
+                                    val dist = (a - b).getDistance()
+                                    val focusX = (a.x + b.x) / 2f
+                                    if (!zooming) {
+                                        zooming = true
+                                        startDist = dist
+                                        startBar = barWState.value.value
+                                        anchorX = hScroll.value + focusX
+                                    } else if (startDist > 0f) {
+                                        val target = (startBar * dist / startDist)
+                                            .coerceIn(DawViewModel.PLAYLIST_BAR_MIN_DP, DawViewModel.PLAYLIST_BAR_MAX_DP)
+                                        if (kotlin.math.abs(target - vm.playlistBarDp) > 0.25f) {
+                                            vm.changePlaylistZoom(target)
+                                            pendingScroll[0] = (anchorX * target / startBar - focusX).roundToInt().coerceAtLeast(0)
+                                            pendingScroll[1] = 0
+                                        }
+                                    }
+                                }
+                                if (zooming) event.changes.forEach { it.consume() }
+                            } while (event.changes.any { it.pressed })
+                            touch[1] = 0L
+                        }
+                    }
+                    .horizontalScroll(hScroll),
+            ) {
               Box {
                 Canvas(
                     Modifier
-                        .width(BAR_W * bars)
-                        .height(HEADER_H + LANE_H * LANES + HANDLE_R * 2)
+                        .width(barW * bars)
+                        .height(HEADER_H + LANE_H * rows + HANDLE_R * 2)
                         .pointerInput(Unit) {
-                            val g = Grid(BAR_W.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx())
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
+                                val g = Grid(barWState.value.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx())
+                                val rowCount = rowsState.value
                                 val p = projectState.value
                                 val tool = vm.playlistTool
-                                val hit = hitTest(p, g, down.position, HANDLE_HIT.toPx())
+                                val hit = hitTest(p, g, down.position, HANDLE_HIT.toPx(), rowCount)
                                 val lane = ((down.position.y - g.header) / g.lh).toInt()
                                 val tick = g.tickAt(down.position.x)
 
@@ -283,7 +361,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                                         vm.seekToTick(tick)
                                         return
                                     }
-                                    if (lane !in 0 until LANES) return
+                                    if (lane !in 0 until rowCount) return
                                     when (tool) {
                                         PlaylistTool.PENCIL -> when (hit) {
                                             is Hit.AudioBody -> openAudioId = hit.clip.id
@@ -306,8 +384,14 @@ fun PlaylistScreen(vm: DawViewModel) {
                                 // Pencil on a clip: a drag moves it (or resizes it from a handle), a tap opens it.
                                 var total = Offset.Zero
                                 var dragging = false
+                                var cancelled = false
                                 while (true) {
                                     val event = awaitPointerEvent()
+                                    // A second finger means a pinch zoom: drop the drag, leave the clip where it was.
+                                    if (event.changes.count { it.pressed } > 1) {
+                                        cancelled = true
+                                        break
+                                    }
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!change.pressed) {
                                         change.consume()
@@ -321,7 +405,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                                     val dLanes = (total.y / g.lh).roundToInt()
                                     when (hit) {
                                         is Hit.AudioBody -> dragAudio = hit.clip.copy(
-                                            lane = (hit.clip.lane + dLanes).coerceIn(0, LANES - 1),
+                                            lane = (hit.clip.lane + dLanes).coerceIn(0, rowCount - 1),
                                             startTick = vm.snapTick(hit.clip.startTick + dTicks),
                                         )
                                         is Hit.AudioEdge -> dragAudio = if (hit.left) {
@@ -330,7 +414,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                                             ClipEdit.resizeRight(hit.clip, vm.snapTick(hit.clip.endTick(p.bpm) + dTicks), p.bpm)
                                         }
                                         is Hit.PatternBody -> dragPattern = hit.index to hit.clip.movedTo(
-                                            (hit.clip.lane + dLanes).coerceIn(0, LANES - 1),
+                                            (hit.clip.lane + dLanes).coerceIn(0, rowCount - 1),
                                             vm.snapTick(hit.clip.startTick + dTicks),
                                         )
                                         is Hit.PatternEdge -> dragPattern = hit.index to if (hit.left) {
@@ -341,7 +425,9 @@ fun PlaylistScreen(vm: DawViewModel) {
                                         null -> Unit
                                     }
                                 }
-                                if (!dragging) {
+                                if (cancelled) {
+                                    // Nothing to do; the pinch handles the rest of the gesture.
+                                } else if (!dragging) {
                                     tap()
                                 } else {
                                     dragAudio?.let { moved -> vm.updateAudioClip(moved.id) { moved } }
@@ -353,7 +439,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                         },
                 ) {
                     val p = projectState.value
-                    val g = Grid(BAR_W.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx())
+                    val g = Grid(barW.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx())
                     val bw = g.bw
                     val lh = g.lh
                     val header = g.header
@@ -361,22 +447,40 @@ fun PlaylistScreen(vm: DawViewModel) {
                     val numberStyle = TextStyle(fontSize = 10.sp, color = DawColors.Muted)
                     val handles = ArrayList<Pair<Offset, Color>>()
 
-                    // Bar numbers along the top.
+                    // Bar numbers along the top: every bar when zoomed in, every 4 or 8 when zoomed out.
+                    val every = when {
+                        barW >= 80.dp -> 1
+                        barW >= 22.dp -> 4
+                        else -> 8
+                    }
                     for (bar in 0 until bars) {
-                        if (bar % 4 == 0) {
+                        if (bar % every == 0) {
                             val label = measurer.measure("${bar + 1}", numberStyle)
                             drawText(label, topLeft = Offset(bar * bw + 4.dp.toPx(), (header - label.size.height) / 2f))
                         }
                     }
                     // Cells, shaded in groups of four bars.
-                    for (lane in 0 until LANES) {
+                    val cellGap = if (barW < 24.dp) gap / 2f else gap
+                    for (lane in 0 until rows) {
                         for (bar in 0 until bars) {
                             drawRoundRect(
                                 if (bar % 8 < 4) DawColors.Card else DawColors.Chip.copy(alpha = 0.6f),
-                                Offset(bar * bw + gap, header + lane * lh + gap),
-                                Size(bw - gap * 2, lh - gap * 2),
-                                CornerRadius(8.dp.toPx()),
+                                Offset(bar * bw + cellGap, header + lane * lh + gap),
+                                Size(bw - cellGap * 2, lh - gap * 2),
+                                CornerRadius(minOf(8.dp.toPx(), bw / 4f)),
                             )
+                            // Zoomed in: faint beat lines inside each bar.
+                            if (barW >= 110.dp) {
+                                for (beat in 1 until TICKS_PER_BAR / TICKS_PER_BEAT) {
+                                    val bx = bar * bw + beat * bw * TICKS_PER_BEAT / TICKS_PER_BAR
+                                    drawLine(
+                                        DawColors.Muted.copy(alpha = 0.18f),
+                                        Offset(bx, header + lane * lh + gap * 3),
+                                        Offset(bx, header + (lane + 1) * lh - gap * 3),
+                                        1.dp.toPx(),
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -385,7 +489,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                     p.clips.forEachIndexed { i, original ->
                         val clip = if (draggedPattern?.first == i) draggedPattern.second else original
                         val index = p.patterns.indexOfFirst { it.id == clip.patternId }
-                        if (index < 0 || clip.lane >= LANES) return@forEachIndexed
+                        if (index < 0 || clip.lane >= rows) return@forEachIndexed
                         val pattern = p.patterns[index]
                         val base = DawColors.PatternColors[index % DawColors.PatternColors.size]
                         val color = if (clip.muted) base.copy(alpha = 0.3f) else base
@@ -418,7 +522,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                     val draggedAudio = dragAudio
                     p.audioClips.forEach { original ->
                         val clip = if (draggedAudio?.id == original.id) draggedAudio else original
-                        if (clip.lane >= LANES) return@forEach
+                        if (clip.lane >= rows) return@forEach
                         val (x, right) = g.edges(clip.startTick, clip.lengthTicks(p.bpm))
                         val y = g.top(clip.lane)
                         val w = right - x
@@ -473,10 +577,10 @@ fun PlaylistScreen(vm: DawViewModel) {
                 // Song playhead on its own layer, so only the line redraws each frame.
                 Canvas(Modifier.matchParentSize()) {
                     if (vm.mode != PlayMode.SONG) return@Canvas
-                    val x = headTick / TICKS_PER_BAR * BAR_W.toPx()
+                    val x = headTick / TICKS_PER_BAR * barW.toPx()
                     val color = if (recording) RecordRed else DawColors.Accent
                     val top = HEADER_H.toPx()
-                    val bottom = top + LANE_H.toPx() * LANES
+                    val bottom = top + LANE_H.toPx() * rows
                     drawLine(color, Offset(x, top - 2.dp.toPx()), Offset(x, bottom), 2.dp.toPx())
                     // Marker in the bar-number ruler.
                     val half = 6.dp.toPx()
@@ -490,6 +594,17 @@ fun PlaylistScreen(vm: DawViewModel) {
                 }
               }
             }
+        }
+        // Follow and zoom, floating over the grid's bottom-right corner.
+        ViewControls(vm, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp)) { factor ->
+            // Button zoom keeps the middle of the screen in place.
+            val old = vm.playlistBarDp
+            vm.changePlaylistZoom(old * factor)
+            val now = vm.playlistBarDp
+            val mid = viewportPx / 2f
+            pendingScroll[0] = ((hScroll.value + mid) * now / old - mid).roundToInt().coerceAtLeast(0)
+            pendingScroll[1] = 0
+        }
         }
         PlaylistToolBar(vm)
     }
@@ -789,7 +904,10 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
     }
 }
 
-/** Tap on a pattern clip: mute it, open its pattern, or delete it. */
+/**
+ * Tap on a pattern clip: mute it, open its pattern, copy it (same pattern), clone it (its own
+ * pattern), split it by channel, or delete it.
+ */
 @Composable
 private fun PatternClipWindow(vm: DawViewModel, index: Int, onDismiss: () -> Unit) {
     val clip = vm.project.clips.getOrNull(index)
@@ -809,6 +927,15 @@ private fun PatternClipWindow(vm: DawViewModel, index: Int, onDismiss: () -> Uni
             fontSize = 12.sp,
             color = DawColors.Muted,
         )
+        val sharedBy = vm.project.clips.count { it.patternId == pattern.id }
+        if (sharedBy > 1) {
+            Text(
+                "This pattern is used by $sharedBy clips. Editing it changes all of them; Clone gives this one its own copy.",
+                fontSize = 12.sp,
+                color = DawColors.Muted,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextAction("Edit pattern") {
                 vm.selectPattern(pattern.id)
@@ -818,6 +945,15 @@ private fun PatternClipWindow(vm: DawViewModel, index: Int, onDismiss: () -> Uni
             TextAction(if (clip.muted) "Unmute" else "Mute") { vm.setPatternClip(index, clip.copy(muted = !clip.muted)) }
             Spacer(Modifier.weight(1f))
             TextAction("Delete") { vm.deletePatternClip(index); onDismiss() }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Copy: the same pattern again, right after this clip.
+            TextAction("Copy") { vm.duplicatePatternClip(index); onDismiss() }
+            // Clone: this clip gets a new, independent pattern.
+            TextAction("Clone") { vm.makeClipUnique(index); onDismiss() }
+            if (vm.channelsIn(pattern).size > 1) {
+                TextAction("Split by channel") { vm.splitClipByChannel(index); onDismiss() }
+            }
         }
     }
 }
@@ -841,9 +977,16 @@ private val RecordRed = Color(0xFFE5484D)
 /** File types the "Add audio file" picker offers (Android decodes WAV, MP3, OGG, FLAC, M4A/AAC...). */
 private val AUDIO_TYPES = arrayOf("audio/*", "application/ogg")
 
-/** A playlist row number. Tapping it opens a small menu with "Add audio file". */
+/** A playlist row number. Tapping it opens a small menu: add an audio file, insert or delete a row. */
 @Composable
-private fun LaneNumber(lane: Int, onAddAudio: () -> Unit) {
+private fun LaneNumber(
+    lane: Int,
+    canDelete: Boolean,
+    canAdd: Boolean,
+    onAddAudio: () -> Unit,
+    onInsertRow: () -> Unit,
+    onDeleteRow: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Box(
         Modifier
@@ -860,7 +1003,74 @@ private fun LaneNumber(lane: Int, onAddAudio: () -> Unit) {
                 text = { Text("Add audio file to row ${lane + 1}") },
                 onClick = { menu = false; onAddAudio() },
             )
+            if (canAdd) {
+                DropdownMenuItem(
+                    text = { Text("Insert empty row above") },
+                    onClick = { menu = false; onInsertRow() },
+                )
+            }
+            if (canDelete) {
+                DropdownMenuItem(
+                    text = { Text("Delete row ${lane + 1}", color = DawColors.Mute) },
+                    onClick = { menu = false; onDeleteRow() },
+                )
+            }
         }
+    }
+}
+
+/** "+" under the row numbers: adds a row at the bottom of the playlist. */
+@Composable
+private fun AddRowButton(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .padding(top = 4.dp)
+            .height(36.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(DawColors.Chip)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("+", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+    }
+}
+
+/**
+ * Small floating pill: Follow (the view pages along with the song while it plays) and zoom − / +.
+ * [onZoom] gets the factor to multiply the bar width by.
+ */
+@Composable
+private fun ViewControls(vm: DawViewModel, modifier: Modifier, onZoom: (Float) -> Unit) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(DawColors.Paper.copy(alpha = 0.94f))
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        val follow = vm.playlistFollow
+        Box(
+            Modifier
+                .height(32.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (follow) DawColors.Note else DawColors.Chip)
+                .clickable { vm.changePlaylistFollow(!follow) }
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Follow",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (follow) DawColors.OnNote else DawColors.Muted,
+            )
+        }
+        val zoomOut = vm.playlistBarDp > DawViewModel.PLAYLIST_BAR_MIN_DP + 0.5f
+        val zoomIn = vm.playlistBarDp < DawViewModel.PLAYLIST_BAR_MAX_DP - 0.5f
+        StepButton("−", enabled = zoomOut) { onZoom(1f / 1.4f) }
+        StepButton("+", enabled = zoomIn) { onZoom(1.4f) }
     }
 }
 

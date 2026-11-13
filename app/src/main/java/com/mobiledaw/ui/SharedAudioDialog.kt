@@ -26,7 +26,6 @@ import com.mobiledaw.model.TICKS_PER_BAR
 import com.mobiledaw.ui.theme.DawColors
 
 /** Playlist rows offered when a file arrives through Share / Open with (same as the playlist). */
-private const val ROWS = 8
 
 /**
  * Shown after an audio file was shared to the app: pick the playlist row it goes on.
@@ -65,7 +64,7 @@ fun SharedAudioDialog(vm: DawViewModel) {
             Spacer(Modifier.height(14.dp))
             Text("PICK A ROW", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
             Spacer(Modifier.height(6.dp))
-            for (lane in 0 until ROWS) {
+            for (lane in 0 until p.rowCount) {
                 val used = p.clips.count { it.lane == lane } + p.audioClips.count { it.lane == lane }
                 val endBar = maxOf(
                     p.clips.filter { it.lane == lane }.maxOfOrNull { it.bar + p.clipBars(it) } ?: 0,
