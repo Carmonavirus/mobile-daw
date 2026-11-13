@@ -312,16 +312,23 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- engine sync
 
     fun onResume() {
+        visible = true
+        // An export in progress owns the engine; the stream comes back when it is done.
+        if (exporting) return
         NativeEngine.start()
         syncEngine()
     }
 
     fun onPause() {
+        visible = false
         if (takeState != TakeState.IDLE) stopTake()
-        applyPlaying(false)
+        // Leaving the app doesn't stop an export: it keeps rendering in the background.
+        if (!exporting) applyPlaying(false)
         NativeEngine.stop()
         saveNow()
     }
+
+    private var visible = true
 
     private fun syncEngine() {
         val p = project
@@ -357,6 +364,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
                 loadedSamples[slot] = clip.path
             }
+        }
+        // While exporting, the engine plays the export's sequence; it gets this one back afterwards.
+        if (exporting) {
+            syncMixer()
+            return
         }
         val compiled = when (mode) {
             PlayMode.PATTERN -> SequenceCompiler.pattern(p, selectedPattern)
@@ -1570,6 +1582,109 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val i = insertIndex(trackId)
         val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
         if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
+    }
+
+    // ---------------------------------------------------------------- export
+
+    var exportOpen by mutableStateOf(false)
+        private set
+    var exportOptions by mutableStateOf(com.mobiledaw.export.ExportOptions())
+    var exportState by mutableStateOf<com.mobiledaw.export.ExportState>(com.mobiledaw.export.ExportState.Idle)
+        private set
+    @Volatile private var exporting = false
+    @Volatile private var exportCancel = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** True when the playlist has something to play (otherwise export defaults to the pattern). */
+    val hasArrangement: Boolean
+        get() = project.clips.any { !it.muted } || project.audioClips.any { !it.muted }
+
+    fun openExport() {
+        if (!exporting) {
+            exportState = com.mobiledaw.export.ExportState.Idle
+            exportOptions = exportOptions.copy(song = hasArrangement)
+        }
+        settingsOpen = false
+        exportOpen = true
+    }
+
+    fun closeExport() {
+        if (exporting) return
+        exportOpen = false
+        if (exportState !is com.mobiledaw.export.ExportState.Running) exportState = com.mobiledaw.export.ExportState.Idle
+    }
+
+    fun cancelExport() {
+        exportCancel = true
+    }
+
+    /** Stems the current options would make (rack channels that play, plus audio clips per mixer track). */
+    fun exportStemNames(): List<String> {
+        val compiled = if (exportOptions.song) SequenceCompiler.song(project) else SequenceCompiler.pattern(project, selectedPattern)
+        return com.mobiledaw.export.Exporter.stemsFor(project, compiled, NativeEngine.MAX_CHANNELS).map { it.name }
+    }
+
+    /**
+     * Renders the song (or the selected pattern) offline into the chosen formats, saves them to
+     * Download/Mobile DAW/<name>/ and keeps them in the cache for sharing.
+     */
+    fun startExport(name: String) {
+        if (exporting) return
+        val opts = exportOptions
+        if (!opts.any) return
+        if (takeState != TakeState.IDLE) stopTake()
+        applyPlaying(false)
+        val p = project
+        val compiled = if (opts.song) SequenceCompiler.song(p) else SequenceCompiler.pattern(p, selectedPattern)
+        val stems = com.mobiledaw.export.Exporter.stemsFor(p, compiled, NativeEngine.MAX_CHANNELS)
+        val base = com.mobiledaw.export.Exporter.safeName(name)
+        val ctx = getApplication<Application>()
+        exporting = true
+        exportCancel = false
+        exportState = com.mobiledaw.export.ExportState.Running(0f, "Starting")
+        viewModelScope.launch {
+            try {
+                val done = withContext(Dispatchers.Default) {
+                    com.mobiledaw.export.ExportStorage.clearWork(ctx)
+                    val dir = com.mobiledaw.export.ExportStorage.workDir(ctx)
+                    val files = com.mobiledaw.export.Exporter(
+                        p, compiled, stems, opts, dir, base,
+                        progress = { f, label ->
+                            mainHandler.post {
+                                if (exportState is com.mobiledaw.export.ExportState.Running) {
+                                    exportState = com.mobiledaw.export.ExportState.Running(f, label)
+                                }
+                            }
+                        },
+                        cancelled = { exportCancel },
+                    ).run()
+                    mainHandler.post { exportState = com.mobiledaw.export.ExportState.Running(1f, "Saving to Downloads") }
+                    files.forEach { f ->
+                        val sub = f.parentFile?.takeIf { it != dir }?.name
+                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
+                    }
+                    com.mobiledaw.export.ExportState.Done(
+                        folder = com.mobiledaw.export.ExportStorage.folderLabel(ctx, base),
+                        mix = files.filter { it.parentFile == dir && it.extension != "mid" },
+                        stems = files.filter { it.parentFile != dir },
+                        midi = files.firstOrNull { it.extension == "mid" },
+                    )
+                }
+                exportState = done
+            } catch (e: com.mobiledaw.export.ExportCancelled) {
+                exportState = com.mobiledaw.export.ExportState.Idle
+            } catch (e: Exception) {
+                exportState = com.mobiledaw.export.ExportState.Failed(e.message ?: e.javaClass.simpleName)
+            } finally {
+                exporting = false
+                if (visible) NativeEngine.start()
+                syncEngine()
+            }
+        }
+    }
+
+    fun shareExport(files: List<java.io.File>) {
+        runCatching { com.mobiledaw.export.ExportStorage.share(getApplication<Application>(), files) }
     }
 
     override fun onCleared() {

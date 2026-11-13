@@ -90,4 +90,21 @@ object NativeEngine {
     external fun readInsertSignal(index: Int, out: FloatArray)
     /** out[0] = detected Hz, out[1] = corrected Hz; 0 when nothing is sung. */
     external fun readPitch(index: Int, slot: Int, out: FloatArray)
+
+    // ---- export (see app/src/main/cpp/export_jni.cpp)
+
+    /** Takes the engine off the live output (silent meanwhile) for offline rendering. Returns the sample rate. */
+    external fun offlineBegin(): Int
+    /** Starts a bounce from the top of the current sequence; [mask] bit n = slot n is heard, -1 = full mix. */
+    external fun offlineStart(mask: Long)
+    /** Renders [frames] interleaved stereo frames into [out]. False once the song has ended (the tail goes on). */
+    external fun offlineRender(out: FloatArray, frames: Int): Boolean
+    /** Stops, silences and hands the engine back to the live output. */
+    external fun offlineEnd()
+
+    /** A stereo CBR MP3 encoder (LAME); 0 if it can't start. Free it with [mp3Finish]. */
+    external fun mp3Open(sampleRate: Int, kbps: Int): Long
+    external fun mp3Encode(handle: Long, pcm: FloatArray, frames: Int): ByteArray
+    /** Flushes and frees the encoder, returning the last bytes. */
+    external fun mp3Finish(handle: Long): ByteArray
 }

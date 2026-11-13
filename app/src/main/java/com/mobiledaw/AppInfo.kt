@@ -26,6 +26,16 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7", "2026-11-13T04:00:00Z",
+            listOf(
+                "Export: Settings → Export (or tap the song name → Export). Pick Song (the whole playlist) or Pattern, then any of WAV (16/24-bit), MP3 (128/192/320 kbps), Stems and MIDI.",
+                "Stems: one WAV per channel (recordings grouped per mixer track, e.g. Vocals), all exactly the same length so they line up at bar 1 in any DAW.",
+                "Exports are rendered by the engine faster than real time with the same sound you hear (effects included, metronome never), and the last notes ring out at the end.",
+                "Files are saved to Download › Mobile DAW › <song name>, and each one (or all of them) can be shared straight to another app.",
+                "FL Studio: its .flp project format is closed, so use Stems + MIDI — drag the stems into FL's playlist and drop the .mid on a channel for the notes.",
+            ),
+        ),
+        Release(
             "0.6.6", "2026-11-13T03:45:00Z",
             listOf(
                 "Pitch Correct sounds much cleaner: notes are moved without the sped-up, chipmunk tone, so your voice keeps its own sound even on big jumps.",
