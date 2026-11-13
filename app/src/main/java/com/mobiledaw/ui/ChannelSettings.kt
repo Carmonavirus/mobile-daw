@@ -129,7 +129,7 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                         label = "Volume",
                         value = channel.volume,
                         range = 0f..2f,
-                        display = "${(channel.volume * 100).roundToInt()}%" + if (channel.volume > 1.001f) " boost" else "",
+                        display = formatVolume(channel.volume),
                         snapTo = 1f,
                     ) { v -> set { it.copy(volume = v) } }
                     LabeledSlider(
