@@ -257,6 +257,8 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                         var zoomAccum = 1f
                         var zooming = false
                         var lastApplied = original
+                        // A whole move/resize drag is one undo step.
+                        if (original != null) vm.beginNoteGesture()
                         while (true) {
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }

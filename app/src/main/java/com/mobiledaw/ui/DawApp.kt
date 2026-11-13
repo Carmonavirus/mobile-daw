@@ -2,6 +2,7 @@ package com.mobiledaw.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -189,6 +190,15 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
         }
         PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (vm.tab == Tab.PIANO) {
+                UndoButton(
+                    enabled = vm.canUndo,
+                    canRedo = vm.canRedo,
+                    onUndo = vm::undoNoteEdit,
+                    onRedo = vm::redoNoteEdit,
+                    modifier = Modifier.padding(start = 14.dp),
+                )
+            }
             if (vm.tab == Tab.PLAYLIST) {
                 Row(
                     Modifier
@@ -204,6 +214,65 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
                     Text("Record", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                 }
             }
+        }
+    }
+}
+
+/**
+ * Piano roll undo, right of play: tap to undo the last note edit, long-press to redo.
+ * Greyed out when there is nothing to undo (it still takes a long-press while a redo is waiting).
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun UndoButton(enabled: Boolean, canRedo: Boolean, onUndo: () -> Unit, onRedo: () -> Unit, modifier: Modifier = Modifier) {
+    val ink = if (enabled) DawColors.Ink else DawColors.Muted.copy(alpha = 0.45f)
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box(
+        modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(if (enabled) DawColors.Chip else DawColors.Chip.copy(alpha = 0.5f))
+            .combinedClickable(
+                enabled = enabled || canRedo,
+                onClick = { if (enabled) onUndo() },
+                onLongClick = {
+                    if (canRedo) {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onRedo()
+                    }
+                },
+                onClickLabel = "Undo",
+                onLongClickLabel = "Redo",
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        // A curved arrow pointing back (left).
+        androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = 2.dp.toPx()
+            val arc = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w * 0.2f, h * 0.38f)
+                lineTo(w * 0.62f, h * 0.38f)
+                cubicTo(w * 0.98f, h * 0.38f, w * 0.98f, h * 0.88f, w * 0.62f, h * 0.88f)
+                lineTo(w * 0.38f, h * 0.88f)
+            }
+            drawPath(
+                arc,
+                ink,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = stroke,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
+            val head = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w * 0.04f, h * 0.38f)
+                lineTo(w * 0.32f, h * 0.14f)
+                lineTo(w * 0.32f, h * 0.62f)
+                close()
+            }
+            drawPath(head, ink)
         }
     }
 }

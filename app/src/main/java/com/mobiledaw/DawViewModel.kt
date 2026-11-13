@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -1156,6 +1157,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val pattern = selectedPattern
         if (chordGen == null) {
             chordGen = ChordGenSession(channel.id, pattern.id, pattern.notesFor(channel.id), pattern.bars, emptyList())
+            chordEdit = pianoCheckpoint(channel.id, pattern.id)
         }
         if (mode != PlayMode.PATTERN) switchMode(PlayMode.PATTERN)
         generateChords()
@@ -1166,10 +1168,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val s = chordGen ?: return
         chordAudition?.cancel()
         chordGen = null
+        val edit = chordEdit
+        chordEdit = null
         if (!keep) {
             updatePattern(s.patternId) { pat ->
                 pat.copy(bars = s.originalBars, notes = pat.notes + (s.channelId to s.originalNotes))
             }
+        }
+        // Cancelled (or nothing changed): the chord session leaves no undo step behind.
+        val i = if (edit == null) -1 else pianoUndo.indexOfLast { it === edit }
+        if (i >= 0 && (!keep || pianoUndo[i].beforeNotes == pianoUndo[i].afterNotes && pianoUndo[i].beforeBars == pianoUndo[i].afterBars)) {
+            while (pianoUndo.size > i) pianoUndo.removeAt(pianoUndo.lastIndex)
         }
     }
 
@@ -1235,6 +1244,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             val notes = (chordNotes.filter { it.start < limit }.map { it.copy(length = minOf(it.length, limit - it.start)) } + rest)
             pat.copy(bars = bars, notes = pat.notes + (s.channelId to notes))
         }
+        // Keep the chord session's undo step pointing at the chords now in the pattern. Any taps on
+        // the grid since were overwritten by the chords, so their steps go too.
+        val edit = chordEdit ?: return
+        val i = pianoUndo.indexOfLast { it === edit }
+        if (i < 0) { chordEdit = null; return }
+        while (pianoUndo.size > i + 1) pianoUndo.removeAt(pianoUndo.lastIndex)
+        val (now, nowBars) = noteState(edit.patternId, edit.channelId) ?: return
+        val sealed = edit.copy(afterNotes = now, afterBars = nowBars)
+        pianoUndo[i] = sealed
+        chordEdit = sealed
+        pianoRedo.clear()
     }
 
     /** Plays one chord of the progression on its channel (only while stopped). */
@@ -1256,16 +1276,127 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- piano roll
 
     fun addNote(channelId: Long, note: Note) {
+        pianoCheckpoint(channelId)
         updateNotes(channelId) { it + note }
+        pianoSealTop()
         project.channels.firstOrNull { it.id == channelId }?.let { editPreview(it, note.pitch) }
     }
 
+    /** Moves/resizes a note. A whole drag is one undo step: call [beginNoteGesture] when it starts. */
     fun replaceNote(channelId: Long, index: Int, note: Note) {
+        if (gesturePending) {
+            gesturePending = false
+            pianoCheckpoint(channelId)
+        }
         updateNotes(channelId) { list -> list.mapIndexed { i, n -> if (i == index) note else n } }
+        pianoSealTop()
     }
 
     fun deleteNote(channelId: Long, index: Int) {
+        pianoCheckpoint(channelId)
         updateNotes(channelId) { list -> list.filterIndexed { i, _ -> i != index } }
+        pianoSealTop()
+    }
+
+    // ---------------------------------------------------------------- piano roll undo / redo
+
+    /** One piano-roll edit: a channel's notes (and the pattern length) before and after it. */
+    data class NoteEdit(
+        val patternId: Long,
+        val channelId: Long,
+        val beforeNotes: List<Note>,
+        val beforeBars: Int,
+        val afterNotes: List<Note>,
+        val afterBars: Int,
+    )
+
+    private val pianoUndo = mutableStateListOf<NoteEdit>()
+    private val pianoRedo = mutableStateListOf<NoteEdit>()
+    private var gesturePending = false
+    /** The undo step the open Chords panel keeps up to date (the whole chord session is one step). */
+    private var chordEdit: NoteEdit? = null
+
+    private fun noteState(patternId: Long, channelId: Long): Pair<List<Note>, Int>? {
+        if (project.channels.none { it.id == channelId }) return null
+        val pat = project.patterns.firstOrNull { it.id == patternId } ?: return null
+        return pat.notesFor(channelId) to pat.bars
+    }
+
+    /** An edit still lines up with the project (nothing else, like the rack, changed those notes since). */
+    private fun NoteEdit.isCurrentAfter() = noteState(patternId, channelId) == (afterNotes to afterBars)
+    private fun NoteEdit.isCurrentBefore() = noteState(patternId, channelId) == (beforeNotes to beforeBars)
+
+    val canUndo: Boolean
+        get() = chordGen != null || pianoUndo.lastOrNull()?.isCurrentAfter() == true
+
+    val canRedo: Boolean
+        get() = chordGen == null && pianoRedo.lastOrNull()?.isCurrentBefore() == true
+
+    /** Marks the start of a note drag; the first change it makes records one undo step. */
+    fun beginNoteGesture() {
+        gesturePending = true
+    }
+
+    private fun pianoCheckpoint(channelId: Long, patternId: Long = selectedPatternId): NoteEdit? {
+        val (notes, bars) = noteState(patternId, channelId) ?: return null
+        val edit = NoteEdit(patternId, channelId, notes, bars, notes, bars)
+        pianoUndo.add(edit)
+        while (pianoUndo.size > MAX_PIANO_UNDO) pianoUndo.removeAt(0)
+        pianoRedo.clear()
+        return edit
+    }
+
+    /** Records where the latest edit ended up. */
+    private fun pianoSealTop() {
+        val i = pianoUndo.lastIndex
+        if (i < 0) return
+        val e = pianoUndo[i]
+        val (notes, bars) = noteState(e.patternId, e.channelId) ?: return
+        pianoUndo[i] = e.copy(afterNotes = notes, afterBars = bars)
+    }
+
+    private fun applyNoteState(patternId: Long, channelId: Long, notes: List<Note>, bars: Int) {
+        updatePattern(patternId) { pat -> pat.copy(bars = bars, notes = pat.notes + (channelId to notes)) }
+        if (selectedPatternId != patternId) selectPattern(patternId)
+        if (selectedChannelId != channelId) selectedChannelId = channelId
+    }
+
+    /** Undoes the last piano-roll edit. With the Chords panel open, takes the chords back out. */
+    fun undoNoteEdit() {
+        if (chordGen != null) {
+            closeChordGen(keep = false)
+            return
+        }
+        val e = pianoUndo.lastOrNull() ?: return
+        if (!e.isCurrentAfter()) {
+            // Those notes were changed somewhere else since; the old steps no longer apply.
+            pianoUndo.clear()
+            pianoRedo.clear()
+            return
+        }
+        pianoUndo.removeAt(pianoUndo.lastIndex)
+        applyNoteState(e.patternId, e.channelId, e.beforeNotes, e.beforeBars)
+        pianoRedo.add(e)
+    }
+
+    /** Puts back the last undone piano-roll edit. */
+    fun redoNoteEdit() {
+        if (chordGen != null) return
+        val e = pianoRedo.lastOrNull() ?: return
+        if (!e.isCurrentBefore()) {
+            pianoRedo.clear()
+            return
+        }
+        pianoRedo.removeAt(pianoRedo.lastIndex)
+        applyNoteState(e.patternId, e.channelId, e.afterNotes, e.afterBars)
+        pianoUndo.add(e)
+    }
+
+    private fun clearPianoHistory() {
+        pianoUndo.clear()
+        pianoRedo.clear()
+        chordEdit = null
+        gesturePending = false
     }
 
     // ---------------------------------------------------------------- playlist
@@ -1596,6 +1727,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openProject(name: String) {
         saveNow()
+        closeChordGen(keep = true)
+        clearPianoHistory()
         val loaded = store.load(name) ?: return
         applyPlaying(false)
         project = loaded
@@ -1607,6 +1740,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun newProject() {
         saveNow()
+        closeChordGen(keep = true)
+        clearPianoHistory()
         applyPlaying(false)
         val p = DemoProject.empty(store.uniqueName("New project"))
         project = p
@@ -1889,6 +2024,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         /** How long a preset preview is shown in the library player bar. */
         const val ENGINE_PREVIEW_MS = 1500L
         const val SCOPE_BINS = 96
+        private const val MAX_PIANO_UNDO = 100
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
         /** Most a sample channel can be boosted, in dB. */
