@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.1", "2026-11-13T16:30:00Z",
+            listOf(
+                "Tablets: the app now turns sideways. Phones stay upright like before.",
+                "Tablet held sideways: the Playlist tab shows the playlist with the channel rack beside it, and the Rack tab shows the rack with the piano roll beside it (pick a sound on the left, write its notes on the right). The tabs and play controls share one row to leave more room.",
+                "Tablet mixer: the master and mixer tracks sit on the left, and the channel strips fill a grid on the right.",
+                "Turning the tablet no longer stops playback or a recording.",
+            ),
+        ),
+        Release(
             "0.8.0", "2026-11-13T16:00:00Z",
             listOf(
                 "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",

@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
 import com.mobiledaw.PlayMode
-import com.mobiledaw.Tab
 import com.mobiledaw.model.Channel
 import com.mobiledaw.model.MAX_BARS
 import com.mobiledaw.model.STEPS_PER_BAR
@@ -515,7 +514,7 @@ private fun ChannelRow(
                 color = DawColors.Muted,
                 modifier = Modifier
                     .clip(CircleShape)
-                    .clickable { vm.selectChannel(channel.id); vm.tab = Tab.PIANO }
+                    .clickable { vm.selectChannel(channel.id); vm.showPianoRoll() }
                     .padding(horizontal = 10.dp, vertical = 2.dp),
             )
             // Swap: pick a different sound for this channel.
@@ -551,7 +550,7 @@ private fun ChannelRow(
                     })
                     DropdownMenuItem(text = { Text("Open piano roll") }, onClick = {
                         menu = false
-                        vm.tab = Tab.PIANO
+                        vm.showPianoRoll()
                     })
                     DropdownMenuItem(text = { Text("Change sound") }, onClick = {
                         menu = false

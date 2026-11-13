@@ -112,6 +112,25 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var project by mutableStateOf(loadInitial())
         private set
     var tab by mutableStateOf(Tab.RACK)
+
+    /**
+     * Wide screens (tablet in landscape) show two screens side by side: Playlist + Rack on the
+     * Playlist tab, Rack + Piano roll on the Rack tab. Set by the UI from the window width.
+     */
+    var wideLayout by mutableStateOf(false)
+
+    /** The piano roll is on screen: its own tab, or beside the rack on a wide screen. */
+    val pianoVisible: Boolean get() = tab == Tab.PIANO || (wideLayout && tab == Tab.RACK)
+
+    /** Go to the piano roll, unless it is already showing beside the rack. */
+    fun showPianoRoll() {
+        if (!(wideLayout && tab == Tab.RACK)) tab = Tab.PIANO
+    }
+
+    /** Go to the channel rack, unless it is already showing beside the playlist. */
+    fun showRack() {
+        if (!(wideLayout && tab == Tab.PLAYLIST)) tab = Tab.RACK
+    }
     var settingsOpen by mutableStateOf(false)
 
     private val prefs = app.getSharedPreferences("daw", android.content.Context.MODE_PRIVATE)
