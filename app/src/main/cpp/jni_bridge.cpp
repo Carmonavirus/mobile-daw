@@ -236,6 +236,11 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelEngine(
     engine()->core().engines().setChannel(slot, instrument, variant, bank);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelDrumKey(
+    JNIEnv*, jobject, jint slot, jint key) {
+    engine()->core().engines().setDrumKey(slot, key);
+}
+
 JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_loadSoundFontAsset(
     JNIEnv* env, jobject, jobject assetManager, jstring name) {
     AAssetManager* am = AAssetManager_fromJava(env, assetManager);

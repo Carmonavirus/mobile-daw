@@ -67,6 +67,8 @@ object NativeEngine {
 
     /** What a channel slot plays with an extra engine: preset/model [variant] and SoundFont [bank]. */
     external fun setChannelEngine(slot: Int, instrument: Int, variant: Int, bank: Int)
+    /** A SoundFont drum hit: notes play [key] repitched by their distance from it; -1 plays notes as they are. */
+    external fun setChannelDrumKey(slot: Int, key: Int)
     /** Loads a SoundFont from the APK's assets; returns a bank id, or -1. Slow: call off the main thread. */
     external fun loadSoundFontAsset(assets: android.content.res.AssetManager, name: String): Int
     /** Loads a .sf2/.sf3 file; returns a bank id, or -1. Slow: call off the main thread. */

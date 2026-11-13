@@ -74,6 +74,9 @@ public:
     const char* soundFontPresetName(int bank, int index) const;
     // Instrument, preset/model index and (for SoundFonts) the bank a slot plays.
     void setChannel(int slot, int instrument, int variant, int bank);
+    // A SoundFont drum hit picked from a kit: every note plays [key], repitched by the note's
+    // distance from [key] in semitones, like a sample. -1 plays notes as they are (whole kit).
+    void setDrumKey(int slot, int key);
     // Takes ownership. Pass nullptr to clear.
     void setMultiSample(int slot, MultiSampleSet* set);
     // Plays a note on the audition slot with the given instrument (library preview).
@@ -103,6 +106,8 @@ private:
     struct Slot {
         std::atomic<int> instrument{-1};
         std::atomic<int> variant{0};
+        std::atomic<int> drumKey{-1};
+        int nextFontChannel = 0;  // tsf channel for the next note (audio thread)
         int uiBank = -1;  // bank behind the published tsf copy (UI thread only)
         std::atomic<tsf*> pendingTsf{nullptr};
         std::atomic<tsf*> retiredTsf{nullptr};

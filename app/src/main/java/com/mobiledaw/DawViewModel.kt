@@ -883,6 +883,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 val bank = sounds.soundFonts.loadedBank(source)
                 if (bank == null) loadSoundFont(source)
                 NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, bank ?: -1)
+                // A single hit from a drum kit follows the piano roll like a sample does.
+                NativeEngine.setChannelDrumKey(i, c.pitch ?: -1)
             }
             Instrument.MACRO, Instrument.MODELED -> NativeEngine.setChannelEngine(i, c.instrument.id, c.variant, -1)
             Instrument.MULTISAMPLE -> {

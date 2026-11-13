@@ -26,11 +26,18 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.7.2", "2026-11-13T11:20:00Z",
+            "0.7.3", "2026-11-13T11:20:00Z",
             listOf(
                 "Pitch audio clips without changing their tempo: in the clip window (Pencil, tap a clip) pick Resample, Stretch or Vocal under Pitch.",
                 "Stretch keeps the clip's length and timing at any pitch, for loops, beats or anything else. Vocal also keeps a singer's natural tone, so a lowered voice doesn't sound slowed down or deep.",
                 "Resample works like before (lower is slower, like a turntable). The new pitch takes a moment to make on long takes; the clip plays its original sound until then.",
+            ),
+        ),
+        Release(
+            "0.7.2", "2026-11-13T11:00:00Z",
+            listOf(
+                "Drums follow the piano roll: put a hi-hat (or clap, or a single drum from a kit) on any note and it plays at that pitch, like a sample. G3 is an octave under G4: lower and longer, higher and shorter.",
+                "Steps from the step sequencer still play the drum as it was (C4 for hi-hat, clap and samples). The channel's Pitch setting and Boost still apply on top.",
             ),
         ),
         Release(
