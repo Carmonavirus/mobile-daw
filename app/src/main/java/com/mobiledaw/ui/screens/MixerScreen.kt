@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
@@ -54,6 +55,9 @@ import com.mobiledaw.model.MixerTrack
 import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.model.Project
 import com.mobiledaw.ui.RoundToggle
+import com.mobiledaw.ui.formatGainDb
+import com.mobiledaw.ui.formatMeterDb
+import com.mobiledaw.ui.meterFraction
 import com.mobiledaw.ui.WindowWidthClass
 import com.mobiledaw.ui.windowWidthClass
 import com.mobiledaw.ui.inkSliderColors
@@ -440,7 +444,10 @@ private fun Strip(
             }
             header()
             Spacer(Modifier.width(6.dp))
-            Text("${(volume * 100).roundToInt()}%", fontSize = 12.sp, color = DawColors.Muted)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatGainDb(volume), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1)
+                Text("${(volume * 100).roundToInt()}%", fontSize = 10.sp, color = DawColors.Muted, maxLines = 1)
+            }
             if (onMute != null) {
                 Spacer(Modifier.width(8.dp))
                 RoundToggle("M", mute, DawColors.Mute, onMute)
@@ -473,19 +480,30 @@ private fun Strip(
 
 @Composable
 private fun Meter(level: Float) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(4.dp)
-            .clip(RoundedCornerShape(50))
-            .background(DawColors.Line),
-    ) {
+    // Drawn in decibels (-60..0 dB) like a desk meter, with the live peak written beside it.
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(level.coerceIn(0f, 1f))
+                .weight(1f)
+                .height(4.dp)
                 .clip(RoundedCornerShape(50))
-                .background(if (level > 0.95f) DawColors.Mute else DawColors.Accent),
+                .background(DawColors.Line),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(meterFraction(level))
+                    .clip(RoundedCornerShape(50))
+                    .background(if (level > 0.95f) DawColors.Mute else DawColors.Accent),
+            )
+        }
+        Text(
+            formatMeterDb(level),
+            fontSize = 10.sp,
+            color = if (level > 0.95f) DawColors.Mute else DawColors.Muted,
+            maxLines = 1,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(44.dp),
         )
     }
 }
