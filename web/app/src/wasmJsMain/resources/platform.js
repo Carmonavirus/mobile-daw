@@ -430,7 +430,16 @@ function preloadAll(done) {
     // Symbols (♪ ⇄ ⋯ ♭ arrows, triangles...) that Android draws from its system fallback fonts.
     fetch('fonts/Symbols-Math.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Symbols-Math.ttf', new Int8Array(b))),
     fetch('fonts/Symbols-2.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Symbols-2.ttf', new Int8Array(b))),
-  ]).catch(() => {}).then(() => done());
+  ]).catch(() => {}).then(() => { done(); preloadSavedBank(); });
+}
+/** When the app is saved for offline use (sw.js), read the built-in instrument bank from that copy
+ * in the background: the page fetches it with a blocking request, which browsers send past the
+ * offline copy, so without this GeneralUser GS instruments would not load with no internet. */
+function preloadSavedBank() {
+  try {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+    setTimeout(() => { if (!assets.has('soundfonts/GeneralUser-GS.sf2')) assetPreload('soundfonts/GeneralUser-GS.sf2'); }, 1500);
+  } catch (e) {}
 }
 
 function unzipAll(bytes, onEntry) {

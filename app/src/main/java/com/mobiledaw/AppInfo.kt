@@ -26,11 +26,18 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.9.1", "2026-11-13T23:40:00Z",
+            "0.9.2", "2026-11-13T23:50:00Z",
             listOf(
                 "Share projects with friends: Projects → Share packs a project and every sound it uses (imported loops, recordings, kit samples, SoundFonts, SFZ) into one .zip. Send it from the share sheet or save it to Download/Mobile DAW/Shared projects.",
                 "Projects → Import project opens a .zip a friend sent, on the phone and in the web app. You can also share or open the .zip straight into the app.",
                 "Imports never replace anything: a project with a name you already use gets a number (\"Beat 2\"), and a sound that clashes with one of yours is saved under a new name.",
+            ),
+        ),
+        Release(
+            "0.9.1", "2026-11-13T23:45:00Z",
+            listOf(
+                "Web app works offline: after one visit with internet, the whole app (screens, sound engine, built-in drums, synths and GeneralUser GS instruments) is kept on your device, so it opens and plays with no connection. Freesound and the other online sound libraries, and Google Drive sync, still need internet.",
+                "Add the web app to your home screen (iPhone: Share → Add to Home Screen; Android and Brave: Install app) and it opens like a normal app. Updates still arrive the next time you open it online.",
             ),
         ),
         Release(

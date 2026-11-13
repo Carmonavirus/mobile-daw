@@ -92,6 +92,11 @@ jobs:
           sed -i "s|\"./daw.wasm\"|\"./daw.wasm?v=$v\"|" site/daw.js
           sed -i "s|fetch('engine.wasm')|fetch('engine.wasm?v=$v')|; s|addModule('engine-worklet.js')|addModule('engine-worklet.js?v=$v')|" site/platform.js
           grep -q "daw.wasm?v=$v" site/daw.js && grep -q "daw.js?v=$v" site/index.html && grep -q "engine.wasm?v=$v" site/platform.js
+          # Offline: the service worker gets this build's file list (with content hashes).
+          node web/app/tools/offline-files.mjs site "$v"
+      - name: Offline test (first visit saves the app, then it starts and plays with no server)
+        working-directory: web/app
+        run: node tests/offline.mjs ../../site
       - uses: actions/upload-artifact@v4
         with:
           name: web-app
