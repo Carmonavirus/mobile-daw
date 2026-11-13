@@ -66,6 +66,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -75,6 +82,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
+import com.mobiledaw.ui.rightMouseTarget
+import com.mobiledaw.ui.Wheel
 import com.mobiledaw.PlayMode
 import com.mobiledaw.TakeState
 import androidx.compose.runtime.LaunchedEffect
@@ -197,6 +206,25 @@ fun PlaylistScreen(vm: DawViewModel) {
     var openAudioId by remember { mutableStateOf<Long?>(null) }
     var openPatternIndex by remember { mutableStateOf<Int?>(null) }
     val windowOpen = rememberUpdatedState(openAudioId != null || openPatternIndex != null)
+    // Mouse only: the clip under the pointer (drawn with a ring, hand cursor).
+    var hoverHit by remember { mutableStateOf<Hit?>(null) }
+    // Right mouse button: delete the clip under the pointer, and every clip a right-drag crosses.
+    // One Undo brings them all back.
+    val eraseBefore = remember { arrayOfNulls<Project>(1) }
+    val eraseCount = remember { IntArray(1) }
+    fun eraseAt(pos: Offset) {
+        if (openAudioId != null || openPatternIndex != null) return
+        val g = with(density) { Grid(barW.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx()) }
+        when (val h = hitTest(vm.project, g, pos, with(density) { HANDLE_HIT.toPx() }, vm.project.rowCount)) {
+            is Hit.AudioBody -> vm.deleteAudioClip(h.clip.id)
+            is Hit.AudioEdge -> vm.deleteAudioClip(h.clip.id)
+            is Hit.PatternBody -> vm.deletePatternClip(h.index)
+            is Hit.PatternEdge -> vm.deletePatternClip(h.index)
+            null -> return
+        }
+        eraseCount[0]++
+        hoverHit = null
+    }
 
     // Song playhead: glides every frame between engine readings (which already include the
     // Bluetooth delay), and the playlist pages along to keep it in view, FL-style.
@@ -296,6 +324,32 @@ fun PlaylistScreen(vm: DawViewModel) {
                 Modifier
                     .weight(1f)
                     .onSizeChanged { viewportPx = it.width }
+                    // Mouse wheel / trackpad: Ctrl+wheel or a pinch zooms around the pointer;
+                    // Shift+wheel scrolls sideways. Plain scrolling is left to the scroll areas.
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.type != PointerEventType.Scroll) continue
+                                val change = event.changes.firstOrNull() ?: continue
+                                val d = change.scrollDelta
+                                val mods = event.keyboardModifiers
+                                touch[0] = System.nanoTime()
+                                if (mods.isCtrlPressed || mods.isMetaPressed) {
+                                    val old = vm.playlistBarDp
+                                    vm.changePlaylistZoom(old * Wheel.zoomFactor(d.y))
+                                    val now = vm.playlistBarDp
+                                    val focusX = change.position.x
+                                    pendingScroll[0] = ((hScroll.value + focusX) * now / old - focusX).roundToInt().coerceAtLeast(0)
+                                    pendingScroll[1] = 0
+                                    change.consume()
+                                } else if (mods.isShiftPressed && d.x == 0f) {
+                                    hScroll.dispatchRawDelta(Wheel.scrollPx(d.y, density.density))
+                                    change.consume()
+                                }
+                            }
+                        }
+                    }
                     // Sees every touch first: notes it (to pause follow mode) and turns two fingers
                     // into a pinch zoom, keeping the spot between the fingers in place.
                     .pointerInput(Unit) {
@@ -342,6 +396,31 @@ fun PlaylistScreen(vm: DawViewModel) {
                     Modifier
                         .width(barW * bars)
                         .height(HEADER_H + LANE_H * rows + HANDLE_R * 2)
+                        .pointerHoverIcon(if (hoverHit != null) PointerIcon.Hand else PointerIcon.Default)
+                        .rightMouseTarget(
+                            onPress = { pos -> eraseBefore[0] = vm.project; eraseCount[0] = 0; eraseAt(pos) },
+                            onDrag = { pos -> eraseAt(pos) },
+                            onRelease = {
+                                val before = eraseBefore[0]
+                                if (before != null && eraseCount[0] > 1) vm.markUndo(before, "Deleted ${eraseCount[0]} clips")
+                                eraseBefore[0] = null
+                            },
+                        )
+                        .pointerInput(Unit) {
+                            // Mouse hover: which clip is under the pointer.
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: continue
+                                    hoverHit = if (change.type != PointerType.Mouse || event.type == PointerEventType.Exit) {
+                                        null
+                                    } else {
+                                        val g = Grid(barWState.value.toPx(), LANE_H.toPx(), HEADER_H.toPx(), 2.dp.toPx(), 4.dp.toPx())
+                                        hitTest(vm.project, g, change.position, HANDLE_HIT.toPx(), rowsState.value)
+                                    }
+                                }
+                            }
+                        }
                         .pointerInput(Unit) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -485,6 +564,7 @@ fun PlaylistScreen(vm: DawViewModel) {
 
                     // Pattern clips
                     val draggedPattern = dragPattern
+                    val hovered = hoverHit
                     p.clips.forEachIndexed { i, original ->
                         val clip = if (draggedPattern?.first == i) draggedPattern.second else original
                         val index = p.patterns.indexOfFirst { it.id == clip.patternId }
@@ -498,6 +578,8 @@ fun PlaylistScreen(vm: DawViewModel) {
                         drawRoundRect(color, Offset(x, y), Size(w, lh - gap * 2), CornerRadius(10.dp.toPx()))
                         if (draggedPattern?.first == i) {
                             drawRoundRect(DawColors.Ink, Offset(x, y), Size(w, lh - gap * 2), CornerRadius(10.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+                        } else if (hovered.let { (it is Hit.PatternBody && it.index == i) || (it is Hit.PatternEdge && it.index == i) }) {
+                            drawRoundRect(DawColors.Ink.copy(alpha = 0.35f), Offset(x, y), Size(w, lh - gap * 2), CornerRadius(10.dp.toPx()), style = Stroke(1.5.dp.toPx()))
                         }
                         val textColor = when {
                             clip.muted -> DawColors.Muted
@@ -530,6 +612,8 @@ fun PlaylistScreen(vm: DawViewModel) {
                         drawRoundRect(DawColors.AccentSoft.copy(alpha = DawColors.AccentSoft.alpha * fade), Offset(x, y), Size(w, h), corner)
                         if (draggedAudio?.id == original.id) {
                             drawRoundRect(DawColors.Ink, Offset(x, y), Size(w, h), corner, style = Stroke(1.5.dp.toPx()))
+                        } else if (hovered.let { (it is Hit.AudioBody && it.clip.id == original.id) || (it is Hit.AudioEdge && it.clip.id == original.id) }) {
+                            drawRoundRect(DawColors.Ink.copy(alpha = 0.35f), Offset(x, y), Size(w, h), corner, style = Stroke(1.5.dp.toPx()))
                         }
                         val (a, b) = ClipEdit.trimFractions(clip)
                         drawWave(

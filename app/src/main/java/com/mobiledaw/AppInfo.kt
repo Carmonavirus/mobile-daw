@@ -26,6 +26,16 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.7", "2026-11-13T21:00:00Z",
+            listOf(
+                "Web app on a PC or laptop: Space plays and stops, F5 / F6 / F7 / F9 (or 1–4) switch screens, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves, Ctrl+O opens projects. Cmd works instead of Ctrl on a Mac.",
+                "Piano roll with a mouse, FL-style: click to place a note and drag to move it, drag a note's right end to resize, right click deletes (right-drag deletes many), Ctrl or Shift+drag selects with a box. Ctrl+A, Ctrl+C / X / V, Ctrl+B duplicate, Delete, and the arrow keys work on the selection.",
+                "Mouse wheel or two fingers scroll, Ctrl+wheel or a trackpad pinch zooms the piano roll and playlist. Right click deletes playlist clips and clears rack steps. Notes and clips light up under the pointer.",
+                "Typing keyboard (Ctrl+K): play the selected sound from the Z and Q key rows, and record notes into the pattern while it plays.",
+                "F1 or ? shows every shortcut; it's also in Settings. Phones and tablets with touch work as before.",
+            ),
+        ),
+        Release(
             "0.8.6", "2026-11-13T20:50:00Z",
             listOf(
                 "Side-by-side view: the two small close arrows now sit at the top of the dividing line and only appear while the mouse is over the line. On touch, tap the line to show them for a few seconds.",

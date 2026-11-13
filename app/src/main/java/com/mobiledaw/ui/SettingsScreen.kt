@@ -80,6 +80,14 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
                     Spacer(Modifier.height(12.dp))
                     SettingRow("Export", "WAV, MP3, stems and MIDI, saved to Downloads") { vm.openExport() }
+                    // On a PC or laptop (a mouse or keyboard was used): the controls list.
+                    if (Desktop.active) {
+                        Spacer(Modifier.height(12.dp))
+                        SettingRow("Keyboard shortcuts", "Mouse, trackpad and keyboard controls (F1)") {
+                            onDismiss()
+                            Desktop.shortcutsOpen = true
+                        }
+                    }
                 }
 
                 // ---------------------------------------------------------------- sync
