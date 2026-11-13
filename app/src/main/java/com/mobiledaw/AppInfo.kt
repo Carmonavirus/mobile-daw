@@ -29,7 +29,7 @@ object AppInfo {
             "0.7.2", "2026-11-13T11:00:00Z",
             listOf(
                 "Drums follow the piano roll: put a hi-hat (or clap, or a single drum from a kit) on any note and it plays at that pitch, like a sample. G3 is an octave under G4: lower and longer, higher and shorter.",
-                "C4 still plays the drum as it was, so the step sequencer sounds the same. The channel's Pitch setting and Boost still apply on top.",
+                "Steps from the step sequencer still play the drum as it was (C4 for hi-hat, clap and samples). The channel's Pitch setting and Boost still apply on top.",
             ),
         ),
         Release(
