@@ -70,6 +70,9 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.63.0
           npx playwright install --with-deps chromium
           node tests/smoke.mjs build/dist/wasmJs/productionExecutable
+      - name: Google Drive sync test (two devices, pretend Drive)
+        working-directory: web/app
+        run: node tests/cloud-sync.mjs build/dist/wasmJs/productionExecutable
       - name: Assemble the site
         run: |
           mkdir -p site

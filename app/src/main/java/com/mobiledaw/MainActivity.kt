@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         resumedFromConfigChange = savedInstanceState?.getBoolean(KEY_CONFIG_CHANGE) == true
         allowRotationOnTablets()
+        // Google sign-in for Drive sync shows its consent screen over this activity.
+        com.mobiledaw.cloud.CloudPlatform.attach(this)
         ThemeStore.load(this)
         val transparent = android.graphics.Color.TRANSPARENT
         enableEdgeToEdge(

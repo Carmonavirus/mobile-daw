@@ -90,6 +90,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.oboe)
     implementation(libs.androidx.documentfile)
+    // Google sign-in for Drive sync (authorization only: drive.file scope).
+    implementation(libs.play.services.auth)
 }
 
 // GeneralUser GS, a free General MIDI SoundFont by S. Christian Collins (see THIRD_PARTY_NOTICES.md),

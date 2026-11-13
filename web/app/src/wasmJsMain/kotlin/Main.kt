@@ -54,6 +54,15 @@ private fun dawProbe(): String {
 }
 
 private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit, addBeat: () -> Unit)
+private external fun registerCloudProbe(probe: () -> String, signIn: () -> Unit, syncNow: () -> Unit, newProject: () -> Unit)
+
+/** Tests only: what the Google Drive sync is doing, as JSON. */
+private fun cloudProbe(): String {
+    val vm = probeVm ?: return "{}"
+    val c = vm.cloud
+    val names = vm.savedProjects().joinToString(",") { "\"${it.replace("\"", "")}\"" }
+    return "{\"status\":\"${c.status}\",\"signedIn\":${c.signedIn},\"email\":\"${c.email ?: ""}\",\"revision\":${c.revision},\"projects\":[$names],\"open\":\"${vm.project.name}\",\"channels\":${vm.project.channels.size},\"notes\":${vm.project.patterns.sumOf { p -> p.notes.values.sumOf { it.size } }},\"problem\":\"${c.problem ?: ""}\"}"
+}
 
 private fun currentConfig() = Configuration(windowWidth(), windowHeight())
 
@@ -85,6 +94,7 @@ fun main() {
             vm.addChannel(com.mobiledaw.model.Instrument.KICK)
             vm.selectedChannel?.let { kick -> listOf(0, 4, 8, 12).forEach { vm.toggleStep(kick, it) } }
         }
+        registerCloudProbe(::cloudProbe, { vm.cloud.signIn() }, { vm.cloud.syncSoon(0) }, { vm.newProject() })
         val config = mutableStateOf(currentConfig())
         onWindowResize { config.value = currentConfig() }
         onPageVisibility { visible -> if (visible) vm.onResume() else vm.onPause() }
