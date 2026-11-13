@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.6", "2026-11-13T20:50:00Z",
+            listOf(
+                "Side-by-side view: the two small close arrows now sit at the top of the dividing line and only appear while the mouse is over the line. On touch, tap the line to show them for a few seconds.",
+            ),
+        ),
+        Release(
             "0.8.5", "2026-11-13T20:10:00Z",
             listOf(
                 "Side-by-side view: the whole dividing line is now the resize handle, like on a Windows PC. With a mouse, hover anywhere on the line and the cursor turns into the left/right arrows; drag to resize. On touch, press anywhere along the line and drag. The line lights up while you do.",
