@@ -453,6 +453,13 @@ void Core::readPitch(int index, int slot, float* out) const {
     out[1] = s.pitch.targetHz();
 }
 
+void Core::readKey(int index, int slot, float* out) const {
+    for (int i = 0; i < fx::kKeyOutCount; ++i) out[i] = 0.0f;
+    out[fx::kKeyOutKey] = out[fx::kKeyOutSecond] = -1.0f;
+    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
+    (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].key.read(out);
+}
+
 void Core::previewNote(int channel, int pitch, float velocity) { pushPreview({channel, pitch, velocity, 0}); }
 
 void Core::previewHold(int channel, int pitch, float velocity, bool on) {

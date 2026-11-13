@@ -76,7 +76,7 @@ const eng = {
   status: { pos: 0, playing: 0, countIn: 0, outputLatencyMs: -1, bufferLatencyMs: -1 },
   arrays: {},
   lastOut: new Float32Array(0),
-  want: { scope: 0, signal: null, pitch: null },
+  want: { scope: 0, signal: null, pitch: null, key: null },
   wantSent: {},
   error: null,
 };
@@ -136,6 +136,7 @@ function onEngineMessage(m) {
     if (m.scope) eng.arrays.scope = m.scope;
     if (m.signal) { eng.arrays.signal = m.signal.data; s.signalIndex = m.signal.index; }
     if (m.pitch) { eng.arrays.pitch = m.pitch.data; s.pitchIndex = m.pitch.index; s.pitchSlot = m.pitch.slot; }
+    if (m.key) { eng.arrays.key = m.key.data; s.keyIndex = m.key.index; s.keySlot = m.key.slot; }
     const ctx = eng.ctx;
     if (ctx) {
       s.bufferLatencyMs = (ctx.baseLatency || 0) * 1000;

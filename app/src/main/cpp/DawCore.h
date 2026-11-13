@@ -174,6 +174,8 @@ public:
     void readInsertSignal(int index, float* out, int count) const;
     // Pitch corrector readout: out[0] = detected Hz, out[1] = corrected Hz (0 when silent).
     void readPitch(int index, int slot, float* out) const;
+    // Key detector readout: fx::kKeyOutCount floats (see fx::KeyReadout).
+    void readKey(int index, int slot, float* out) const;
     void previewNote(int channel, int pitch, float velocity);
     // Press (on = true) and release a held preview note, e.g. from the synth editor's keyboard.
     void previewHold(int channel, int pitch, float velocity, bool on);

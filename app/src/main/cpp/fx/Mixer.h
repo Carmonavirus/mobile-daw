@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 
+#include "KeyDetector.h"
 #include "ParametricEq.h"
 #include "PitchCorrector.h"
 #include "SoftClipper.h"
@@ -20,11 +21,12 @@ constexpr int kMaxSlots = 8;
 constexpr int kSlotParams = 64;
 constexpr int kSpectrumSize = 2048;
 
-enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2, kFxClip = 3 };
+enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2, kFxClip = 3, kFxKey = 4 };
 
 static_assert(kEqParamCount <= kSlotParams, "EQ parameters must fit a slot");
 static_assert(kPitchParamCount <= kSlotParams, "pitch parameters must fit a slot");
 static_assert(kClipParamCount <= kSlotParams, "clipper parameters must fit a slot");
+static_assert(kKeyParamCount <= kSlotParams, "key detector parameters must fit a slot");
 
 struct EffectSlot {
     std::atomic<int> type{kFxNone};
@@ -37,6 +39,7 @@ struct EffectSlot {
     ParametricEq eq;
     PitchCorrector pitch;
     SoftClipper clip;
+    KeyDetector key;
 
     void process(float* left, float* right, int frames, float sampleRate) {
         const int t = type.load(std::memory_order_relaxed);
@@ -45,6 +48,7 @@ struct EffectSlot {
             eq.reset();
             pitch.reset();
             clip.reset();
+            key.reset();
         }
         if (t == kFxNone || bypass.load(std::memory_order_relaxed)) return;
         for (int i = 0; i < kSlotParams; ++i)
@@ -58,6 +62,9 @@ struct EffectSlot {
         } else if (t == kFxClip) {
             clip.prepare(sampleRate);
             clip.process(left, right, frames, snapshot.data());
+        } else if (t == kFxKey) {
+            key.prepare(sampleRate);
+            key.process(left, right, frames, snapshot.data());
         }
     }
 };

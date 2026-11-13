@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.2", "2026-11-14T00:30:00Z",
+            listOf(
+                "New Key Detector effect: in the Mixer, tap + Add effect → Key Detector on any track (or the Master for the whole song). Play your song or a sample and it shows the key it hears, like \"A minor\", with how sure it is, updating live.",
+                "Tap \"Use as song key\" to make it the project's key; Pitch Correct and the piano roll's key shading follow it. \"Notes heard\" shows which notes came up most, and you can choose how far back it listens (last 5 s, last 20 s or everything) or start over.",
+            ),
+        ),
+        Release(
             "0.9.1", "2026-11-13T23:45:00Z",
             listOf(
                 "Web app works offline: after one visit with internet, the whole app (screens, sound engine, built-in drums, synths and GeneralUser GS instruments) is kept on your device, so it opens and plays with no connection. Freesound and the other online sound libraries, and Google Drive sync, still need internet.",

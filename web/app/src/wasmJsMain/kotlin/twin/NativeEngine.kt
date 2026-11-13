@@ -111,6 +111,15 @@ object NativeEngine {
         Engine.want("pitch", index, slot)
         if (Engine.status("pitchIndex").toInt() == index && Engine.status("pitchSlot").toInt() == slot) Engine.statusArray("pitch", out) else out.fill(0f)
     }
+    fun readKey(index: Int, slot: Int, out: FloatArray) {
+        Engine.want("key", index, slot)
+        if (Engine.status("keyIndex").toInt() == index && Engine.status("keySlot").toInt() == slot) {
+            Engine.statusArray("key", out)
+        } else {
+            out.fill(0f)
+            if (out.size > 2) { out[0] = -1f; out[2] = -1f }
+        }
+    }
 
     // ---- export: rendered by the page's own copy of the engine, so the sound goes on meanwhile
     fun offlineBegin(): Int = Engine.call(PAGE, "ne_offlineBegin").toInt()
