@@ -9,18 +9,22 @@
 
 #include "ParametricEq.h"
 #include "PitchCorrector.h"
+#include "SoftClipper.h"
 
 namespace daw::fx {
 
 constexpr int kMaxInserts = 8;
+// The master's own effects chain lives at this insert index (after the mixer tracks).
+constexpr int kMasterInsert = kMaxInserts;
 constexpr int kMaxSlots = 8;
 constexpr int kSlotParams = 64;
 constexpr int kSpectrumSize = 2048;
 
-enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2 };
+enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2, kFxClip = 3 };
 
 static_assert(kEqParamCount <= kSlotParams, "EQ parameters must fit a slot");
 static_assert(kPitchParamCount <= kSlotParams, "pitch parameters must fit a slot");
+static_assert(kClipParamCount <= kSlotParams, "clipper parameters must fit a slot");
 
 struct EffectSlot {
     std::atomic<int> type{kFxNone};
@@ -32,6 +36,7 @@ struct EffectSlot {
     std::array<float, kSlotParams> snapshot{};
     ParametricEq eq;
     PitchCorrector pitch;
+    SoftClipper clip;
 
     void process(float* left, float* right, int frames, float sampleRate) {
         const int t = type.load(std::memory_order_relaxed);
@@ -39,6 +44,7 @@ struct EffectSlot {
             activeType = t;
             eq.reset();
             pitch.reset();
+            clip.reset();
         }
         if (t == kFxNone || bypass.load(std::memory_order_relaxed)) return;
         for (int i = 0; i < kSlotParams; ++i)
@@ -49,6 +55,9 @@ struct EffectSlot {
         } else if (t == kFxPitch) {
             pitch.prepare(sampleRate);
             pitch.process(left, right, frames, snapshot.data());
+        } else if (t == kFxClip) {
+            clip.prepare(sampleRate);
+            clip.process(left, right, frames, snapshot.data());
         }
     }
 };

@@ -34,6 +34,14 @@ object AppInfo {
             ),
         ),
         Release(
+            "0.7.7", "2026-11-13T15:20:00Z",
+            listOf(
+                "New effect: Soft Clipper. It rounds off loud peaks so a track or the whole song gets louder and punchier without harsh clipping. Three knobs: Gain (how hard the sound hits it), Threshold (where clipping starts) and Post (how loud it comes out).",
+                "The Master in the Mixer now has its own effects, so you can put the Soft Clipper (or EQ) on the whole song. Effects on the master are in your exports too.",
+                "To clip just your drums: add a mixer track, send the drum channels to it, and add the Soft Clipper there.",
+            ),
+        ),
+        Release(
             "0.7.6", "2026-11-13T12:20:00Z",
             listOf(
                 "Piano roll: new Undo button right of the play button. It takes back adding, moving, resizing and deleting notes, and chords you put in. Hold it to redo. It's greyed out when there's nothing to undo.",
