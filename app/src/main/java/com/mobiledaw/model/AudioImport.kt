@@ -68,15 +68,16 @@ class AudioImport(private val context: Context) {
     }
 
     /**
-     * Writes [source] as mono 16-bit WAV to [target], up to [MAX_SECONDS]. Compressed formats are
+     * Writes [source] as 16-bit WAV to [target] at its own sample rate, up to [MAX_SECONDS]. Stereo
+     * stays stereo (left/right kept apart, like FL Studio); files with more channels keep the first two. Compressed formats are
      * decoded straight to the file block by block, so a long MP3 never sits in memory as floats.
      * Returns the length in seconds, or null if it can't be read.
      */
     private fun convert(source: File, target: File): Float? {
         if (source.extension.equals("wav", ignoreCase = true)) {
-            WavDecoder.decode(source, MAX_SECONDS)?.let { d ->
+            WavDecoder.decode(source, MAX_SECONDS, stereo = true)?.let { d ->
                 if (d.frames.isEmpty() || d.sampleRate <= 0f) return null
-                AudioFiles.writeWav(target, d.frames, d.sampleRate.roundToInt())
+                AudioFiles.writeWav(target, d.frames, d.sampleRate.roundToInt(), d.right)
                 return d.frames.size / d.sampleRate
             }
         }
@@ -101,6 +102,7 @@ class AudioImport(private val context: Context) {
             c.configure(format, null, null, 0)
             c.start()
             var frames = 0L
+            var outChannels = 0  // fixed by the first decoded block
             RandomAccessFile(target, "rw").use { raf ->
                 raf.setLength(0)
                 raf.write(ByteArray(44)) // header, filled in at the end
@@ -141,23 +143,29 @@ class AudioImport(private val context: Context) {
                             buffer.position(info.offset)
                             buffer.limit(info.offset + info.size)
                             val ch = channels.coerceAtLeast(1)
+                            val keep = minOf(ch, 2)  // stereo stays stereo; extra channels are dropped
+                            if (outChannels == 0) outChannels = keep
                             val limit = rate.toLong() * MAX_SECONDS
                             if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
                                 val fb = buffer.asFloatBuffer()
                                 while (fb.remaining() >= ch && frames < limit) {
-                                    var sum = 0f
-                                    repeat(ch) { sum += fb.get() }
-                                    if (out.remaining() < 2) flush()
-                                    out.putShort(((sum / ch).coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+                                    if (out.remaining() < 4) flush()
+                                    val l = fb.get()
+                                    val r = if (ch >= 2) fb.get() else l
+                                    repeat(ch - minOf(ch, 2)) { fb.get() }
+                                    out.putShort((l.coerceIn(-1f, 1f) * 32767f).roundToInt().toShort())
+                                    if (outChannels == 2) out.putShort((r.coerceIn(-1f, 1f) * 32767f).roundToInt().toShort())
                                     frames++
                                 }
                             } else {
                                 val sb = buffer.asShortBuffer()
                                 while (sb.remaining() >= ch && frames < limit) {
-                                    var sum = 0
-                                    repeat(ch) { sum += sb.get() }
-                                    if (out.remaining() < 2) flush()
-                                    out.putShort((sum / ch).toShort())
+                                    if (out.remaining() < 4) flush()
+                                    val l = sb.get()
+                                    val r = if (ch >= 2) sb.get() else l
+                                    repeat(ch - minOf(ch, 2)) { sb.get() }
+                                    out.putShort(l)
+                                    if (outChannels == 2) out.putShort(r)
                                     frames++
                                 }
                             }
@@ -168,13 +176,8 @@ class AudioImport(private val context: Context) {
                 }
                 flush()
                 if (frames == 0L || rate <= 0) return null
-                val dataBytes = (frames * 2).toInt()
-                val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
-                    put("RIFF".toByteArray()); putInt(36 + dataBytes); put("WAVE".toByteArray())
-                    put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
-                    putInt(rate); putInt(rate * 2); putShort(2); putShort(16)
-                    put("data".toByteArray()); putInt(dataBytes)
-                }
+                val dataBytes = (frames * 2 * outChannels).toInt()
+                val header = AudioFiles.wavHeader(dataBytes, rate, outChannels)
                 raf.seek(0)
                 raf.write(header.array())
             }

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -29,9 +30,11 @@ struct NoteEvent {
     float velocity;  // 0..1
 };
 
-// A mono audio sample, e.g. one hit from a drum kit.
+// An audio sample, e.g. one hit from a drum kit or an imported loop. Mono samples leave `right`
+// empty; stereo samples keep the left channel in `frames` and the right one in `right`.
 struct SampleData {
     std::vector<float> frames;
+    std::vector<float> right;
     float sampleRate = 48000.0f;
 };
 
@@ -90,6 +93,20 @@ struct SampleShape {
     double tension = 0.0;
     float boost = 1.0f;
 };
+
+// Converts a sample from srcRate to dstRate with a Kaiser-windowed sinc filter (no audible
+// treble loss or aliasing, unlike linear interpolation).
+std::vector<float> resampleSinc(const std::vector<float>& in, double srcRate, double dstRate);
+
+// Master output stage: untouched (unity gain, no colouring) up to 0.9, then a smooth knee that
+// never goes past full scale. Replaces an always-on tanh that squashed and coloured every mix.
+inline float outputClip(float x) {
+    constexpr float kKnee = 0.9f;
+    const float a = std::fabs(x);
+    if (a <= kKnee) return x;
+    const float y = kKnee + (1.0f - kKnee) * std::tanh((a - kKnee) / (1.0f - kKnee));
+    return x < 0.0f ? -y : y;
+}
 
 class Core {
 public:
@@ -164,7 +181,10 @@ public:
     void setSynthParam(int channel, int param, float value);
     // Replaces the sample a channel plays (slot 0..kMaxChannels-1) or the audition sample
     // (kAuditionSlot). Pass empty frames to clear it.
-    void setSample(int slot, std::vector<float> frames, float sampleRate);
+    // Samples whose rate differs from the output rate are converted once here with a high-quality
+    // windowed-sinc resampler, so plain playback is sample-exact instead of interpolated.
+    void setSample(int slot, std::vector<float> frames, float sampleRate) { setSample(slot, std::move(frames), {}, sampleRate); }
+    void setSample(int slot, std::vector<float> left, std::vector<float> right, float sampleRate);
     // Plays the audition sample once.
     void audition() { auditionTrigger_.store(true); }
     int64_t positionTicks() const { return position_.load(); }
@@ -201,7 +221,8 @@ private:
     void adoptSamples();
     void jumpTo(int64_t tick);
     void resumeLongSamples();
-    float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr);
+    // Returns the left (or mono) output; writes the right one to *right when given.
+    float sampleTick(Voice& v, const SampleData* data, const SampleShape* shape = nullptr, float* right = nullptr);
     SampleShape shapeFor(int channel) const;
 
     int sampleRate_ = 48000;
