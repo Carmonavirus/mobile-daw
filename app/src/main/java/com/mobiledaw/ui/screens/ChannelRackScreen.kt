@@ -263,6 +263,7 @@ private fun PatternChip(vm: DawViewModel, pat: com.mobiledaw.model.Pattern, colo
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Save as template") }, onClick = { menu = false; saving = true })
+            DropdownMenuItem(text = { Text("Clone pattern") }, onClick = { menu = false; vm.clonePattern(pat.id) })
             if (pat.bars * 2 <= MAX_BARS) {
                 DropdownMenuItem(text = { Text("Loop to ${pat.bars * 2} bars") }, onClick = { menu = false; vm.loopPattern() })
             }
