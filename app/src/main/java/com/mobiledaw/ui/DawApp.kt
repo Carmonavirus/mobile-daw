@@ -38,6 +38,11 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -116,9 +121,18 @@ fun DawApp(vm: DawViewModel) {
         }
         if (landscape) {
             // Landscape: tabs and transport share one row, leaving more height for the screens.
+            // Play sits in the middle of the screen, with the other controls to its right.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 BottomTabs(vm.tab, Modifier.weight(1f), selectTab)
-                Box(Modifier.weight(1f)) { transport() }
+                if (vm.recordMode && vm.tab == Tab.PLAYLIST) {
+                    Box(Modifier.weight(1f)) { transport() }
+                } else {
+                    PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
+                    LandscapeTransport(vm, Modifier.weight(1f), onRecordMode = {
+                        vm.enterRecordMode()
+                        if (!micAllowed()) askMic.launch(Manifest.permission.RECORD_AUDIO)
+                    })
+                }
             }
         } else {
             transport()
@@ -227,22 +241,53 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
                     modifier = Modifier.padding(start = 14.dp),
                 )
             }
-            if (vm.tab == Tab.PLAYLIST) {
-                Row(
-                    Modifier
-                        .padding(start = 14.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(DawColors.Chip)
-                        .clickable(onClick = onRecordMode)
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(RecordRed))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Record", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-                }
-            }
+            if (vm.tab == Tab.PLAYLIST) RecordChip(onRecordMode, Modifier.padding(start = 14.dp))
         }
+    }
+}
+
+/**
+ * Landscape transport, right of the centred play button: PAT/SONG, then Stop, then undo
+ * (piano roll showing) or Record (playlist).
+ */
+@Composable
+private fun LandscapeTransport(vm: DawViewModel, modifier: Modifier, onRecordMode: () -> Unit) {
+    Row(modifier.padding(start = 14.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.weight(1f))
+        Segmented(
+            options = listOf(PlayMode.PATTERN to "PAT", PlayMode.SONG to "SONG"),
+            selected = vm.mode,
+            onSelect = vm::switchMode,
+            modifier = Modifier.padding(end = 10.dp),
+        )
+        StopAllButton(vm::stopAllSound, diameter = 38.dp)
+        if (vm.pianoVisible) {
+            UndoButton(
+                enabled = vm.canUndo,
+                canRedo = vm.canRedo,
+                onUndo = vm::undoNoteEdit,
+                onRedo = vm::redoNoteEdit,
+                modifier = Modifier.padding(start = 10.dp),
+            )
+        }
+        if (vm.tab == Tab.PLAYLIST) RecordChip(onRecordMode, Modifier.padding(start = 10.dp))
+    }
+}
+
+/** Opens record mode on the playlist. */
+@Composable
+private fun RecordChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(DawColors.Chip)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(RecordRed))
+        Spacer(Modifier.width(6.dp))
+        Text("Record", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
     }
 }
 
@@ -317,6 +362,7 @@ private fun RecordTransport(vm: DawViewModel, onRecord: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PlayButton(vm.playing, vm::togglePlay, diameter = 56.dp)
+        StopAllButton(vm::stopAllSound, diameter = 38.dp, modifier = Modifier.padding(start = 10.dp))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             val status = when (vm.takeState) {
                 TakeState.COUNTING -> "Get ready…"
@@ -357,18 +403,21 @@ private fun RecordTransport(vm: DawViewModel, onRecord: () -> Unit) {
     }
 }
 
-/** "Stop all sound": a square in a ring, far left of the transport. Cuts every sound at once. */
+/**
+ * Stop: a square in a ring. Stops playback, cuts every sound at once and goes back to where play
+ * started (the play button pauses instead).
+ */
 @Composable
-private fun StopAllButton(onClick: () -> Unit) {
+private fun StopAllButton(onClick: () -> Unit, diameter: androidx.compose.ui.unit.Dp = 30.dp, modifier: Modifier = Modifier) {
     Box(
-        Modifier
-            .size(30.dp)
+        modifier
+            .size(diameter)
             .clip(CircleShape)
             .background(DawColors.Chip)
-            .clickable(onClickLabel = "Stop all sound", onClick = onClick),
+            .clickable(onClickLabel = "Stop", onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(11.dp).clip(RoundedCornerShape(2.dp)).background(DawColors.Ink))
+        Box(Modifier.size(diameter * 0.36f).clip(RoundedCornerShape(2.dp)).background(DawColors.Ink))
     }
 }
 
@@ -390,27 +439,195 @@ private fun RecordButton(active: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Wide screens: two screens side by side, split by a thin line.
+ * Wide screens: two screens side by side.
  * Playlist tab = playlist + channel rack (build patterns and arrange them together).
  * Rack tab = channel rack + piano roll (pick a sound on the left, write its notes on the right).
  * Piano and Mixer use the whole width on their own.
+ * Drag the divider to resize, or use its arrows to close a pane; a closed pane leaves a strip
+ * on its edge that opens it again. Sizes and closed panes are kept for the session, per tab.
  */
 @Composable
 private fun WideContent(vm: DawViewModel) {
     when (vm.tab) {
-        Tab.PLAYLIST -> SplitPanes(0.6f, { PlaylistScreen(vm) }, { ChannelRackScreen(vm) })
-        Tab.RACK -> SplitPanes(0.46f, { ChannelRackScreen(vm) }, { PianoRollScreen(vm, showPatternBar = false) })
+        Tab.PLAYLIST -> SplitPanes(vm, Tab.PLAYLIST, 0.6f, "Playlist", "Rack", { PlaylistScreen(vm) }, { ChannelRackScreen(vm) })
+        Tab.RACK -> SplitPanes(vm, Tab.RACK, 0.46f, "Rack", "Piano", { ChannelRackScreen(vm) }, { PianoRollScreen(vm, showPatternBar = false) })
         Tab.PIANO -> PianoRollScreen(vm)
         Tab.MIXER -> MixerScreen(vm)
     }
 }
 
+private const val MIN_SHARE = 0.25f
+private const val MAX_SHARE = 0.75f
+/** Dragging the divider this close to an edge closes the pane on that side. */
+private const val CLOSE_SHARE = 0.16f
+
 @Composable
-private fun SplitPanes(leftShare: Float, left: @Composable () -> Unit, right: @Composable () -> Unit) {
-    Row(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(leftShare).fillMaxHeight()) { left() }
-        Box(Modifier.width(1.dp).fillMaxHeight().background(DawColors.Line))
-        Box(Modifier.weight(1f - leftShare).fillMaxHeight()) { right() }
+private fun SplitPanes(
+    vm: DawViewModel,
+    tab: Tab,
+    defaultShare: Float,
+    leftName: String,
+    rightName: String,
+    left: @Composable () -> Unit,
+    right: @Composable () -> Unit,
+) {
+    when (vm.splitHidden[tab]) {
+        com.mobiledaw.PaneSide.LEFT -> Row(Modifier.fillMaxSize()) {
+            ReopenStrip(leftName, onLeftEdge = true) { vm.splitHidden.remove(tab) }
+            Box(Modifier.weight(1f).fillMaxHeight()) { right() }
+        }
+        com.mobiledaw.PaneSide.RIGHT -> Row(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxHeight()) { left() }
+            ReopenStrip(rightName, onLeftEdge = false) { vm.splitHidden.remove(tab) }
+        }
+        null -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+            val totalPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+            val share = vm.splitShare[tab] ?: defaultShare
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(share).fillMaxHeight()) { left() }
+                Box(Modifier.width(1.dp).fillMaxHeight().background(DawColors.Line))
+                Box(Modifier.weight(1f - share).fillMaxHeight()) { right() }
+            }
+            val handleWidth = 26.dp
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val halfHandlePx = with(density) { (handleWidth / 2).roundToPx() }
+            DividerHandle(
+                leftName = leftName,
+                rightName = rightName,
+                width = handleWidth,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset { androidx.compose.ui.unit.IntOffset((share * totalPx).toInt() - halfHandlePx, 0) }
+                    .pointerInput(tab, totalPx) {
+                        var startShare = defaultShare
+                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                            onDragStart = { startShare = vm.splitShare[tab] ?: defaultShare },
+                            onDragEnd = {
+                                val now = vm.splitShare[tab] ?: defaultShare
+                                when {
+                                    now < CLOSE_SHARE -> { vm.splitShare[tab] = startShare.coerceIn(MIN_SHARE, MAX_SHARE); vm.splitHidden[tab] = com.mobiledaw.PaneSide.LEFT }
+                                    now > 1f - CLOSE_SHARE -> { vm.splitShare[tab] = startShare.coerceIn(MIN_SHARE, MAX_SHARE); vm.splitHidden[tab] = com.mobiledaw.PaneSide.RIGHT }
+                                    else -> vm.splitShare[tab] = now.coerceIn(MIN_SHARE, MAX_SHARE)
+                                }
+                            },
+                            onDragCancel = { vm.splitShare[tab] = (vm.splitShare[tab] ?: defaultShare).coerceIn(MIN_SHARE, MAX_SHARE) },
+                        ) { change, dx ->
+                            change.consume()
+                            val now = vm.splitShare[tab] ?: defaultShare
+                            vm.splitShare[tab] = (now + dx / totalPx).coerceIn(0.05f, 0.95f)
+                        }
+                    },
+                onCloseLeft = { vm.splitHidden[tab] = com.mobiledaw.PaneSide.LEFT },
+                onCloseRight = { vm.splitHidden[tab] = com.mobiledaw.PaneSide.RIGHT },
+            )
+        }
+    }
+}
+
+/**
+ * The grip on the split line: drag it sideways to resize. The arrows above and below it close
+ * the pane they point into.
+ */
+@Composable
+private fun DividerHandle(
+    leftName: String,
+    rightName: String,
+    width: androidx.compose.ui.unit.Dp,
+    modifier: Modifier,
+    onCloseLeft: () -> Unit,
+    onCloseRight: () -> Unit,
+) {
+    Column(modifier.width(width), horizontalAlignment = Alignment.CenterHorizontally) {
+        ArrowButton(pointsLeft = true, label = "Close $leftName", onClick = onCloseLeft)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            Modifier
+                .size(width = 14.dp, height = 56.dp)
+                .clip(RoundedCornerShape(50))
+                .background(DawColors.Card)
+                .semantics { contentDescription = "Drag to resize" },
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.Canvas(Modifier.size(width = 6.dp, height = 20.dp)) {
+                val stroke = 1.5.dp.toPx()
+                for (i in 0..2) {
+                    val y = size.height * (0.2f + 0.3f * i)
+                    drawLine(DawColors.Muted, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        ArrowButton(pointsLeft = false, label = "Close $rightName", onClick = onCloseRight)
+    }
+}
+
+/** A small round button with a chevron, drawn (no icon font needed). */
+@Composable
+private fun ArrowButton(pointsLeft: Boolean, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(DawColors.Card)
+            .clickable(onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Chevron(pointsLeft, Modifier.size(10.dp))
+    }
+}
+
+@Composable
+private fun Chevron(pointsLeft: Boolean, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val stroke = 1.8.dp.toPx()
+        val tipX = if (pointsLeft) size.width * 0.25f else size.width * 0.75f
+        val backX = if (pointsLeft) size.width * 0.7f else size.width * 0.3f
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(backX, 0f)
+            lineTo(tipX, size.height / 2f)
+            lineTo(backX, size.height)
+        }
+        drawPath(
+            path,
+            DawColors.Ink,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = stroke,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            ),
+        )
+    }
+}
+
+/** A closed pane: a slim strip on its edge with its name. Tap it to open the pane again. */
+@Composable
+private fun ReopenStrip(name: String, onLeftEdge: Boolean, onOpen: () -> Unit) {
+    Box(
+        Modifier
+            .width(30.dp)
+            .fillMaxHeight()
+            .background(DawColors.Chip)
+            .clickable(onClickLabel = "Open $name", onClick = onOpen),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Points into the screen: the way the pane slides back.
+            Chevron(pointsLeft = !onLeftEdge, modifier = Modifier.size(10.dp))
+            Spacer(Modifier.height(44.dp))
+            Text(
+                name,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DawColors.Ink,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .wrapContentSize(unbounded = true)
+                    .graphicsLayer { rotationZ = if (onLeftEdge) -90f else 90f },
+            )
+            Spacer(Modifier.height(44.dp))
+            Chevron(pointsLeft = !onLeftEdge, modifier = Modifier.size(10.dp))
+        }
     }
 }
 
