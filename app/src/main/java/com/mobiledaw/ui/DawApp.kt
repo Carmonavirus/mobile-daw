@@ -75,7 +75,18 @@ fun DawApp(vm: DawViewModel) {
     // Tablet in landscape: screens side by side. Any landscape window: one bottom row.
     val wide = useSplitPanes()
     val landscape = isLandscapeWindow()
-    SideEffect { vm.wideLayout = wide }
+    SideEffect {
+        vm.wideLayout = wide
+        Desktop.dialogOpen = showProjects || showTempo || vm.settingsOpen || vm.exportOpen ||
+            vm.synthEditorChannelId != null || vm.openEffect != null
+    }
+    // Ctrl+O on a computer keyboard.
+    if (Desktop.projectsRequested) {
+        SideEffect {
+            Desktop.projectsRequested = false
+            showProjects = true
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
     Column(
@@ -104,6 +115,22 @@ fun DawApp(vm: DawViewModel) {
                 }
             }
             CountInOverlay(vm.countIn, Modifier.align(Alignment.Center))
+            // Keyboard shortcut feedback ("Saved", "Typing keyboard on") on screens without the piano roll,
+            // which shows these itself.
+            val pianoShown = vm.tab == Tab.PIANO || (wide && vm.tab == Tab.RACK)
+            if (!pianoShown) vm.pianoNotice?.let { text ->
+                Text(
+                    text,
+                    fontSize = 13.sp,
+                    color = DawColors.Ink,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp, start = 16.dp, end = 16.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(DawColors.Card)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
         }
         // Transport sits right above the tabs, within thumb reach.
         // A slim progress bar sits just above it: tap or drag to move the playhead.
@@ -150,6 +177,7 @@ fun DawApp(vm: DawViewModel) {
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     SharedAudioDialog(vm)
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
+    if (Desktop.shortcutsOpen) ShortcutsSheet(vm) { Desktop.shortcutsOpen = false }
     if (vm.exportOpen) ExportScreen(vm)
     if (vm.settingsOpen) {
         SettingsScreen(

@@ -70,6 +70,7 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.63.0
           npx playwright install --with-deps chromium
           node tests/smoke.mjs build/dist/wasmJs/productionExecutable
+          node tests/desktop.mjs build/dist/wasmJs/productionExecutable
       - name: Assemble the site
         run: |
           mkdir -p site

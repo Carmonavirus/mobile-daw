@@ -582,6 +582,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectPattern(id: Long) {
         selectedPatternId = id
+        pianoSelection = emptySet()
         syncEngine()
     }
 
@@ -675,6 +676,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Switching channels keeps the chords written so far.
         if (chordGen != null && chordGen?.channelId != id) closeChordGen(keep = true)
         selectedChannelId = id
+        pianoSelection = emptySet()
     }
 
     fun toggleStep(channel: Channel, step: Int) {
@@ -1403,6 +1405,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private var noticeJob: Job? = null
 
+    /** A short note at the bottom of the screen (keyboard shortcuts' feedback). */
+    fun desktopNotice(text: String) = showPianoNotice(text)
+
     private fun showPianoNotice(text: String) {
         pianoNotice = text
         noticeJob?.cancel()
@@ -1589,6 +1594,145 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         pianoRedo.removeAt(pianoRedo.lastIndex)
         applyNoteState(e.patternId, e.channelId, e.afterNotes, e.afterBars)
         pianoUndo.add(e)
+    }
+
+    // ---------------------------------------------------------------- mouse & keyboard editing
+
+    /** Notes picked with a mouse box/Ctrl+click or Ctrl+A in the piano roll (desktop only). */
+    var pianoSelection by mutableStateOf<Set<Note>>(emptySet())
+
+    /**
+     * Replaces the selected channel's notes in one go (a mouse or keyboard edit). With [inGesture],
+     * the edits of one mouse drag after [beginNoteGesture] make a single undo step. The pattern
+     * grows when notes need more bars.
+     */
+    fun editNotes(inGesture: Boolean = false, transform: (List<Note>) -> List<Note>) {
+        val ch = selectedChannel ?: return
+        val before = selectedPattern.notesFor(ch.id)
+        val after = transform(before)
+        if (after == before) return
+        if (!inGesture || gesturePending) {
+            gesturePending = false
+            pianoCheckpoint(ch.id)
+        }
+        val maxTicks = com.mobiledaw.model.MAX_BARS * TICKS_PER_BAR
+        val neededBars = ((after.maxOfOrNull { it.start + it.length } ?: 0).coerceAtMost(maxTicks) + TICKS_PER_BAR - 1) / TICKS_PER_BAR
+        updatePattern(selectedPatternId) { pat ->
+            pat.copy(bars = maxOf(pat.bars, neededBars), notes = pat.notes + (ch.id to after))
+        }
+        pianoSealTop()
+    }
+
+    /** The selected notes that still exist (an undo or another edit may have changed them). */
+    private fun liveSelection(): List<Note> {
+        val ch = selectedChannel ?: return emptyList()
+        return selectedPattern.notesFor(ch.id).filter { it in pianoSelection }
+    }
+
+    fun selectAllNotes() {
+        val ch = selectedChannel ?: return
+        pianoSelection = selectedPattern.notesFor(ch.id).toSet()
+        if (pianoSelection.isNotEmpty()) showPianoNotice("Selected ${countLabel(pianoSelection.size)}")
+    }
+
+    fun deleteSelectedNotes(): Boolean {
+        val sel = liveSelection()
+        if (sel.isEmpty()) return false
+        editNotes { list -> list.filter { it !in pianoSelection } }
+        pianoSelection = emptySet()
+        return true
+    }
+
+    /** Ctrl+C: the selected notes, or every note of the channel when nothing is selected. */
+    fun copySelectedNotes(cut: Boolean = false) {
+        val ch = selectedChannel ?: return
+        val sel = liveSelection()
+        if (sel.isEmpty()) {
+            copyNotes()
+            return
+        }
+        noteClipboard = NoteClipboard(ch.name, sel, if (isOneShotDrum(ch)) ch.stepPitch else null)
+        if (cut) {
+            editNotes { list -> list.filter { it !in pianoSelection } }
+            pianoSelection = emptySet()
+        }
+        showPianoNotice("${if (cut) "Cut" else "Copied"} ${countLabel(sel.size)}")
+    }
+
+    /**
+     * Ctrl+V: pastes where the notes came from; when they're still there (a copy), right after
+     * them instead. The pasted notes stay selected, ready to drag.
+     */
+    fun pasteSelectedNotes() {
+        val ch = selectedChannel ?: return
+        val clip = noteClipboard ?: return
+        val shift = if (clip.drumPitch != null && isOneShotDrum(ch)) ch.stepPitch - clip.drumPitch else 0
+        var incoming = clip.notes.map { it.copy(pitch = (it.pitch + shift).coerceIn(0, 127)) }
+        val existing = selectedPattern.notesFor(ch.id)
+        if (incoming.isNotEmpty() && incoming.all { it in existing }) incoming = shiftedAfter(incoming)
+        placeNotes(incoming, "Pasted")
+    }
+
+    /** Ctrl+B: copies the selected notes right after themselves. */
+    fun duplicateSelectedNotes() {
+        val sel = liveSelection()
+        if (sel.isEmpty()) {
+            showPianoNotice("Select notes first: Ctrl+drag, or Ctrl+A for all")
+            return
+        }
+        placeNotes(shiftedAfter(sel), "Duplicated")
+    }
+
+    private fun shiftedAfter(notes: List<Note>): List<Note> {
+        val from = notes.minOf { it.start }
+        val to = notes.maxOf { it.start + it.length }
+        val span = ((to - from + TICKS_PER_BEAT - 1) / TICKS_PER_BEAT).coerceAtLeast(1) * TICKS_PER_BEAT
+        return notes.map { it.copy(start = it.start + span) }
+    }
+
+    private fun placeNotes(notes: List<Note>, verb: String) {
+        val maxTicks = com.mobiledaw.model.MAX_BARS * TICKS_PER_BAR
+        val fit = notes.filter { it.start < maxTicks }.map { it.copy(length = minOf(it.length, maxTicks - it.start)) }
+        if (fit.isEmpty()) {
+            showPianoNotice("No room: a pattern holds up to ${com.mobiledaw.model.MAX_BARS} bars")
+            return
+        }
+        editNotes { list -> list + fit.filter { it !in list } }
+        pianoSelection = fit.toSet()
+        showPianoNotice("$verb ${countLabel(fit.size)}")
+    }
+
+    /** Arrow keys: moves the selected notes by [ticks] and [semis]. */
+    fun nudgeSelectedNotes(ticks: Int, semis: Int): Boolean {
+        val sel = liveSelection()
+        if (sel.isEmpty()) return false
+        val maxTicks = com.mobiledaw.model.MAX_BARS * TICKS_PER_BAR
+        val dt = ticks.coerceIn(-sel.minOf { it.start }, maxTicks - sel.maxOf { it.start + it.length })
+        val ds = semis.coerceIn(12 - sel.minOf { it.pitch }, 108 - sel.maxOf { it.pitch })
+        if (dt == 0 && ds == 0) return true
+        val moved = HashSet<Note>()
+        editNotes { list ->
+            list.map { n ->
+                if (n in pianoSelection) n.copy(start = n.start + dt, pitch = n.pitch + ds).also { moved += it } else n
+            }
+        }
+        pianoSelection = moved
+        if (ds != 0) selectedChannel?.let { ch -> editPreview(ch, moved.maxOf { it.pitch }) }
+        return true
+    }
+
+    private fun countLabel(n: Int) = "$n note${if (n == 1) "" else "s"}"
+
+    /** Ctrl+S: saves right away (the app also saves by itself after every change). */
+    fun saveRightAway() {
+        saveNow()
+        showPianoNotice("Saved \"${project.name}\"")
+    }
+
+    /** Several deletes in one mouse drag: one Undo brings them all back. */
+    fun markUndo(before: Project, label: String) {
+        undoSnapshot = before
+        undoLabel = label
     }
 
     private fun clearPianoHistory() {

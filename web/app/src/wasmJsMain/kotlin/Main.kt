@@ -50,8 +50,19 @@ private var probeText = ""
 private fun dawProbe(): String {
     val vm = probeVm ?: return "{}"
     val p = vm.project
-    return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()}${if (probeText.isEmpty()) "" else ",$probeText"}}"
+    val notes = vm.selectedChannel?.let { vm.selectedPattern.notesFor(it.id).size } ?: 0
+    val desk = com.mobiledaw.ui.Desktop
+    val extra = "\"tab\":\"${vm.tab}\",\"notes\":$notes,\"sel\":${vm.pianoSelection.size},\"barDp\":${vm.playlistBarDp},\"clips\":${p.clips.size}," +
+        "\"typing\":\"${desk.typing}\",\"help\":${desk.shortcutsOpen},\"desktop\":${desk.active}"
+    return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()},$extra${if (probeText.isEmpty()) "" else ",$probeText"}}"
 }
+
+private external fun listenDesktopInput(
+    onKey: (String, Boolean, Boolean, Boolean, Boolean, Boolean) -> Boolean,
+    onBlur: () -> Unit,
+    onMouse: () -> Unit,
+    onRight: (Int, Float, Float) -> Unit,
+)
 
 private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit, addBeat: () -> Unit)
 
@@ -85,6 +96,14 @@ fun main() {
             vm.addChannel(com.mobiledaw.model.Instrument.KICK)
             vm.selectedChannel?.let { kick -> listOf(0, 4, 8, 12).forEach { vm.toggleStep(kick, it) } }
         }
+        // PC / laptop: keyboard shortcuts, typing keyboard and mouse extras (see ui/DesktopKeys.kt).
+        com.mobiledaw.ui.Wheel.reportsPixels = true
+        listenDesktopInput(
+            { code, down, ctrl, shift, alt, repeat -> com.mobiledaw.ui.Desktop.onKey(vm, code, down, ctrl, shift, alt, repeat) },
+            { com.mobiledaw.ui.Desktop.releaseAll(vm) },
+            { if (!com.mobiledaw.ui.Desktop.active) com.mobiledaw.ui.Desktop.active = true },
+            { phase, x, y -> com.mobiledaw.ui.RightMouse.dispatch(phase, x, y) },
+        )
         val config = mutableStateOf(currentConfig())
         onWindowResize { config.value = currentConfig() }
         onPageVisibility { visible -> if (visible) vm.onResume() else vm.onPause() }

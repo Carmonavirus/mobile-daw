@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
+import com.mobiledaw.ui.onRightClick
 import com.mobiledaw.PlayMode
 import com.mobiledaw.model.Channel
 import com.mobiledaw.model.MAX_BARS
@@ -640,6 +641,8 @@ private fun StepCell(on: Boolean, beatShade: Boolean, playing: Boolean, compact:
                 },
             )
             .border(1.dp, if (playing) DawColors.Accent else Color.Transparent, shape)
+            // Mouse: right click clears a step, FL-style.
+            .onRightClick { if (on) onClick() }
             .clickable(onClick = onClick),
     )
 }

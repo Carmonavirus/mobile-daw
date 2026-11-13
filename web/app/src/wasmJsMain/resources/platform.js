@@ -478,3 +478,45 @@ function showStartError(msg) { const s = document.getElementById('splash'); if (
 
 /** Test hooks (see web/app/tests). */
 function registerProbe(probe, togglePlay, addBeat) { window.dawProbe = probe; window.dawTogglePlay = togglePlay; window.dawAddBeat = addBeat; }
+
+/**
+ * PC / laptop: keys go to the app's shortcuts (Space, Ctrl+Z, F5...). Skipped while a text box
+ * has focus. A trackpad pinch arrives as Ctrl+wheel: the app zooms, the page must not.
+ */
+function listenDesktopInput(onKey, onBlur, onMouse, onRight) {
+  const handle = (e, down) => {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.isContentEditable)) return;
+    if (onKey(e.code || '', down, e.ctrlKey || e.metaKey, e.shiftKey, e.altKey, e.repeat)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  window.addEventListener('keydown', (e) => handle(e, true), { capture: true });
+  window.addEventListener('keyup', (e) => handle(e, false), { capture: true });
+  window.addEventListener('blur', () => onBlur());
+  window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false, capture: true });
+  for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, (e) => e.preventDefault());
+  // Right mouse button: Compose here doesn't pass it to the screens, so hand it over directly
+  // (window pixels, as Compose counts them). 0 = press, 1 = drag, 2 = release.
+  let rightDown = false;
+  const px = (e) => [e.clientX * (window.devicePixelRatio || 1), e.clientY * (window.devicePixelRatio || 1)];
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 2) return;
+    rightDown = true;
+    onRight(0, ...px(e));
+  }, { capture: true });
+  window.addEventListener('pointermove', (e) => {
+    if (!rightDown) return;
+    if (!(e.buttons & 2)) { rightDown = false; onRight(2, 0, 0); return; }
+    onRight(1, ...px(e));
+  }, { capture: true });
+  window.addEventListener('pointerup', (e) => {
+    if (!rightDown || e.button !== 2) return;
+    rightDown = false;
+    onRight(2, 0, 0);
+  }, { capture: true });
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+  if (window.matchMedia && matchMedia('(any-pointer: fine)').matches) onMouse();
+  window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') onMouse(); }, { passive: true });
+}
