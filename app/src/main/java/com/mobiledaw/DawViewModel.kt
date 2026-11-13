@@ -575,15 +575,31 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         pat.copy(bars = bars)
     }
 
-    /** Replaces a channel's steps with one hit every [every] steps across the whole pattern. */
+    /**
+     * Replaces a channel's steps with one hit every [every] steps (1 = every step) across all
+     * the bars of the selected pattern. Can be undone from the Undo bar.
+     */
     fun fillSteps(channel: Channel, every: Int) {
+        val before = project
         val pattern = selectedPattern
         val pitch = channel.stepPitch
         val steps = pattern.lengthTicks / TICKS_PER_STEP
-        updateNotes(channel.id) { (0 until steps step every).map { Note(it * TICKS_PER_STEP, TICKS_PER_STEP, pitch) } }
+        updateNotes(channel.id) { (0 until steps step every.coerceAtLeast(1)).map { Note(it * TICKS_PER_STEP, TICKS_PER_STEP, pitch) } }
+        if (project != before) {
+            undoSnapshot = before
+            undoLabel = if (every <= 1) "Filled every step" else "Filled every $every steps"
+        }
     }
 
-    fun clearSteps(channel: Channel) = updateNotes(channel.id) { emptyList() }
+    /** Removes all of a channel's steps in the selected pattern. Can be undone from the Undo bar. */
+    fun clearSteps(channel: Channel) {
+        val before = project
+        updateNotes(channel.id) { emptyList() }
+        if (project != before) {
+            undoSnapshot = before
+            undoLabel = "Cleared ${channel.name}"
+        }
+    }
 
     /** Doubles the selected pattern by copying its bars after themselves (4 bars -> 8). */
     fun loopPattern() = updatePattern(selectedPatternId) { pat ->

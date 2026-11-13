@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.3", "2026-11-13T19:40:00Z",
+            listOf(
+                "Channel rack: a channel's ⋯ menu (or a long-press on it) now has Fill every step, next to Fill every 2, 4 and 8 steps. Fills cover every bar of the pattern.",
+                "Fill and Clear steps can now be undone: tap Undo on the bar that pops up at the bottom.",
+            ),
+        ),
+        Release(
             "0.8.2", "2026-11-13T19:20:00Z",
             listOf(
                 "New projects now start empty: no demo beat, no preloaded sounds, no notes and nothing on the playlist. Tap + Add drums or + Add sounds in the Rack to begin.",
