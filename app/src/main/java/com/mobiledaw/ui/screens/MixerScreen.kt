@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -49,6 +53,8 @@ import com.mobiledaw.model.MixerTrack
 import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.model.Project
 import com.mobiledaw.ui.RoundToggle
+import com.mobiledaw.ui.WindowWidthClass
+import com.mobiledaw.ui.windowWidthClass
 import com.mobiledaw.ui.inkSliderColors
 import com.mobiledaw.ui.theme.DawColors
 import kotlin.math.abs
@@ -64,55 +70,86 @@ fun MixerScreen(vm: DawViewModel) {
     val p = vm.project
     var renaming by remember { mutableStateOf<MixerTrack?>(null) }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
-            Strip(
-                name = "Master",
-                subtitle = "the whole song",
-                level = levels.getOrElse(NativeEngine.MAX_CHANNELS) { 0f },
-                volume = p.masterVolume,
-                onVolume = vm::setMasterVolume,
-                emphasized = true,
+    val master: @Composable () -> Unit = {
+        Strip(
+            name = "Master",
+            subtitle = "the whole song",
+            level = levels.getOrElse(NativeEngine.MAX_CHANNELS) { 0f },
+            volume = p.masterVolume,
+            onVolume = vm::setMasterVolume,
+            emphasized = true,
+        ) {
+            EffectChain(vm, p, p.masterTrack)
+        }
+    }
+    val tracksHeader: @Composable () -> Unit = {
+        SectionHeader(
+            "Mixer tracks",
+            action = if (p.mixerTracks.size < MAX_MIXER_TRACKS) "+ Track" else null,
+            onAction = { vm.addMixerTrack() },
+        )
+    }
+    val noTracks: @Composable () -> Unit = { Hint("No mixer tracks. Add one to give a group of sounds its own effects.") }
+    val channelStrip: @Composable (Int, com.mobiledaw.model.Channel) -> Unit = { index, ch ->
+        Strip(
+            name = ch.name,
+            subtitle = ch.instrument.label.lowercase(),
+            level = levels.getOrElse(index) { 0f },
+            volume = ch.volume,
+            onVolume = { v -> vm.updateChannel(ch.id) { it.copy(volume = if (abs(v - 1f) < 0.04f) 1f else v) } },
+            maxVolume = 2f,
+            pan = ch.pan,
+            onPan = { v -> vm.updateChannel(ch.id) { it.copy(pan = if (abs(v) < 0.06f) 0f else v) } },
+            mute = ch.mute,
+            onMute = { vm.updateChannel(ch.id) { it.copy(mute = !it.mute) } },
+            solo = ch.solo,
+            onSolo = { vm.updateChannel(ch.id) { it.copy(solo = !it.solo) } },
+            header = {
+                RouteChip(p, ch.mixerTrack) { vm.routeChannel(ch.id, it) }
+            },
+        )
+    }
+
+    if (windowWidthClass() != WindowWidthClass.COMPACT) {
+        // Tablets: master and mixer tracks on the left, the channel strips in a grid on the right.
+        Row(Modifier.fillMaxSize()) {
+            LazyColumn(
+                Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                EffectChain(vm, p, p.masterTrack)
+                item { master() }
+                item { tracksHeader() }
+                if (p.mixerTracks.isEmpty()) item { noTracks() }
+                itemsIndexed(p.mixerTracks, key = { _, t -> "track-${t.id}" }) { index, track ->
+                    TrackCard(vm, p, track, vm.trackLevels.getOrElse(index) { 0f }, onRename = { renaming = track })
+                }
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 260.dp),
+                modifier = Modifier.weight(1.4f).fillMaxHeight(),
+                contentPadding = PaddingValues(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Channels") }
+                gridItemsIndexed(p.channels, key = { _, c -> c.id }) { index, ch -> channelStrip(index, ch) }
             }
         }
-        item {
-            SectionHeader(
-                "Mixer tracks",
-                action = if (p.mixerTracks.size < MAX_MIXER_TRACKS) "+ Track" else null,
-                onAction = { vm.addMixerTrack() },
-            )
-        }
-        if (p.mixerTracks.isEmpty()) {
-            item { Hint("No mixer tracks. Add one to give a group of sounds its own effects.") }
-        }
-        itemsIndexed(p.mixerTracks, key = { _, t -> "track-${t.id}" }) { index, track ->
-            TrackCard(vm, p, track, vm.trackLevels.getOrElse(index) { 0f }, onRename = { renaming = track })
-        }
-        item { SectionHeader("Channels") }
-        itemsIndexed(p.channels, key = { _, c -> c.id }) { index, ch ->
-            Strip(
-                name = ch.name,
-                subtitle = ch.instrument.label.lowercase(),
-                level = levels.getOrElse(index) { 0f },
-                volume = ch.volume,
-                onVolume = { v -> vm.updateChannel(ch.id) { it.copy(volume = if (abs(v - 1f) < 0.04f) 1f else v) } },
-                maxVolume = 2f,
-                pan = ch.pan,
-                onPan = { v -> vm.updateChannel(ch.id) { it.copy(pan = if (abs(v) < 0.06f) 0f else v) } },
-                mute = ch.mute,
-                onMute = { vm.updateChannel(ch.id) { it.copy(mute = !it.mute) } },
-                solo = ch.solo,
-                onSolo = { vm.updateChannel(ch.id) { it.copy(solo = !it.solo) } },
-                header = {
-                    RouteChip(p, ch.mixerTrack) { vm.routeChannel(ch.id, it) }
-                },
-            )
+    } else {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item { master() }
+            item { tracksHeader() }
+            if (p.mixerTracks.isEmpty()) item { noTracks() }
+            itemsIndexed(p.mixerTracks, key = { _, t -> "track-${t.id}" }) { index, track ->
+                TrackCard(vm, p, track, vm.trackLevels.getOrElse(index) { 0f }, onRename = { renaming = track })
+            }
+            item { SectionHeader("Channels") }
+            itemsIndexed(p.channels, key = { _, c -> c.id }) { index, ch -> channelStrip(index, ch) }
         }
     }
 

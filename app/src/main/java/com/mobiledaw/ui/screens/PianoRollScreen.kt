@@ -74,11 +74,12 @@ private const val LOWEST_PITCH = 12   // C0
 private const val HIGHEST_PITCH = 108 // C8
 
 @Composable
-fun PianoRollScreen(vm: DawViewModel) {
+fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
     val channel = vm.selectedChannel
 
     Column(Modifier.fillMaxSize()) {
-        PatternBar(vm)
+        // Beside the rack on a wide screen the rack already shows the pattern bar.
+        if (showPatternBar) PatternBar(vm)
         // Track chips: which channel the piano roll is editing. Solid background so the
         // grid below can never show through behind them.
         Row(

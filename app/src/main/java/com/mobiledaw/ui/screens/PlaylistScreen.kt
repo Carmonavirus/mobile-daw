@@ -27,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.input.ImeAction
 import com.mobiledaw.PlaylistTool
-import com.mobiledaw.Tab
 import com.mobiledaw.model.AudioClip
 import com.mobiledaw.model.ClipStretch
 import com.mobiledaw.model.Clip
@@ -939,7 +938,7 @@ private fun PatternClipWindow(vm: DawViewModel, index: Int, onDismiss: () -> Uni
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextAction("Edit pattern") {
                 vm.selectPattern(pattern.id)
-                vm.tab = Tab.RACK
+                vm.showRack()
                 onDismiss()
             }
             TextAction(if (clip.muted) "Unmute" else "Mute") { vm.setPatternClip(index, clip.copy(muted = !clip.muted)) }

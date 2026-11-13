@@ -26,6 +26,17 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.1", "2026-11-13T16:30:00Z",
+            listOf(
+                "The app now turns sideways. Tablets turn right away, like any app.",
+                "Phones turn too, but safely: when you turn the phone, the screen shows a 3, 2, 1 countdown (and ignores touches) before it flips, so a tilt by accident doesn't flip it in the middle of a beat. Turn the phone back before it reaches 0 to cancel. Turning back upright works the same way. If auto-rotate is off on your phone, the app stays put.",
+                "Sideways on a phone: one screen at a time, with the tabs and play controls sharing one row so the screen gets as much height as possible.",
+                "Tablet held sideways: the Playlist tab shows the playlist with the channel rack beside it, and the Rack tab shows the rack with the piano roll beside it (pick a sound on the left, write its notes on the right). The tabs and play controls share one row to leave more room.",
+                "Tablet mixer: the master and mixer tracks sit on the left, and the channel strips fill a grid on the right.",
+                "Turning the phone or tablet never stops playback or a recording.",
+            ),
+        ),
+        Release(
             "0.8.0", "2026-11-13T16:00:00Z",
             listOf(
                 "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +64,12 @@ fun DawApp(vm: DawViewModel) {
         vm.recordMessage = if (granted) null else "Allow the microphone to record."
     }
 
+    // Tablet in landscape: screens side by side. Any landscape window: one bottom row.
+    val wide = useSplitPanes()
+    val landscape = isLandscapeWindow()
+    SideEffect { vm.wideLayout = wide }
+
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -75,29 +85,47 @@ fun DawApp(vm: DawViewModel) {
             onMenu = { vm.settingsOpen = true },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (vm.tab) {
-                Tab.PLAYLIST -> PlaylistScreen(vm)
-                Tab.RACK -> ChannelRackScreen(vm)
-                Tab.PIANO -> PianoRollScreen(vm)
-                Tab.MIXER -> MixerScreen(vm)
+            if (wide) {
+                WideContent(vm)
+            } else {
+                when (vm.tab) {
+                    Tab.PLAYLIST -> PlaylistScreen(vm)
+                    Tab.RACK -> ChannelRackScreen(vm)
+                    Tab.PIANO -> PianoRollScreen(vm)
+                    Tab.MIXER -> MixerScreen(vm)
+                }
             }
             CountInOverlay(vm.countIn, Modifier.align(Alignment.Center))
         }
         // Transport sits right above the tabs, within thumb reach.
         // A slim progress bar sits just above it: tap or drag to move the playhead.
         TransportProgress(vm, Modifier.padding(top = 2.dp))
-        if (vm.recordMode && vm.tab == Tab.PLAYLIST) {
-            RecordTransport(vm, onRecord = { if (micAllowed()) vm.toggleTake() else askMic.launch(Manifest.permission.RECORD_AUDIO) })
-        } else {
-            Transport(vm, onRecordMode = {
-                vm.enterRecordMode()
-                if (!micAllowed()) askMic.launch(Manifest.permission.RECORD_AUDIO)
-            })
+        val transport: @Composable () -> Unit = {
+            if (vm.recordMode && vm.tab == Tab.PLAYLIST) {
+                RecordTransport(vm, onRecord = { if (micAllowed()) vm.toggleTake() else askMic.launch(Manifest.permission.RECORD_AUDIO) })
+            } else {
+                Transport(vm, onRecordMode = {
+                    vm.enterRecordMode()
+                    if (!micAllowed()) askMic.launch(Manifest.permission.RECORD_AUDIO)
+                })
+            }
         }
-        BottomTabs(vm.tab) {
+        val selectTab: (Tab) -> Unit = {
             if (vm.recordMode) vm.exitRecordMode()
             vm.tab = it
         }
+        if (landscape) {
+            // Landscape: tabs and transport share one row, leaving more height for the screens.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BottomTabs(vm.tab, Modifier.weight(1f), selectTab)
+                Box(Modifier.weight(1f)) { transport() }
+            }
+        } else {
+            transport()
+            BottomTabs(vm.tab, onSelect = selectTab)
+        }
+    }
+    vm.turnCountdown?.let { TurnOverlay(it) }
     }
 
     vm.synthEditorChannelId?.let { com.mobiledaw.ui.synth.SynthEditor(vm, it) }
@@ -190,7 +218,7 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
         }
         PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (vm.tab == Tab.PIANO) {
+            if (vm.pianoVisible) {
                 UndoButton(
                     enabled = vm.canUndo,
                     canRedo = vm.canRedo,
@@ -361,6 +389,70 @@ private fun RecordButton(active: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Wide screens: two screens side by side, split by a thin line.
+ * Playlist tab = playlist + channel rack (build patterns and arrange them together).
+ * Rack tab = channel rack + piano roll (pick a sound on the left, write its notes on the right).
+ * Piano and Mixer use the whole width on their own.
+ */
+@Composable
+private fun WideContent(vm: DawViewModel) {
+    when (vm.tab) {
+        Tab.PLAYLIST -> SplitPanes(0.6f, { PlaylistScreen(vm) }, { ChannelRackScreen(vm) })
+        Tab.RACK -> SplitPanes(0.46f, { ChannelRackScreen(vm) }, { PianoRollScreen(vm, showPatternBar = false) })
+        Tab.PIANO -> PianoRollScreen(vm)
+        Tab.MIXER -> MixerScreen(vm)
+    }
+}
+
+@Composable
+private fun SplitPanes(leftShare: Float, left: @Composable () -> Unit, right: @Composable () -> Unit) {
+    Row(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(leftShare).fillMaxHeight()) { left() }
+        Box(Modifier.width(1.dp).fillMaxHeight().background(DawColors.Line))
+        Box(Modifier.weight(1f - leftShare).fillMaxHeight()) { right() }
+    }
+}
+
+/**
+ * Phone about to turn: covers the whole screen and swallows every touch while it counts 3, 2, 1.
+ * Turning the phone back cancels it. Playback carries on underneath.
+ */
+@Composable
+private fun TurnOverlay(c: com.mobiledaw.TurnCountdown) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(DawColors.Paper.copy(alpha = 0.94f))
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (c.toLandscape) "Turning sideways" else "Turning upright",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DawColors.Ink,
+            )
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier.size(120.dp).clip(CircleShape).background(DawColors.Card),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("${c.seconds}", fontSize = 60.sp, fontWeight = FontWeight.Bold, color = DawColors.Ink)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Turn the phone back to cancel", fontSize = 13.sp, color = DawColors.Muted)
+        }
+    }
+}
+
 /** Big 1, 2, 3, 4, GO over the screen while counting in (the engine clicks each beat). */
 @Composable
 private fun CountInOverlay(count: Int?, modifier: Modifier = Modifier) {
@@ -390,9 +482,9 @@ private fun clock(ms: Int): String {
 }
 
 @Composable
-private fun BottomTabs(current: Tab, onSelect: (Tab) -> Unit) {
+private fun BottomTabs(current: Tab, modifier: Modifier = Modifier, onSelect: (Tab) -> Unit) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .background(DawColors.Paper)
             .padding(horizontal = 8.dp, vertical = 6.dp),
