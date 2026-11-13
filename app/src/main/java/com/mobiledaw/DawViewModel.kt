@@ -194,6 +194,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("piano_resume", on).apply()
     }
 
+    /** The moving soundwave above the play bar (piano roll). Off by default so the note grid gets the room; the "Wave" chip shows it. */
+    var showWaveform by mutableStateOf(prefs.getBoolean("show_waveform", false))
+        private set
+
+    fun changeShowWaveform(on: Boolean) {
+        showWaveform = on
+        prefs.edit().putBoolean("show_waveform", on).apply()
+    }
+
     // ---------------------------------------------------------------- output latency (Bluetooth sync)
     // Declared before init{}: the engine polling loop reads them.
 
