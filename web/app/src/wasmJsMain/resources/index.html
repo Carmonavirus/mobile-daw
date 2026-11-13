@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#f6f7fb">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Mobile DAW">
   <title>Mobile DAW</title>
   <link rel="icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <style>
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #f6f7fb; overscroll-behavior: none; touch-action: none; }
@@ -33,6 +36,10 @@
           location.reload();
         }
       }).catch(() => {});
+      // Works offline after the first visit (sw.js keeps the whole app on the device).
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+      }
     }
   </script>
   <script src="build-info.js"></script>
