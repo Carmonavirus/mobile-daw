@@ -26,6 +26,12 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.0", "2026-11-13T23:20:00Z",
+            listOf(
+                "Piano roll: the moving soundwave above the play bar can now be turned off. Tap the new Wave chip in the bottom row (next to Resume) to hide or show it. The app and the web app remember your choice.",
+            ),
+        ),
+        Release(
             "0.8.9", "2026-11-13T22:50:00Z",
             listOf(
                 "Web app on phones: pinching the playlist with two fingers zooms in and out again (the browser only passed on the finger that moved, so a pinch never started). Two-finger scrolling and zooming in the piano roll work in the browser too.",
