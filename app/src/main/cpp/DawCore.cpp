@@ -20,7 +20,11 @@ Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts 
     for (auto& channel : synthParams_)
         for (int i = 0; i < wavesynth::kParamCount; ++i) channel[static_cast<size_t>(i)].store(defaults[i]);
     // Build the wavetables in the background; synth channels stay silent for the moment it takes.
+#ifdef __EMSCRIPTEN__
+    // The web build has no threads: web/engine/web_api.cpp builds the tables before audio starts.
+#else
     std::thread([] { wavesynth::Bank::get(); }).detach();
+#endif
 }
 
 Core::~Core() {
