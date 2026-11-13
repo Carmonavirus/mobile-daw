@@ -194,8 +194,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("piano_resume", on).apply()
     }
 
-    /** The moving soundwave above the play bar (piano roll). On by default; the "Wave" chip toggles it. */
-    var showWaveform by mutableStateOf(prefs.getBoolean("show_waveform", true))
+    /** The moving soundwave above the play bar (piano roll). Off by default so the note grid gets the room; the "Wave" chip shows it. */
+    var showWaveform by mutableStateOf(prefs.getBoolean("show_waveform", false))
         private set
 
     fun changeShowWaveform(on: Boolean) {

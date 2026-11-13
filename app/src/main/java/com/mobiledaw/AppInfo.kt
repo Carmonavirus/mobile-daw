@@ -28,7 +28,7 @@ object AppInfo {
         Release(
             "0.9.0", "2026-11-13T23:20:00Z",
             listOf(
-                "Piano roll: the moving soundwave above the play bar can now be turned off. Tap the new Wave chip in the bottom row (next to Resume) to hide or show it. The app and the web app remember your choice.",
+                "Piano roll: the moving soundwave above the play bar is now hidden by default, so the note grid is bigger. Tap the new Wave chip in the bottom row (next to Resume) to show it again. The app and the web app remember your choice.",
             ),
         ),
         Release(
