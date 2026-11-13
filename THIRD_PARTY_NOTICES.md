@@ -275,5 +275,6 @@ later version.
 
 ## Web version only
 
-- **Roboto** fonts (`web/app/src/wasmJsMain/resources/fonts`), from https://github.com/googlefonts/roboto-2, Copyright 2011 Google Inc., licensed under the Apache License, Version 2.0. The browser version bundles them because browsers give the app no system font (Android has Roboto built in).
+- **Roboto** fonts (`web/app/src/wasmJsMain/resources/fonts`), from https://github.com/googlefonts/roboto-2, Copyright 2011 Google Inc., licensed under the Apache License, Version 2.0. The browser version bundles them because browsers give the app no system font (Android has Roboto built in). Their vertical metrics (ascent/descent) were set to the values of Android's own Roboto so text sits the same as on the phone.
+- **Noto Sans Math** and **Noto Sans Symbols 2** (`web/app/src/wasmJsMain/resources/fonts/Symbols-*.ttf`), subsets with arrows, math, shapes and music symbols, from https://github.com/google/fonts, Copyright 2022 The Noto Project Authors, licensed under the SIL Open Font License 1.1. They draw symbols like ♪ ⇄ ⋯ that Android takes from its system fonts.
 - **fflate** 0.8.2 (`web/app/src/wasmJsMain/resources/fflate.js`), https://github.com/101arrowz/fflate, Copyright (c) 2023 Arjun Barrelet, MIT License. Reads and writes .zip files (kit imports, stem export) in the browser.

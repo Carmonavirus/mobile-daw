@@ -2,7 +2,10 @@
 // APK's own screens (DawTheme { DawApp(vm) }, as MainActivity does).
 import android.content.res.Configuration
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFontFamilyResolver
@@ -12,6 +15,7 @@ import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.window.ComposeViewport
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
@@ -66,6 +70,10 @@ fun main() {
         val regular = fontBytes("Roboto-Regular.ttf")?.toKotlin()
         val medium = fontBytes("Roboto-Medium.ttf")?.toKotlin()
         val bold = fontBytes("Roboto-Bold.ttf")?.toKotlin()
+        // Fallbacks for symbols Roboto lacks (Android finds these in its system fonts).
+        val symbolFonts = listOf("Symbols-Math.ttf", "Symbols-2.ttf").mapNotNull { name ->
+            fontBytes(name)?.toKotlin()?.let { FontFamily(Font(name, it, FontWeight.Normal)) }
+        }
         WebFonts.regular = regular
         WebFonts.bold = bold
         val app = WebApp.context
@@ -92,14 +100,43 @@ fun main() {
         ComposeViewport(document.body!!) {
             val resolver = LocalFontFamilyResolver.current
             val measurer = rememberTextMeasurer()
+            // Fonts must be in before the app's first frame: text laid out earlier keeps empty boxes.
+            var fontsReady by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 resolver.preload(fonts)
-                val plain = measurer.measure("Mobile DAW", TextStyle(fontSize = 20.sp)).size
-                val roboto = measurer.measure("Mobile DAW", TextStyle(fontSize = 20.sp, fontFamily = fonts)).size
-                probeText = "\"textW\":${plain.width},\"textH\":${plain.height},\"robotoW\":${roboto.width}"
+                for (f in symbolFonts) resolver.preload(f)
+                fontsReady = true
+                val plainLayout = measurer.measure("Mobile DAW", TextStyle(fontSize = 20.sp))
+                val plain = plainLayout.size
+                // Symbols drawn from the fallback fonts measure like the symbol font itself.
+                val sym = "♪⇄⋯♭↻▾"
+                val symDefault = measurer.measure(sym, TextStyle(fontSize = 20.sp)).size.width
+                val symMath = symbolFonts.firstOrNull()?.let { measurer.measure(sym, TextStyle(fontSize = 20.sp, fontFamily = it)).size.width } ?: -1
+                fun inkGap(style: TextStyle): String {
+                    // Where the ink of "M" sits in its text box: space above vs below (Android: about equal).
+                    val l = measurer.measure("M", style)
+                    val w = l.size.width.coerceAtLeast(1)
+                    val h = l.size.height.coerceAtLeast(1)
+                    val img = androidx.compose.ui.graphics.ImageBitmap(w, h)
+                    androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(
+                        androidx.compose.ui.unit.Density(1f), androidx.compose.ui.unit.LayoutDirection.Ltr,
+                        androidx.compose.ui.graphics.Canvas(img), androidx.compose.ui.geometry.Size(w.toFloat(), h.toFloat()),
+                    ) { drawText(l, color = androidx.compose.ui.graphics.Color.Black) }
+                    val px = IntArray(w * h)
+                    img.readPixels(px)
+                    var top = -1
+                    var bottom = -1
+                    for (y in 0 until h) for (x in 0 until w) if ((px[y * w + x] ushr 24) > 128) { if (top < 0) top = y; bottom = y }
+                    return "[${top},${h - 1 - bottom}]"
+                }
+                val gapDefault = inkGap(TextStyle(fontSize = 40.sp))
+                val gapRoboto = inkGap(TextStyle(fontSize = 40.sp, fontFamily = fonts))
+                probeText = "\"gapDefault\":$gapDefault,\"gapRoboto\":$gapRoboto,\"textW\":${plain.width},\"textH\":${plain.height},\"baseline\":${plainLayout.firstBaseline},\"symW\":$symDefault,\"symFontW\":$symMath"
             }
-            CompositionLocalProvider(LocalConfiguration provides config.value) {
-                DawTheme { DawApp(vm) }
+            if (fontsReady) {
+                CompositionLocalProvider(LocalConfiguration provides config.value) {
+                    DawTheme { DawApp(vm) }
+                }
             }
         }
     }

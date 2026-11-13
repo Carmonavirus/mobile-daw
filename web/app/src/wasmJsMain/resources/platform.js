@@ -427,6 +427,9 @@ function preloadAll(done) {
     fetch('fonts/Roboto-Regular.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Roboto-Regular.ttf', new Int8Array(b))),
     fetch('fonts/Roboto-Medium.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Roboto-Medium.ttf', new Int8Array(b))),
     fetch('fonts/Roboto-Bold.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Roboto-Bold.ttf', new Int8Array(b))),
+    // Symbols (♪ ⇄ ⋯ ♭ arrows, triangles...) that Android draws from its system fallback fonts.
+    fetch('fonts/Symbols-Math.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Symbols-Math.ttf', new Int8Array(b))),
+    fetch('fonts/Symbols-2.ttf').then((r) => r.arrayBuffer()).then((b) => assets.set('fonts/Symbols-2.ttf', new Int8Array(b))),
   ]).catch(() => {}).then(() => done());
 }
 
