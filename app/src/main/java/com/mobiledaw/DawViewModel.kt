@@ -21,7 +21,9 @@ import com.mobiledaw.model.Clip
 import com.mobiledaw.model.DemoProject
 import com.mobiledaw.model.Effect
 import com.mobiledaw.model.EffectType
+import com.mobiledaw.model.ClipSettings
 import com.mobiledaw.model.EqSettings
+import com.mobiledaw.model.MASTER_TRACK_ID
 import com.mobiledaw.model.MAX_EFFECTS
 import com.mobiledaw.model.MAX_MIXER_TRACKS
 import com.mobiledaw.model.MixerTrack
@@ -1887,29 +1889,40 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         return if (i in 0 until NativeEngine.MAX_INSERTS) i else -1
     }
 
+    /** Engine insert index whose effects chain belongs to [trackId], including the master's; -1 if none. */
+    private fun fxIndex(trackId: Long): Int =
+        if (trackId == MASTER_TRACK_ID) NativeEngine.MASTER_INSERT else insertIndex(trackId)
+
+    private fun syncEffects(t: Int, effects: List<Effect>, p: Project) {
+        for (slot in 0 until NativeEngine.MAX_SLOTS) {
+            val fx = effects.getOrNull(slot)
+            val key = t * NativeEngine.MAX_SLOTS + slot
+            val type = fx?.type?.id ?: 0
+            NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
+            if (fx == null) {
+                sentEffects.remove(key)
+                continue
+            }
+            val params = fx.params(p)
+            val last = sentEffects[key]
+            if (last == null || last.first != type || !last.second.contentEquals(params)) {
+                NativeEngine.setEffectParams(t, slot, params)
+                sentEffects[key] = type to params
+            }
+        }
+    }
+
     private fun syncMixer() {
         val p = project
         val tracks = p.mixerTracks.take(NativeEngine.MAX_INSERTS)
         NativeEngine.setInsertCount(tracks.size)
         tracks.forEachIndexed { t, track ->
             NativeEngine.setInsert(t, track.volume, track.pan, track.mute)
-            for (slot in 0 until NativeEngine.MAX_SLOTS) {
-                val fx = track.effects.getOrNull(slot)
-                val key = t * NativeEngine.MAX_SLOTS + slot
-                val type = fx?.type?.id ?: 0
-                NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
-                if (fx == null) {
-                    sentEffects.remove(key)
-                    continue
-                }
-                val params = fx.params(p)
-                val last = sentEffects[key]
-                if (last == null || last.first != type || !last.second.contentEquals(params)) {
-                    NativeEngine.setEffectParams(t, slot, params)
-                    sentEffects[key] = type to params
-                }
-            }
+            syncEffects(t, track.effects, p)
         }
+        // Tracks past the end get an empty chain, so a deleted track's effects stop running.
+        for (t in tracks.size until NativeEngine.MAX_INSERTS) syncEffects(t, emptyList(), p)
+        syncEffects(NativeEngine.MASTER_INSERT, p.masterEffects, p)
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
         }
@@ -1929,7 +1942,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateMixerTrack(id: Long, transform: (MixerTrack) -> MixerTrack) = updateMixer { p ->
-        p.copy(mixerTracks = p.mixerTracks.map { if (it.id == id) transform(it) else it })
+        if (id == MASTER_TRACK_ID) {
+            p.copy(masterEffects = transform(p.masterTrack).effects)
+        } else {
+            p.copy(mixerTracks = p.mixerTracks.map { if (it.id == id) transform(it) else it })
+        }
     }
 
     fun addMixerTrack(): Long? {
@@ -1975,6 +1992,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val fx = when (type) {
             EffectType.EQ -> Effect(id, type, eq = EqSettings.flat())
             EffectType.PITCH -> Effect(id, type, pitch = PitchSettings())
+            EffectType.CLIP -> Effect(id, type, clip = ClipSettings())
         }
         updateMixerTrack(trackId) { it.copy(effects = it.effects + fx) }
         openEffect = trackId to id
@@ -2009,13 +2027,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Fills [out] with the newest output of a mixer track, for the EQ's spectrum. */
     fun readTrackSignal(trackId: Long, out: FloatArray) {
-        val i = insertIndex(trackId)
+        val i = fxIndex(trackId)
         if (i >= 0) NativeEngine.readInsertSignal(i, out) else out.fill(0f)
     }
 
     /** Detected and corrected pitch (Hz) of a pitch corrector, 0 when nothing is sung. */
     fun readPitch(trackId: Long, effectId: Long, out: FloatArray) {
-        val i = insertIndex(trackId)
+        val i = fxIndex(trackId)
         val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
         if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
     }

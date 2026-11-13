@@ -26,13 +26,21 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.7.7", "2026-11-13T15:40:00Z",
+            "0.7.8", "2026-11-13T15:40:00Z",
             listOf(
                 "Fixed: single drums from SoundFont kits (like a closed hi-hat) played much lower than they should in the rack and piano roll, so they sounded like a different drum. They now sound as picked on their own note.",
                 "Piano roll: when a whole drum kit is on one sound, each row shows which drum it plays.",
                 "Piano roll: bar numbers at the top of each bar line.",
                 "Piano roll: \"Loop bars\" repeats your notes in blocks of 4 bars. Notes in bars 1–2 copy bars 1–4 into 5–8; tap again for 9–12. The pattern gets longer if it needs to. Undo takes it back.",
                 "Piano roll: \"Copy\" copies the notes of the sound you're on. Pick another sound in the row above and tap \"Paste\" to clone them there. Drum to drum, the beat lands on the new drum's own note. Undo works here too.",
+            ),
+        ),
+        Release(
+            "0.7.7", "2026-11-13T15:20:00Z",
+            listOf(
+                "New effect: Soft Clipper. It rounds off loud peaks so a track or the whole song gets louder and punchier without harsh clipping. Three knobs: Gain (how hard the sound hits it), Threshold (where clipping starts) and Post (how loud it comes out).",
+                "The Master in the Mixer now has its own effects, so you can put the Soft Clipper (or EQ) on the whole song. Effects on the master are in your exports too.",
+                "To clip just your drums: add a mixer track, send the drum channels to it, and add the Soft Clipper there.",
             ),
         ),
         Release(
