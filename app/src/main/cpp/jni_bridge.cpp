@@ -52,6 +52,10 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelSampler(
                                        sustain, release, tension, pitchSemis, reverse == JNI_TRUE);
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelBoost(JNIEnv*, jobject, jint index, jfloat gain) {
+    engine()->core().setChannelBoost(index, gain);
+}
+
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setChannelClip(
     JNIEnv*, jobject, jint index, jboolean resumeMidway) {
     engine()->core().setChannelClip(index, resumeMidway == JNI_TRUE);
