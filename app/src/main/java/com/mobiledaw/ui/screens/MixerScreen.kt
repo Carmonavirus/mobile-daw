@@ -214,8 +214,9 @@ private fun summary(fx: Effect, p: Project): String = when (fx.type) {
     }
     EffectType.PITCH -> {
         val s = fx.pitch ?: com.mobiledaw.model.PitchSettings()
-        val speed = if (s.retuneMs < 1f) "instant" else "${s.retuneMs.roundToInt()} ms"
-        "${NOTE_NAMES[s.keyFor(p)]} ${s.scaleFor(p).label.lowercase()} · $speed"
+        val style = com.mobiledaw.model.PitchStyle.entries.firstOrNull { it.matches(s) }?.label
+            ?: if (s.retuneMs < 1f) "instant" else "${s.retuneMs.roundToInt()} ms"
+        "${NOTE_NAMES[s.keyFor(p)]} ${s.scaleFor(p).label.lowercase()} · $style"
     }
 }
 
