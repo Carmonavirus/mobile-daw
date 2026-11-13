@@ -113,7 +113,11 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                                 maxLines = 1,
                             )
                         }
-                        TextAction("Change", onClick = onChangeSound)
+                        if (channel.instrument == Instrument.WAVETABLE) {
+                            TextAction("Edit synth") { onDismiss(); vm.openSynth(channelId) }
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        TextAction("⇄ Change", onClick = onChangeSound)
                     }
                 }
 

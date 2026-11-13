@@ -56,7 +56,6 @@ import com.mobiledaw.model.Channel
 import com.mobiledaw.model.MAX_BARS
 import com.mobiledaw.model.STEPS_PER_BAR
 import com.mobiledaw.model.TICKS_PER_STEP
-import com.mobiledaw.ui.AddChannelDialog
 import com.mobiledaw.ui.ChannelSettingsSheet
 import com.mobiledaw.ui.DawChip
 import com.mobiledaw.ui.KitPicker
@@ -67,7 +66,7 @@ import com.mobiledaw.ui.theme.DawColors
 
 @Composable
 fun ChannelRackScreen(vm: DawViewModel) {
-    var adding by remember { mutableStateOf(false) }
+    var addDrums by remember { mutableStateOf(true) }
     var browsing by remember { mutableStateOf(false) }
     var replaceId by remember { mutableStateOf<Long?>(null) }
     var settingsId by remember { mutableStateOf<Long?>(null) }
@@ -125,8 +124,8 @@ fun ChannelRackScreen(vm: DawViewModel) {
                     Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 ) {
-                    TextAction("+ Add channel") { adding = true }
-                    TextAction("+ Add sound", strong = true) { replaceId = null; browsing = true }
+                    TextAction("+ Add drums", strong = true) { replaceId = null; addDrums = true; browsing = true }
+                    TextAction("+ Add sounds", strong = true) { replaceId = null; addDrums = false; browsing = true }
                 }
             }
         }
@@ -145,13 +144,13 @@ fun ChannelRackScreen(vm: DawViewModel) {
     renameId?.let { id ->
         RenameChannelDialog(vm, id, onDismiss = { renameId = null })
     }
-    if (adding) AddChannelDialog(onPick = vm::addChannel, onDismiss = { adding = false })
     if (browsing) {
         KitPicker(
             vm = vm,
             replaceChannelId = replaceId,
             onOpenSettings = { browsing = false; vm.settingsOpen = true },
             onDismiss = { browsing = false },
+            forDrums = addDrums,
         )
     }
 }
@@ -461,16 +460,16 @@ private fun ChannelRow(
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The name area takes the space left after the buttons, so ♪ / ⋯ / M always show.
+            // The name area takes the space left after the buttons, so ♪ / ⇄ / ⋯ / M always show.
             Row(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(50))
                     .combinedClickable(
                         onClick = {
+                            // Tapping the name opens the channel's settings; ⇄ swaps its sound.
                             vm.selectChannel(channel.id)
-                            // Tapping the name picks a sound for this channel (synths open their editor).
-                            if (channel.instrument == com.mobiledaw.model.Instrument.WAVETABLE) vm.openSynth(channel.id) else onChangeSound()
+                            onSettings()
                         },
                         onLongClick = { vm.selectChannel(channel.id); menu = true },
                     )
@@ -517,6 +516,16 @@ private fun ChannelRow(
                     .clip(CircleShape)
                     .clickable { vm.selectChannel(channel.id); vm.tab = Tab.PIANO }
                     .padding(horizontal = 10.dp, vertical = 2.dp),
+            )
+            // Swap: pick a different sound for this channel.
+            Text(
+                "⇄",
+                fontSize = 17.sp,
+                color = DawColors.InkSoft,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { vm.selectChannel(channel.id); onChangeSound() }
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
             )
             // The ⋯ menu: channel settings, edit helpers and Delete.
             Box {
