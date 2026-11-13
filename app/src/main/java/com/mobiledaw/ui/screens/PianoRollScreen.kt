@@ -102,7 +102,24 @@ fun PianoRollScreen(vm: DawViewModel) {
         if (channel == null) return@Column
 
         // clipToBounds stops any note/label drawing from spilling up over the track chips.
-        PianoRollCanvas(vm, Modifier.weight(1f).fillMaxWidth().clipToBounds())
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            PianoRollCanvas(vm, Modifier.fillMaxSize().clipToBounds())
+            // Short confirmation for Loop / Copy / Paste.
+            vm.pianoNotice?.let { text ->
+                Text(
+                    text,
+                    fontSize = 13.sp,
+                    color = DawColors.Ink,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp, start = 16.dp, end = 16.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(DawColors.Card)
+                        .border(1.dp, DawColors.Line, RoundedCornerShape(50))
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
+        }
 
         // Chords panel: replaces the controls below while open.
         if (vm.chordGen != null) {
@@ -123,6 +140,13 @@ fun PianoRollScreen(vm: DawViewModel) {
                 onSelect = vm::changeLabelAllNotes,
             )
             DawChip("Chords", selected = false, dotColor = DawColors.Note) { vm.openChordGen() }
+            // Loop: repeat the 4 bars holding the notes into the next 4 bars.
+            DawChip("Loop bars", selected = false, dotColor = null) { vm.loopBars() }
+            // Copy this sound's notes, then pick another sound above and Paste.
+            DawChip("Copy", selected = false, dotColor = null) { vm.copyNotes() }
+            vm.noteClipboard?.let {
+                DawChip("Paste", selected = false, dotColor = DawColors.Note) { vm.pasteNotes() }
+            }
         }
         WaveformStrip(
             vm.scope,
@@ -191,6 +215,12 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
     val rootLabels = remember { HashMap<Int, TextLayoutResult>() }
     val project = vm.project
     val labelAll = vm.labelAllNotes
+    // A whole drum kit plays a different drum on every row, so name the drums on their rows.
+    val drumKit = vm.isWholeDrumKit(channel)
+    val drumStyle = TextStyle(fontSize = 9.sp, color = DawColors.Muted)
+    val drumLabels = remember { HashMap<Int, TextLayoutResult>() }
+    val barStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = DawColors.InkSoft)
+    val barLabels = remember { HashMap<Int, TextLayoutResult>() }
 
     BoxWithConstraints(modifier) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -365,6 +395,12 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                     val layout = cache.getOrPut(p) { measurer.measure(noteName(p), if (isRoot) rootStyle else gutterStyle) }
                     drawText(layout, topLeft = Offset(4.dp.toPx(), y + (rowH - layout.size.height) / 2f))
                 }
+                if (drumKit) {
+                    com.mobiledaw.sound.SoundFontLibrary.GM_DRUMS[p]?.let { name ->
+                        val layout = drumLabels.getOrPut(p) { measurer.measure(name, drumStyle) }
+                        drawText(layout, topLeft = Offset(gutter + 4.dp.toPx(), y + (rowH - layout.size.height) / 2f))
+                    }
+                }
             }
 
             // Grid: one line per grid step (the Grid buttons below), stronger on beats, strongest on bars.
@@ -438,6 +474,26 @@ private fun PianoRollCanvas(vm: DawViewModel, modifier: Modifier) {
                     drawRoundRect(DawColors.Ink, Offset(px, py), Size(pillW, pillH), CornerRadius(pillH / 2f), style = Stroke(1.dp.toPx()))
                     drawText(label, topLeft = Offset(px + 4.dp.toPx(), py + 0.5.dp.toPx()))
                 }
+            }
+
+            // Bar numbers at the top of each bar line.
+            var bar = 0
+            while (bar * TICKS_PER_BAR < len) {
+                val x = noteX(bar * TICKS_PER_BAR)
+                if (x >= gutter - 1f && x < size.width) {
+                    val layout = barLabels.getOrPut(bar + 1) { measurer.measure("${bar + 1}", barStyle) }
+                    val padX = 4.dp.toPx()
+                    val left = x + 2.dp.toPx()
+                    val top = 2.dp.toPx()
+                    drawRoundRect(
+                        DawColors.Paper.copy(alpha = 0.9f),
+                        Offset(left, top),
+                        Size(layout.size.width + padX * 2, layout.size.height.toFloat()),
+                        CornerRadius(4.dp.toPx()),
+                    )
+                    drawText(layout, topLeft = Offset(left + padX, top))
+                }
+                bar++
             }
 
             // Playhead.

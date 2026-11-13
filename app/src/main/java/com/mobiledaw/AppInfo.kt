@@ -26,13 +26,23 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.7.9", "2026-11-13T16:00:00Z",
+            "0.8.0", "2026-11-13T16:00:00Z",
             listOf(
                 "Playlist rows: tap + under the row numbers to add a row. Tap a row number to insert an empty row above it or delete the row (Undo brings it back).",
                 "Playlist zoom: pinch the playlist with two fingers, or use the − and + buttons in the bottom-right corner. Zoomed in far enough you see every bar number and the beats.",
                 "Follow: the playlist no longer jumps to the playhead while you're touching, dragging or have a clip open. It waits 4 seconds after you let go. Turn Follow off in the bottom-right corner to stop it paging along at all.",
                 "Play from your spot: tap or drag to a point, press play, then stop, and the playhead goes back to that point instead of the beginning (like FL).",
                 "Pattern clips: tap one for Copy (the same pattern again, right after it), Clone (this clip gets its own copy of the pattern, so you can change it alone) and Split by channel (one pattern per sound, each on its own row). Clone pattern is also in the pattern's menu at the top.",
+            ),
+        ),
+        Release(
+            "0.7.9", "2026-11-13T15:45:00Z",
+            listOf(
+                "Fixed: single drums from SoundFont kits (like a closed hi-hat) played much lower than they should in the rack and piano roll, so they sounded like a different drum. They now sound as picked on their own note.",
+                "Piano roll: when a whole drum kit is on one sound, each row shows which drum it plays.",
+                "Piano roll: bar numbers at the top of each bar line.",
+                "Piano roll: \"Loop bars\" repeats your notes in blocks of 4 bars. Notes in bars 1–2 copy bars 1–4 into 5–8; tap again for 9–12. The pattern gets longer if it needs to. Undo takes it back.",
+                "Piano roll: \"Copy\" copies the notes of the sound you're on. Pick another sound in the row above and tap \"Paste\" to clone them there. Drum to drum, the beat lands on the new drum's own note. Undo works here too.",
             ),
         ),
         Release(
