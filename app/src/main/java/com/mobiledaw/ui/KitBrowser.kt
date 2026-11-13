@@ -89,7 +89,6 @@ fun KitPicker(
         }
     }
     var lastPlayed by remember { mutableStateOf<String?>(null) }
-    var added by remember { mutableStateOf<String?>(null) }
     // Opens on the tab the channel's current sound comes from; Kits otherwise.
     var tab by remember {
         mutableStateOf(
@@ -108,7 +107,7 @@ fun KitPicker(
             Column(Modifier.weight(1f)) {
                 Text(if (replacing != null) "Sound for ${replacing.name}" else if (forDrums) "Add drums" else "Add sounds", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                 Text(
-                    added ?: "Tap a sound to listen, then ${if (replacing != null) "Use" else "+"}.",
+                    "Tap a sound to listen, then ${if (replacing != null) "Use" else "+"}.",
                     fontSize = 12.sp,
                     color = DawColors.Muted,
                 )
@@ -130,7 +129,7 @@ fun KitPicker(
                         DawChip(inst.label, selected = false, dotColor = null) {
                             vm.addChannel(inst)
                             // The wavetable editor opens behind this picker, so close it.
-                            if (inst == Instrument.WAVETABLE) onDismiss() else added = "Added ${inst.label} to the rack."
+                            if (inst == Instrument.WAVETABLE) onDismiss()
                         }
                     }
             }
@@ -140,7 +139,7 @@ fun KitPicker(
         if (tab != SoundSource.KITS) {
             SourcePage(vm, tab, actionLabel = if (replacing != null) "Use" else "+", drumMode = replacing?.instrument?.isDrum ?: forDrums) { choice ->
                 vm.applyChoice(replacing?.id, choice)
-                if (replacing != null) onDismiss() else added = "Added ${choice.name} to the rack."
+                if (replacing != null) onDismiss()
             }
             return@PreviewScreen
         }
@@ -197,7 +196,6 @@ fun KitPicker(
                                             onDismiss()
                                         } else {
                                             vm.addSampleChannel(sound)
-                                            added = "Added ${sound.name} to the rack."
                                         }
                                     },
                                 )
