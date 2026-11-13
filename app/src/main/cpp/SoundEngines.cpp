@@ -16,6 +16,7 @@ namespace {
 constexpr int kMacroVoices = 16;
 constexpr int kModelVoices = 20;
 constexpr int kFontVoices = 48;
+constexpr int kFontChannels = 8;
 }  // namespace
 
 SoundEngines::SoundEngines() {
@@ -106,8 +107,17 @@ void SoundEngines::setChannel(int slot, int instrument, int variant, int bank) {
     if (!copy) return;
     tsf_set_output(copy, TSF_MONO, sampleRate_, 3.0f);
     tsf_set_max_voices(copy, kFontVoices);
+    // Notes go through tsf channels so each one can carry its own tuning. Creating them here
+    // keeps the audio thread from allocating; one channel per note in turn keeps a retune from
+    // bending hits that are still ringing.
+    for (int ch = kFontChannels - 1; ch >= 0; --ch) tsf_channel_set_presetindex(copy, ch, 0);
     tsf_close(s.pendingTsf.exchange(copy));
     s.uiBank = bank;
+}
+
+void SoundEngines::setDrumKey(int slot, int key) {
+    if (slot < 0 || slot >= kEngineSlots) return;
+    slots_[slot].drumKey.store(key);
 }
 
 void SoundEngines::setMultiSample(int slot, MultiSampleSet* set) {
@@ -167,11 +177,22 @@ void SoundEngines::noteOn(int slot, int pitch, float velocity, int64_t gateSampl
     const int64_t gate = std::max<int64_t>(gateSamples, sampleRate_ / 50);
     switch (instrument) {
         case kSoundFont:
+        {
             if (!s.font) return;
-            tsf_note_off(s.font, variant, pitch);
-            tsf_note_on(s.font, variant, pitch, std::clamp(velocity, 0.01f, 1.0f));
-            scheduleOff(s, pitch, gate);
+            // A single drum hit always plays its own key, which is also where the step sequencer
+            // puts its notes; a note's distance from that key repitches the hit.
+            const int root = s.drumKey.load();
+            const int key = root >= 0 ? root : pitch;
+            const float shift = root >= 0 ? static_cast<float>(std::clamp(pitch - root, -48, 48)) : 0.0f;
+            const int ch = s.nextFontChannel;
+            s.nextFontChannel = (ch + 1) % kFontChannels;
+            if (root < 0) tsf_note_off(s.font, variant, key);  // retrigger a held note
+            tsf_channel_set_presetindex(s.font, ch, variant);
+            tsf_channel_set_tuning(s.font, ch, shift);
+            tsf_channel_note_on(s.font, ch, key, std::clamp(velocity, 0.01f, 1.0f));
+            scheduleOff(s, key, gate);
             break;
+        }
         case kMacro:
         case kModeled: {
             auto pick = [&](auto& pool) {

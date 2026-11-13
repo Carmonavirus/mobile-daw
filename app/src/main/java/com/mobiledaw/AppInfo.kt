@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.2", "2026-11-13T11:00:00Z",
+            listOf(
+                "Drums follow the piano roll: put a hi-hat (or clap, or a single drum from a kit) on any note and it plays at that pitch, like a sample. G3 is an octave under G4: lower and longer, higher and shorter.",
+                "C4 still plays the drum as it was, so the step sequencer sounds the same. The channel's Pitch setting and Boost still apply on top.",
+            ),
+        ),
+        Release(
             "0.7.1", "2026-11-13T10:40:00Z",
             listOf(
                 "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",

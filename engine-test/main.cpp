@@ -152,6 +152,38 @@ static bool testExtraEngines(const char* sf2Path) {
         writeWav("out/soundfont.wav", out, sr);
         std::printf("  rendered peak=%.3f%s\n", peak, bad ? " NaN!" : "");
         if (bad || peak < 0.05f) ok = false;
+
+        // A single drum hit (closed hat, key 42) follows the piano roll: a note an octave under
+        // its key plays the same hat an octave down, so it crosses zero about half as often.
+        auto hatAt = [&](int pitch) {
+            Core c;
+            c.setSampleRate(sr);
+            const int b = c.engines().loadSoundFont(bytes.data(), static_cast<int>(bytes.size()));
+            c.setChannelCount(1);
+            c.setChannel(0, kSoundFont, 0.8f, 0.0f, false, false);
+            c.engines().setChannel(0, kSoundFont, drumKit, b);
+            c.engines().setDrumKey(0, 42);
+            c.setSequence({NoteEvent{0, 0, kTicksPerStep, pitch, 0.9f}}, kTicksPerBeat * 64);
+            c.setPlaying(true);
+            std::vector<float> o(512);
+            double crossings = 0, energy = 0;
+            float prev = 0;
+            for (int k = 0; k < sr / 10 / 256; ++k) {
+                c.render(o.data(), 256);
+                c.collectGarbage();
+                for (int i = 0; i < 256; ++i) {
+                    const float x = o[i * 2];
+                    if ((prev < 0) != (x < 0)) ++crossings;
+                    prev = x;
+                    energy += x * x;
+                }
+            }
+            return std::pair<double, double>(crossings, energy);
+        };
+        const auto atKey = hatAt(42), octaveDown = hatAt(30);
+        const double ratio = atKey.first / std::max(1.0, octaveDown.first);
+        std::printf("  drum key: crossings at key=%.0f octave down=%.0f ratio=%.2f\n", atKey.first, octaveDown.first, ratio);
+        if (atKey.second < 1e-4 || octaveDown.second < 1e-4 || ratio < 1.3) ok = false;
     }
     writeWav("out/presets.wav", all, sr);
     return ok;
@@ -380,6 +412,51 @@ int main(int argc, char** argv) {
         if (playingLevel < 0.05 || stoppedLevel > 0.001 || before < 0.01 || after > 0.001 || c3.isPlaying()) {
             std::printf("FAIL stop\n");
             return 1;
+        }
+    }
+
+    // Drum channels follow the piano roll like samples: a hit on G3 is an octave under G4,
+    // so it rings about twice as long and its waveform crosses zero less often (half as often
+    // for a tone; noise hits are partly smoothed by the interpolation, so less than that).
+    {
+        std::vector<float> tom(44100 / 2);
+        for (size_t n = 0; n < tom.size(); ++n)
+            tom[n] = std::sin(2 * 3.14159 * 220 * n / 44100.0) * std::exp(-double(n) / 6000.0);
+        auto hit = [&](int instrument, int pitch) {
+            Core c;
+            c.setSampleRate(sr);
+            c.setBpm(120.0f);
+            c.setChannelCount(1);
+            c.setChannel(0, instrument, 1.0f, 0.0f, false, false);
+            if (instrument == 8) c.setSample(0, tom, 44100.0f);
+            c.setSequence({NoteEvent{0, 0, kTicksPerStep, pitch, 1.0f}}, kTicksPerBeat * 64);
+            c.setPlaying(true);
+            std::vector<float> mono;
+            for (int b = 0; b < sr / block; ++b) {
+                c.render(buf.data(), block);
+                for (int i = 0; i < block; ++i) mono.push_back(buf[i * 2] + buf[i * 2 + 1]);
+            }
+            float peak = 0;
+            for (float x : mono) peak = std::fmax(peak, std::fabs(x));
+            size_t last = 0, crossings = 0;
+            for (size_t i = 0; i < mono.size(); ++i) {
+                if (std::fabs(mono[i]) > peak * 0.02f) last = i;
+                if (i > 0 && i < static_cast<size_t>(sr / 20) && (mono[i - 1] < 0) != (mono[i] < 0)) ++crossings;
+            }
+            return std::pair<double, double>(static_cast<double>(last), static_cast<double>(crossings));
+        };
+        const char* names[] = {"hat", "clap", "sample"};
+        const int instruments[] = {2, 3, 8};
+        for (int k = 0; k < 3; ++k) {
+            const auto hi = hit(instruments[k], 67);  // G4
+            const auto lo = hit(instruments[k], 55);  // G3
+            const double lengthRatio = lo.first / std::max(1.0, hi.first);
+            const double crossRatio = hi.second / std::max(1.0, lo.second);
+            std::printf("pitch %s: length G3/G4=%.2f crossings G4/G3=%.2f\n", names[k], lengthRatio, crossRatio);
+            if (lengthRatio < 1.6 || lengthRatio > 2.5 || crossRatio < 1.3) {
+                std::printf("FAIL drum pitch (%s)\n", names[k]);
+                return 1;
+            }
         }
     }
 
