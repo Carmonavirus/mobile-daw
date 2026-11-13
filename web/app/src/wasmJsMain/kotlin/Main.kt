@@ -28,6 +28,7 @@ import com.mobiledaw.web.WebFonts
 import com.mobiledaw.web.toKotlin
 import kotlinx.browser.document
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.khronos.webgl.Int8Array
@@ -45,6 +46,7 @@ private external fun showStartError(msg: String)
 
 private var probeVm: DawViewModel? = null
 private var probeText = ""
+private val appTextStyle = mutableStateOf<TextStyle?>(null)
 
 /** For automated checks (web/app/tests): a few facts about the running app, as JSON. */
 private fun dawProbe(): String {
@@ -62,6 +64,41 @@ private fun cloudProbe(): String {
     val c = vm.cloud
     val names = vm.savedProjects().joinToString(",") { "\"${it.replace("\"", "")}\"" }
     return "{\"status\":\"${c.status}\",\"signedIn\":${c.signedIn},\"email\":\"${c.email ?: ""}\",\"revision\":${c.revision},\"projects\":[$names],\"open\":\"${vm.project.name}\",\"channels\":${vm.project.channels.size},\"notes\":${vm.project.patterns.sumOf { p -> p.notes.values.sumOf { it.size } }},\"problem\":\"${c.problem ?: ""}\"}"
+}
+
+/** Android-like single-line text: extra line height split evenly above and below the glyphs. */
+private fun webText(style: TextStyle): TextStyle = style.copy(
+    lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+        androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+        androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+    ),
+)
+
+/**
+ * The APK's theme with Android's single-line text spacing. On the phone, a label's extra line
+ * height (Material's 24sp body line under 12sp text) is trimmed off; in the browser it was kept
+ * and put mostly above the text, so labels sat low in their chips and buttons.
+ */
+@androidx.compose.runtime.Composable
+private fun WebTypography(content: @androidx.compose.runtime.Composable () -> Unit) {
+    val t = androidx.compose.material3.MaterialTheme.typography
+    val fixed = androidx.compose.material3.Typography(
+        displayLarge = webText(t.displayLarge), displayMedium = webText(t.displayMedium), displaySmall = webText(t.displaySmall),
+        headlineLarge = webText(t.headlineLarge), headlineMedium = webText(t.headlineMedium), headlineSmall = webText(t.headlineSmall),
+        titleLarge = webText(t.titleLarge), titleMedium = webText(t.titleMedium), titleSmall = webText(t.titleSmall),
+        bodyLarge = webText(t.bodyLarge), bodyMedium = webText(t.bodyMedium), bodySmall = webText(t.bodySmall),
+        labelLarge = webText(t.labelLarge), labelMedium = webText(t.labelMedium), labelSmall = webText(t.labelSmall),
+    )
+    androidx.compose.material3.MaterialTheme(
+        colorScheme = androidx.compose.material3.MaterialTheme.colorScheme,
+        shapes = androidx.compose.material3.MaterialTheme.shapes,
+        typography = fixed,
+    ) {
+        androidx.compose.material3.ProvideTextStyle(fixed.bodyLarge) {
+            appTextStyle.value = androidx.compose.material3.LocalTextStyle.current
+            content()
+        }
+    }
 }
 
 private fun currentConfig() = Configuration(windowWidth(), windowHeight())
@@ -116,6 +153,7 @@ fun main() {
                 resolver.preload(fonts)
                 for (f in symbolFonts) resolver.preload(f)
                 fontsReady = true
+                androidx.compose.runtime.snapshotFlow { appTextStyle.value }.first { it != null }
                 val plainLayout = measurer.measure("Mobile DAW", TextStyle(fontSize = 20.sp))
                 val plain = plainLayout.size
                 // Symbols drawn from the fallback fonts measure like the symbol font itself.
@@ -141,11 +179,16 @@ fun main() {
                 }
                 val gapDefault = inkGap(TextStyle(fontSize = 40.sp))
                 val gapRoboto = inkGap(TextStyle(fontSize = 40.sp, fontFamily = fonts))
-                probeText = "\"gapDefault\":$gapDefault,\"gapRoboto\":$gapRoboto,\"textW\":${plain.width},\"textH\":${plain.height},\"baseline\":${plainLayout.firstBaseline},\"symW\":$symDefault,\"symFontW\":$symMath"
+                // A chip label as the app writes it: 12sp text inside Material's 24sp body line height.
+                val body = androidx.compose.material3.Typography().bodyLarge
+                val gapLine = inkGap(body.merge(TextStyle(fontSize = 40.sp, lineHeight = 80.sp)))
+                // ...and as the app's screens get it (their LocalTextStyle, see WebTypography).
+                val gapLineFixed = inkGap(appTextStyle.value!!.merge(TextStyle(fontSize = 40.sp, lineHeight = 80.sp)))
+                probeText = "\"gapLine\":$gapLine,\"gapLineFixed\":$gapLineFixed,\"gapDefault\":$gapDefault,\"gapRoboto\":$gapRoboto,\"textW\":${plain.width},\"textH\":${plain.height},\"baseline\":${plainLayout.firstBaseline},\"symW\":$symDefault,\"symFontW\":$symMath"
             }
             if (fontsReady) {
                 CompositionLocalProvider(LocalConfiguration provides config.value) {
-                    DawTheme { DawApp(vm) }
+                    DawTheme { WebTypography { DawApp(vm) } }
                 }
             }
         }

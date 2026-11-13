@@ -49,7 +49,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   if ((await probe()).channels !== 1) fail('adding a sound did not work');
   if (!(start.textW > 0)) fail('text does not render (no font)');
   // Android's Roboto puts a capital M nearly centred in its line box (8.7 px above, 9.8 below at 40 px).
-  for (const [k, g] of [['default font', start.gapDefault], ['Roboto', start.gapRoboto]]) {
+  // Labels in chips and buttons inherit a taller line height; it must not push them down.
+  for (const [k, g] of [['default font', start.gapDefault], ['Roboto', start.gapRoboto], ['app label style', start.gapLineFixed]]) {
     if (!g || Math.abs(g[0] - g[1]) > 3) fail(`text sits off-centre with the ${k}: ${JSON.stringify(g)}`);
   }
   if (start.symW !== start.symFontW) fail('symbols (♪ ⇄ ⋯) do not come from the symbol fonts: ' + start.symW + ' vs ' + start.symFontW);
