@@ -116,7 +116,7 @@ class FreesoundClient(context: Context) {
     val hasKey: Boolean get() = apiKey.isNotBlank()
     val signedIn: Boolean get() = refreshToken.isNotBlank()
 
-    fun search(query: String, filter: LicenseFilter, page: Int, shortOnly: Boolean, extra: FreesoundFilters = FreesoundFilters()): List<OnlineSound> {
+    fun search(query: String, filter: LicenseFilter, page: Int, length: SoundLength = SoundLength.DEFAULT, extra: FreesoundFilters = FreesoundFilters()): List<OnlineSound> {
         val licenses = buildList {
             if (LicenseKind.CC0 in filter.kinds) add("\"Creative Commons 0\"")
             if (LicenseKind.BY in filter.kinds) add("\"Attribution\"")
@@ -124,7 +124,7 @@ class FreesoundClient(context: Context) {
         }
         val filters = buildList {
             if (filter != LicenseFilter.ALL) add("license:(${licenses.joinToString(" OR ")})")
-            if (shortOnly) add("duration:[0 TO 30]")
+            length.clause()?.let(::add)
             addAll(extra.clauses())
         }.joinToString(" ")
         val params = "query=${Http.enc(query)}" +
@@ -361,6 +361,64 @@ object ArchiveClient {
     private fun first(e: JsonElement?): String? = when (e) {
         is JsonArray -> e.firstOrNull().str()
         else -> e.str()
+    }
+}
+
+/**
+ * How long Freesound results may be, as two stops on [STOPS] (seconds). The last stop means "no
+ * upper limit" and the first "no lower limit", so the full range filters nothing.
+ */
+data class SoundLength(val lo: Int, val hi: Int) {
+    val minSeconds: Float? get() = if (lo <= 0) null else STOPS[lo]
+    val maxSeconds: Float? get() = if (hi >= LAST) null else STOPS[hi]
+    val isAny: Boolean get() = minSeconds == null && maxSeconds == null
+
+    /** Solr clause for the APIv2 `duration` field, or null when any length goes. */
+    fun clause(): String? {
+        if (isAny) return null
+        return "duration:[${minSeconds?.let(::num) ?: "0"} TO ${maxSeconds?.let(::num) ?: "*"}]"
+    }
+
+    /** "Any length", "Under 30 s", "Over 2 min", "1 – 5 s". */
+    val label: String
+        get() {
+            val min = minSeconds
+            val max = maxSeconds
+            return when {
+                min == null && max == null -> "Any length"
+                min == null -> "Under ${time(max!!)}"
+                max == null -> "Over ${time(min)}"
+                else -> "${time(min)} – ${time(max)}"
+            }
+        }
+
+    companion object {
+        /** Seconds; finer where one-shots live, coarser for long loops and textures. */
+        val STOPS = floatArrayOf(0f, 0.25f, 0.5f, 1f, 2f, 3f, 5f, 10f, 15f, 20f, 30f, 45f, 60f, 90f, 120f, 180f, 300f, 600f, Float.POSITIVE_INFINITY)
+        val LAST = STOPS.size - 1
+        /** Under 30 s: what the old "Under 30 s" chip did, still the default. */
+        val DEFAULT = SoundLength(0, STOPS.indexOfFirst { it == 30f })
+        val ANY = SoundLength(0, LAST)
+
+        /** Quick picks shown above the slider. */
+        val PRESETS = listOf(
+            ANY,
+            SoundLength(0, STOPS.indexOfFirst { it == 1f }),
+            SoundLength(0, STOPS.indexOfFirst { it == 5f }),
+            DEFAULT,
+            SoundLength(STOPS.indexOfFirst { it == 30f }, STOPS.indexOfFirst { it == 120f }),
+            SoundLength(STOPS.indexOfFirst { it == 120f }, LAST),
+        )
+
+        fun time(s: Float): String = when {
+            s.isInfinite() -> "no limit"
+            s < 1f -> "${num(s)} s"
+            s < 60f -> "${s.toInt()} s"
+            s % 60f == 0f -> "${(s / 60f).toInt()} min"
+            else -> "${(s / 60f).toInt()} min ${(s % 60f).toInt()} s"
+        }
+
+        private fun num(s: Float): String = if (s % 1f == 0f) s.toInt().toString() else s.toString()
     }
 }
 

@@ -38,6 +38,9 @@ class ProjectStore(context: Context) {
 
     fun exists(name: String) = file(name).exists()
 
+    /** True when both names are stored in the same file (list() gives the file's name). */
+    fun sameFile(a: String, b: String) = file(a) == file(b)
+
     fun lastOpened(): String? = prefs.getString(LAST, null)
 
     fun uniqueName(base: String): String {

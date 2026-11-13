@@ -48,6 +48,10 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.SliderDefaults
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +64,7 @@ import com.mobiledaw.sound.CommonsClient
 import com.mobiledaw.sound.EnginePreset
 import com.mobiledaw.sound.FreesoundClient
 import com.mobiledaw.sound.FreesoundFilters
+import com.mobiledaw.sound.SoundLength
 import com.mobiledaw.sound.LicenseFilter
 import com.mobiledaw.sound.LicenseKind
 import com.mobiledaw.sound.OnlineSound
@@ -515,7 +520,8 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
     }
     var query by remember(source) { mutableStateOf("") }
     var filter by remember(source) { mutableStateOf(LicenseFilter.NO_CREDIT) }
-    var shortOnly by remember(source) { mutableStateOf(true) }
+    var length by remember(source) { mutableStateOf(SoundLength.DEFAULT) }
+    var lengthOpen by remember(source) { mutableStateOf(false) }
     var extra by remember(source) { mutableStateOf(FreesoundFilters()) }
     var filtersOpen by remember(source) { mutableStateOf(false) }
     var results by remember(source) { mutableStateOf<List<OnlineSound>>(emptyList()) }
@@ -537,7 +543,7 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     when (source) {
-                        SoundSource.FREESOUND -> fs.search(query, filter, nextPage, shortOnly, extra) to emptyList<ArchiveClient.Item>()
+                        SoundSource.FREESOUND -> fs.search(query, filter, nextPage, length, extra) to emptyList<ArchiveClient.Item>()
                         SoundSource.COMMONS -> CommonsClient.search(query, filter, nextPage) to emptyList<ArchiveClient.Item>()
                         else -> emptyList<OnlineSound>() to ArchiveClient.search(query, filter, nextPage)
                     }
@@ -595,11 +601,21 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
     ) {
         LicenseFilter.entries.forEach { f -> DawChip(f.label, selected = f == filter, dotColor = null) { filter = f; search(1) } }
         if (source == SoundSource.FREESOUND) {
-            DawChip("Under 30 s", selected = shortOnly, dotColor = null) { shortOnly = !shortOnly; search(1) }
+            DawChip("⏱ ${length.label}", selected = lengthOpen || !length.isAny, dotColor = null) {
+                lengthOpen = !lengthOpen
+                if (lengthOpen) filtersOpen = false
+            }
             DawChip(if (extra.isEmpty) "Filters" else "Filters (${extra.count})", selected = filtersOpen || !extra.isEmpty, dotColor = null) {
                 filtersOpen = !filtersOpen
+                if (filtersOpen) lengthOpen = false
             }
         }
+    }
+    if (source == SoundSource.FREESOUND && lengthOpen) {
+        SoundLengthPanel(
+            initial = length,
+            onApply = { length = it; lengthOpen = false; search(1) },
+        )
     }
     if (source == SoundSource.FREESOUND && filtersOpen) {
         FreesoundFilterPanel(
@@ -863,6 +879,56 @@ private fun ColumnScope.CreditsPage(vm: DawViewModel) {
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/** How long Freesound results may be: quick picks plus a two-handle slider from 0 s to no limit. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SoundLengthPanel(initial: SoundLength, onApply: (SoundLength) -> Unit) {
+    var range by remember { mutableStateOf(initial.lo.toFloat()..initial.hi.toFloat()) }
+    val current = SoundLength(range.start.roundToInt(), range.endInclusive.roundToInt())
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(DawColors.Card)
+            .border(1.dp, DawColors.Line, RoundedCornerShape(16.dp))
+            .padding(12.dp),
+    ) {
+        FilterLabel("Sound length")
+        ChipRow {
+            SoundLength.PRESETS.forEach { p ->
+                DawChip(p.label, selected = p == current, dotColor = null) { range = p.lo.toFloat()..p.hi.toFloat() }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(current.label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+        RangeSlider(
+            value = range,
+            onValueChange = { r ->
+                // Keep the handles at least one stop apart so the range never becomes empty.
+                val lo = r.start.roundToInt()
+                val hi = r.endInclusive.roundToInt()
+                if (hi > lo) range = lo.toFloat()..hi.toFloat()
+            },
+            valueRange = 0f..SoundLength.LAST.toFloat(),
+            steps = SoundLength.LAST - 1,
+            colors = SliderDefaults.colors(
+                thumbColor = DawColors.Note,
+                activeTrackColor = DawColors.Note,
+                inactiveTrackColor = DawColors.Line,
+                activeTickColor = DawColors.Note,
+                inactiveTickColor = DawColors.Line,
+            ),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            Text("0 s", fontSize = 11.sp, color = DawColors.Muted, modifier = Modifier.weight(1f))
+            Text("No limit", fontSize = 11.sp, color = DawColors.Muted)
+        }
+        Spacer(Modifier.height(10.dp))
+        TextAction("Apply", strong = true) { onApply(current) }
     }
 }
 
