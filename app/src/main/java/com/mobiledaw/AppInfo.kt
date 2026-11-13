@@ -36,6 +36,16 @@ object AppInfo {
             ),
         ),
         Release(
+            "0.6.6", "2026-11-13T03:45:00Z",
+            listOf(
+                "Pitch Correct sounds much cleaner: notes are moved without the sped-up, chipmunk tone, so your voice keeps its own sound even on big jumps.",
+                "Hard tune is truly hard now: at instant speed each note sits dead flat on the key and snaps to the next one, the classic tuned-vocal sound.",
+                "Pick a sound with one tap: Natural, Classic, Hard tune, Double, Deep duet, Harmony and Choir. Harmony and Choir sing extra notes in the song's key.",
+                "Simpler screen: Sound, Key and four knobs (Speed, Strength, Voices, Mix). Note switches, transpose, humanize and singer's range are under More options.",
+                "New Pitch Correct effects start on Classic (fast, tight tuning).",
+            ),
+        ),
+        Release(
             "0.6.5", "2026-11-12T23:40:00Z",
             listOf(
                 "Piano roll: dragging a note now always resizes or moves it — only dragging empty space scrolls.",

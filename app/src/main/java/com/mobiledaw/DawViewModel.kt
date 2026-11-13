@@ -341,6 +341,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
             NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, c.pitchSemis, c.reverse)
+            NativeEngine.setChannelBoost(i, sampleBoostGain(c))
             syncSynth(i, c)
             val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
@@ -355,6 +356,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, clip.gain, 0f, clip.muted, false)
             val (trimA, trimB) = com.mobiledaw.model.ClipEdit.trimFractions(clip)
             NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, clip.pitchSemis, clip.reverse)
+            NativeEngine.setChannelBoost(slot, 1f)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
             if (loadedSamples[slot] != clip.path) {
@@ -726,6 +728,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val max = out.maxOrNull()?.takeIf { it > 0f } ?: 1f
         for (i in out.indices) out[i] /= max
         return out
+    }
+
+    private val samplePeakCache = HashMap<String, Float>()
+
+    /** The loudest absolute sample value in a sound (0..1+), or 0 if it can't be read. */
+    fun samplePeak(path: String): Float = samplePeakCache[path] ?: run {
+        val frames = decodeSample(path)?.frames ?: return 0f
+        var peak = 0f
+        for (x in frames) peak = maxOf(peak, kotlin.math.abs(x))
+        samplePeakCache[path] = peak
+        peak
+    }
+
+    /** Linear gain from a sample channel's Boost and Normalize settings (1 = untouched). */
+    fun sampleBoostGain(c: Channel): Float {
+        if (c.instrument != Instrument.SAMPLE || c.sample == null) return 1f
+        var g = Math.pow(10.0, c.boostDb.coerceIn(0f, BOOST_MAX_DB) / 20.0).toFloat()
+        if (c.normalize) {
+            val peak = samplePeak(c.sample)
+            // Up to +24 dB, so a near-silent file doesn't turn into pure noise.
+            if (peak > 0f) g *= (1f / peak).coerceIn(0.1f, 16f)
+        }
+        return g
     }
 
     fun sampleSeconds(path: String): Float =
@@ -1671,6 +1696,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val SCOPE_BINS = 96
         const val PLAYLIST_LANES = 8
         const val RECORDINGS_DIR = "recordings"
+        /** Most a sample channel can be boosted, in dB. */
+        const val BOOST_MAX_DB = 18f
         /** The app is in 4/4: metronome accents and the record count-in use this. */
         const val BEATS_PER_BAR = com.mobiledaw.model.TICKS_PER_BAR / com.mobiledaw.model.TICKS_PER_BEAT
         /** [countIn] value for the "GO" shown as the take starts. */

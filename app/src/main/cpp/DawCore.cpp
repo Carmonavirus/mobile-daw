@@ -91,6 +91,7 @@ SampleShape Core::shapeFor(int channel) const {
     shape.sustain = std::clamp(p.sustain.load(), 0.0f, 1.0f);
     shape.release = std::max(0.0f, p.release.load()) * data->sampleRate;
     shape.tension = std::clamp(p.tension.load(), -1.0f, 1.0f);
+    shape.boost = p.boost.load();
     return shape;
 }
 
@@ -101,6 +102,15 @@ double envWarp(double x, double tension) {
     if (std::fabs(tension) < 1e-4) return x;
     const double k = tension * 5.0;
     return (std::exp(k * x) - 1.0) / (std::exp(k) - 1.0);
+}
+
+float boostSoftClip(float x) {
+    // Linear up to the knee, then a tanh curve that approaches (never passes) full scale.
+    constexpr float knee = 0.8f;
+    const float a = std::fabs(x);
+    if (a <= knee) return x;
+    const float y = knee + (1.0f - knee) * std::tanh((a - knee) / (1.0f - knee));
+    return x < 0.0f ? -y : y;
 }
 }  // namespace
 
@@ -124,6 +134,12 @@ float Core::sampleTick(Voice& v, const SampleData* data, const SampleShape* shap
     if (i + 1 >= f.size()) { v.active = false; return 0.0f; }
     const float frac = static_cast<float>(pos - static_cast<double>(i));
     float s = f[i] + (f[i + 1] - f[i]) * frac;
+    if (shape && shape->boost != 1.0f) {
+        // Boost acts on the sample itself, like FL's precomputed effect: louder, with peaks
+        // rounded off rather than clipped harshly.
+        s *= shape->boost;
+        if (shape->boost > 1.0f) s = boostSoftClip(s);
+    }
     if (shape) {
         // Time-based delay / attack / hold / decay / sustain from the trigger, plus a position-based
         // release that fades the tail before the end edge (edges flip for reverse playback). Tension
@@ -210,6 +226,11 @@ void Core::setChannelSampler(int index, bool cutItself, float trimStart, float t
     p.tension.store(tension);
     p.pitchSemis.store(pitchSemis);
     p.reverse.store(reverse);
+}
+
+void Core::setChannelBoost(int index, float gain) {
+    if (index < 0 || index >= kMaxChannels) return;
+    params_[index].boost.store(std::isfinite(gain) ? std::clamp(gain, 0.0f, 64.0f) : 1.0f);
 }
 
 void Core::setChannelClip(int index, bool resumeMidway) {

@@ -75,6 +75,13 @@ data class Channel(
     /** Transpose in semitones (-12..12) and reverse playback, for sample channels. */
     val pitchSemis: Int = 0,
     val reverse: Boolean = false,
+    /**
+     * Boost for sample channels, like FL's sampler precomputed effects: extra gain in dB (0..18)
+     * baked into the sound before the envelope, with soft clipping instead of harsh clipping.
+     * [normalize] first brings the sound's loudest peak to full scale.
+     */
+    val boostDb: Float = 0f,
+    val normalize: Boolean = false,
     /** For [Instrument.WAVETABLE]: the synth's sound. Null means the default ("Init") sound. */
     val synth: SynthPatch? = null,
     /** Extra engines: preset index (SoundFont preset, Macro/Modeled preset). */

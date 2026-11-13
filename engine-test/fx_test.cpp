@@ -80,6 +80,19 @@ static double measureHz(const std::vector<float>& x, int from, int len) {
     return kSr / (bestLag + off);
 }
 
+// Level of one frequency (Goertzel), as RMS.
+static double toneLevel(const std::vector<float>& x, int from, int len, double hz) {
+    const double w = 2 * kPi * hz / kSr, c = 2 * std::cos(w);
+    double s1 = 0, s2 = 0;
+    for (int i = from; i < from + len; ++i) {
+        const double hann = 0.5 - 0.5 * std::cos(2 * kPi * (i - from) / len);
+        const double s0 = x[i] * hann + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    return std::sqrt(s1 * s1 + s2 * s2 - c * s1 * s2) / (len * 0.25);
+}
+
 // A voice-like test tone: a few harmonics with a slow vibrato around `hz`.
 static std::vector<float> voice(double hz, int n, double vibratoCents) {
     std::vector<float> x(n);
@@ -92,7 +105,8 @@ static std::vector<float> voice(double hz, int n, double vibratoCents) {
     return x;
 }
 
-static std::vector<float> correct(std::vector<float> in, float mask, float retuneMs, float transpose, PitchCorrector* keep = nullptr) {
+static std::vector<float> correct(std::vector<float> in, float mask, float retuneMs, float transpose, PitchCorrector* keep = nullptr,
+                                  int voices = kVoicesOff, float voicesLevel = 0.0f, float mix = 1.0f) {
     PitchCorrector local;
     PitchCorrector& pc = keep ? *keep : local;
     pc.prepare(kSr);
@@ -101,8 +115,10 @@ static std::vector<float> correct(std::vector<float> in, float mask, float retun
     p[kPitchRetuneMs] = retuneMs;
     p[kPitchAmount] = 1.0f;
     p[kPitchTranspose] = transpose;
-    p[kPitchMix] = 1.0f;
+    p[kPitchMix] = mix;
     p[kPitchRange] = 1.0f;
+    p[kPitchVoices] = static_cast<float>(voices);
+    p[kPitchVoicesLevel] = voicesLevel;
     std::vector<float> r = in;
     for (size_t i = 0; i < in.size(); i += 192) {
         const int n = static_cast<int>(std::min<size_t>(192, in.size() - i));
@@ -170,6 +186,67 @@ int main() {
         const double db = 10 * std::log10(eout / ein);
         check(std::fabs(db) < 1.5, "pitch: in-tune E4 keeps its level (dB)", db);
         check(std::fabs(pc.detectedHz() - 329.63) < 3, "pitch: detector reads E4 (Hz)", pc.detectedHz());
+    }
+    {
+        // Hard tune: 0 ms retune flattens a wide vibrato into a straight line on the note.
+        auto in = voice(440.0, n, 60);
+        auto out = correct(in, cMajor, 0, 0);
+        double worstIn = 0, worstOut = 0;
+        for (int k = 0; k < 16; ++k) {
+            const int from = n / 2 + k * 2400;
+            worstIn = std::max(worstIn, std::fabs(1200 * std::log2(measureHz(in, from, 1200) / 440.0)));
+            worstOut = std::max(worstOut, std::fabs(1200 * std::log2(measureHz(out, from, 1200) / 440.0)));
+        }
+        check(worstIn > 40 && worstOut < 8, "pitch: hard tune flattens 60c vibrato, worst (cents)", worstOut);
+        writeWav("out/pitch_vibrato_in.wav", in);
+        writeWav("out/pitch_hardtune_out.wav", out);
+    }
+    {
+        // Slow retune keeps most of the vibrato (natural setting).
+        auto in = voice(440.0, n, 60);
+        auto out = correct(in, cMajor, 200, 0);
+        double worstOut = 0;
+        for (int k = 0; k < 16; ++k)
+            worstOut = std::max(worstOut, std::fabs(1200 * std::log2(measureHz(out, n / 2 + k * 2400, 1200) / 440.0)));
+        check(worstOut > 30, "pitch: 200 ms retune keeps the vibrato (cents)", worstOut);
+    }
+    {
+        // A bigger move keeps roughly its level: +5 semitones. (The shifter keeps the tone, so a
+        // sparse test tone loses a little; real voices have a smoother spectrum.)
+        auto in = voice(440.0, n, 0);
+        auto out = correct(in, chromatic, 0, 5);
+        const double hz = measureHz(out, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 587.33)) < 10, "pitch: +5 transpose moves A4 to D5 (Hz)", hz);
+        double ein = 0, eout = 0;
+        for (int i = n / 2; i < n; ++i) { ein += double(in[i]) * in[i]; eout += double(out[i]) * out[i]; }
+        check(std::fabs(10 * std::log10(eout / ein)) < 3.5, "pitch: +5 transpose keeps the level (dB)", 10 * std::log10(eout / ein));
+        writeWav("out/pitch_up5_out.wav", out);
+    }
+    {
+        // Mix 0 is the dry voice, delayed by exactly the reported latency.
+        auto in = voice(300.0, n, 30);
+        PitchCorrector pc;
+        auto out = correct(in, cMajor, 0, 0, &pc, kVoicesOff, 0, 0.0f);
+        const int lat = pc.latency();
+        double err = 0;
+        for (int i = lat; i < n; ++i) err = std::max(err, double(std::fabs(out[i] - in[i - lat])));
+        check(err < 1e-5 && lat > 0 && lat < 0.03 * kSr, "pitch: dry path delayed by the latency (max err)", err);
+    }
+    {
+        // Harmony voices: A4 in C major gets C5 (a third up) and E5 (a fifth up).
+        auto in = voice(440.0, n, 0);
+        auto plain = correct(in, cMajor, 0, 0);
+        auto chord = correct(in, cMajor, 0, 0, nullptr, kVoicesChord, 1.0f);
+        const int from = n / 2, len = 16384;
+        const double c5 = toneLevel(chord, from, len, 523.25), e5 = toneLevel(chord, from, len, 659.26);
+        const double c5Plain = toneLevel(plain, from, len, 523.25);
+        check(c5 > 0.07 && e5 > 0.07 && c5Plain < 0.02, "pitch: chord voices add C5 and E5 (level)", std::min(c5, e5));
+        writeWav("out/pitch_chord_out.wav", chord);
+        auto low = correct(in, cMajor, 0, 0, nullptr, kVoicesOctaveDown, 1.0f);
+        check(toneLevel(low, from, len, 220.0) > 0.1, "pitch: octave-down voice adds A3 (level)", toneLevel(low, from, len, 220.0));
+        auto dbl = correct(in, cMajor, 0, 0, nullptr, kVoicesDouble, 1.0f);
+        const double hz = measureHz(dbl, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 440.0)) < 10, "pitch: double voices stay on A4 (Hz)", hz);
     }
     {
         // Silence in, silence out, and no NaNs.

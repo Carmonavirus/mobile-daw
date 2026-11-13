@@ -38,6 +38,8 @@ import com.mobiledaw.DawViewModel
 import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.model.PitchScale
 import com.mobiledaw.model.PitchSettings
+import com.mobiledaw.model.PitchStyle
+import com.mobiledaw.model.PitchVoices
 import com.mobiledaw.model.Project
 import com.mobiledaw.model.isBlackKey
 import com.mobiledaw.ui.synth.Choices
@@ -47,21 +49,15 @@ import kotlinx.coroutines.delay
 import kotlin.math.log2
 import kotlin.math.roundToInt
 
-/** Quick starting points for the pitch corrector. */
-private val STYLES = listOf(
-    Triple("Natural", 90f, 0.4f),
-    Triple("Tight", 25f, 0.15f),
-    Triple("Robot", 0f, 0f),
-)
-
 /**
- * Pitch Correct: pulls a voice to the nearest note of a key. Retune speed sets how fast:
- * 0 ms is the hard, robotic effect; slower speeds just tidy the pitch up.
+ * Pitch Correct: pulls a voice to the notes of a key. Pick a sound, check the key, sing.
+ * Speed sets how fast notes are pulled in: instant is the hard-tuned effect, slower keeps it natural.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PitchEditor(vm: DawViewModel, trackId: Long, effectId: Long, project: Project, settings: PitchSettings, onChange: (PitchSettings) -> Unit) {
     var reading by remember { mutableStateOf(floatArrayOf(0f, 0f)) }
+    var more by remember { mutableStateOf(false) }
     LaunchedEffect(trackId, effectId) {
         while (true) {
             val out = FloatArray(2)
@@ -73,16 +69,20 @@ fun PitchEditor(vm: DawViewModel, trackId: Long, effectId: Long, project: Projec
     val key = settings.keyFor(project)
     val scale = settings.scaleFor(project)
     val allowed = settings.allowedNotes(project)
+    val followsSong = settings.key == null && settings.scale == null
 
     Column {
         Meter(reading[0], reading[1])
 
-        SynthCard(title = "Style") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                STYLES.forEach { (name, speed, human) ->
-                    val on = settings.retuneMs == speed && settings.humanize == human
-                    Box(Modifier.weight(1f)) {
-                        Pill(name, on) { onChange(settings.copy(retuneMs = speed, humanize = human, amount = 1f)) }
+        SynthCard(title = "Sound") {
+            val styles = PitchStyle.entries
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                styles.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        pair.forEach { style ->
+                            StyleTile(style, style.matches(settings), Modifier.weight(1f)) { onChange(style.applyTo(settings)) }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -91,7 +91,7 @@ fun PitchEditor(vm: DawViewModel, trackId: Long, effectId: Long, project: Projec
         SynthCard(
             title = "Key",
             trailing = {
-                Pill(if (settings.key == null && settings.scale == null) "Follows song key" else "Use song key", settings.key == null && settings.scale == null) {
+                Pill(if (followsSong) "Follows song key" else "Use song key", followsSong) {
                     onChange(settings.copy(key = null, scale = null, disabledNotes = emptySet()))
                 }
             },
@@ -107,49 +107,98 @@ fun PitchEditor(vm: DawViewModel, trackId: Long, effectId: Long, project: Projec
                     Pill(s.label, s == scale) { onChange(settings.copy(key = key, scale = s, disabledNotes = emptySet())) }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Text("Notes the voice can land on (tap to switch one off)", fontSize = 11.sp, color = DawColors.Muted)
-            Spacer(Modifier.height(6.dp))
-            NoteStrip(key, scale, allowed) { pc ->
-                val inScale = scale.steps.contains((pc - key).mod(12))
-                if (!inScale) return@NoteStrip
-                val off = settings.disabledNotes
-                onChange(settings.copy(key = key, scale = scale, disabledNotes = if (pc in off) off - pc else off + pc))
+        }
+
+        SynthCard(title = "Tuning") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                FxKnob("Speed", settings.retuneMs, KnobRange(0f, 400f, 8f), { if (it < 1f) "Instant" else "${it.roundToInt()} ms" }, { onChange(settings.copy(retuneMs = if (it < 2f) 0f else it)) })
+                FxKnob("Strength", settings.amount, KnobRange(0f, 1f, 1f), ::formatPercent, { onChange(settings.copy(amount = it)) })
+                FxKnob(
+                    "Voices",
+                    settings.voicesLevel,
+                    KnobRange(0f, 1f, 0.6f),
+                    ::formatPercent,
+                    { onChange(settings.copy(voicesLevel = it)) },
+                    enabled = settings.voices != PitchVoices.OFF,
+                )
+                FxKnob("Mix", settings.mix, KnobRange(0f, 1f, 1f), ::formatPercent, { onChange(settings.copy(mix = it)) })
             }
         }
 
-        SynthCard(title = "Correction") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                FxKnob("Retune speed", settings.retuneMs, KnobRange(0f, 400f, 50f), { if (it < 1f) "Instant" else "${it.roundToInt()} ms" }, { onChange(settings.copy(retuneMs = if (it < 2f) 0f else it)) })
-                FxKnob("Amount", settings.amount, KnobRange(0f, 1f, 1f), ::formatPercent, { onChange(settings.copy(amount = it)) })
-                FxKnob("Humanize", settings.humanize, KnobRange(0f, 1f, 0.2f), ::formatPercent, { onChange(settings.copy(humanize = it)) })
-                FxKnob("Mix", settings.mix, KnobRange(0f, 1f, 1f), ::formatPercent, { onChange(settings.copy(mix = it)) })
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Transpose", fontSize = 13.sp, color = DawColors.Ink, modifier = Modifier.weight(1f))
-                Pill("−", false) { onChange(settings.copy(transpose = (settings.transpose - 1).coerceAtLeast(-12))) }
-                Text(
-                    (if (settings.transpose > 0) "+" else "") + "${settings.transpose} st",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = DawColors.Ink,
-                    modifier = Modifier.width(56.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Pill("+", false) { onChange(settings.copy(transpose = (settings.transpose + 1).coerceAtMost(12))) }
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("Voice", fontSize = 13.sp, color = DawColors.Ink)
-            Spacer(Modifier.height(6.dp))
-            Choices(listOf("Low", "Mid", "High"), settings.range, { onChange(settings.copy(range = it)) }, Modifier.fillMaxWidth())
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { more = !more }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (more) "Fewer options" else "More options", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Accent, modifier = Modifier.weight(1f))
+            Text(if (more) "▲" else "▼", fontSize = 11.sp, color = DawColors.Accent)
         }
-        Text(
-            "Instant retune gives the hard, robotic effect. 50–100 ms keeps it natural. Humanize lets long notes keep a little of their own movement.",
-            fontSize = 12.sp,
-            color = DawColors.Muted,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
-        )
+
+        if (more) {
+            SynthCard(title = "Notes") {
+                Text("Notes the voice can land on (tap to switch one off)", fontSize = 11.sp, color = DawColors.Muted)
+                Spacer(Modifier.height(6.dp))
+                NoteStrip(key, scale, allowed) { pc ->
+                    val inScale = scale.steps.contains((pc - key).mod(12))
+                    if (!inScale) return@NoteStrip
+                    val off = settings.disabledNotes
+                    onChange(settings.copy(key = key, scale = scale, disabledNotes = if (pc in off) off - pc else off + pc))
+                }
+            }
+            SynthCard(title = "Voice") {
+                Text("Extra voices", fontSize = 13.sp, color = DawColors.Ink)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    PitchVoices.entries.forEach { v ->
+                        Pill(v.label, v == settings.voices) { onChange(settings.copy(voices = v)) }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Transpose", fontSize = 13.sp, color = DawColors.Ink, modifier = Modifier.weight(1f))
+                    Pill("−", false) { onChange(settings.copy(transpose = (settings.transpose - 1).coerceAtLeast(-12))) }
+                    Text(
+                        (if (settings.transpose > 0) "+" else "") + "${settings.transpose} st",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = DawColors.Ink,
+                        modifier = Modifier.width(56.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Pill("+", false) { onChange(settings.copy(transpose = (settings.transpose + 1).coerceAtMost(12))) }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Humanize", fontSize = 13.sp, color = DawColors.Ink)
+                        Text("Long notes keep a bit of their own movement", fontSize = 11.sp, color = DawColors.Muted)
+                    }
+                    FxKnob("", settings.humanize, KnobRange(0f, 1f, 0f), ::formatPercent, { onChange(settings.copy(humanize = it)) })
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Singer's range", fontSize = 13.sp, color = DawColors.Ink)
+                Spacer(Modifier.height(6.dp))
+                Choices(listOf("Low", "Mid", "High"), settings.range, { onChange(settings.copy(range = it)) }, Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+/** A sound preset: name and one line on what it does. */
+@Composable
+private fun StyleTile(style: PitchStyle, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (on) DawColors.Note else DawColors.Chip)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(style.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (on) DawColors.OnNote else DawColors.Ink)
+        Text(style.hint, fontSize = 11.sp, color = if (on) DawColors.OnNote else DawColors.Muted, maxLines = 2)
     }
 }
 
