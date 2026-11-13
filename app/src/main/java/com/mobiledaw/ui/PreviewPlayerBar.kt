@@ -67,7 +67,7 @@ fun PreviewPlayerBar(vm: DawViewModel) {
             .fillMaxWidth()
             .background(DawColors.Card)
             .border(1.dp, DawColors.Line)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
