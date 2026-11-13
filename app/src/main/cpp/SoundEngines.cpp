@@ -325,6 +325,16 @@ float SoundEngines::tick(int slot) {
 
 float SoundEngines::tickAudition() {
     Slot& s = slots_[kEngineAuditionSlot];
+    if (stopAudition_.exchange(false, std::memory_order_acquire)) {
+        queueRead_.store(queueWrite_.load(std::memory_order_acquire), std::memory_order_release);
+        adopt(s);
+        if (s.font) tsf_reset(s.font);
+        s.offCount = 0;
+        for (auto& v : s.msVoices) v.active = false;
+        for (auto& v : macro_) if (v->active && v->slot == kEngineAuditionSlot) v->active = false;
+        for (auto& v : model_) if (v->active && v->slot == kEngineAuditionSlot) v->active = false;
+        s.pos = kEngineBlock;  // drop the rest of the block already rendered
+    }
     if (s.pos >= kEngineBlock) {
         int r = queueRead_.load(std::memory_order_relaxed);
         while (r != queueWrite_.load(std::memory_order_acquire)) {

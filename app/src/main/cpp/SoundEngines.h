@@ -81,6 +81,8 @@ public:
     void setMultiSample(int slot, MultiSampleSet* set);
     // Plays a note on the audition slot with the given instrument (library preview).
     void audition(int instrument, int variant, int bank, int pitch, float velocity);
+    // Silences the audition slot and drops queued previews (the library's stop button).
+    void stopAudition() { stopAudition_.store(true, std::memory_order_release); }
     void collectGarbage();
 
     // ---- audio thread ----
@@ -140,6 +142,7 @@ private:
     std::array<Audition, kQueue> queue_{};
     std::atomic<int> queueWrite_{0};
     std::atomic<int> queueRead_{0};
+    std::atomic<bool> stopAudition_{false};
 };
 
 }  // namespace daw

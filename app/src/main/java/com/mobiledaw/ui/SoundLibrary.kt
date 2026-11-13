@@ -87,7 +87,7 @@ enum class SoundSource(val title: String, val tab: String, val blurb: String) {
 fun SoundLibraryScreen(vm: DawViewModel, onDismiss: () -> Unit) {
     var open by remember { mutableStateOf<SoundSource?>(null) }
     var added by remember { mutableStateOf<String?>(null) }
-    FullScreen(onDismiss = { if (open != null) open = null else onDismiss() }) {
+    PreviewScreen(vm, onDismiss = { if (open != null) open = null else onDismiss() }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (open != null) {
                 Text("‹", fontSize = 26.sp, color = DawColors.Ink, modifier = Modifier.clip(CircleShape).clickable { open = null }.padding(horizontal = 8.dp))
@@ -529,7 +529,7 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
         scope.launch {
             val decoded = withContext(Dispatchers.IO) { runCatching { vm.sounds.fetchPreview(sound) }.getOrNull() }
             busy.remove(sound.id)
-            if (decoded != null) vm.auditionDecoded(decoded) else status = "Couldn't play that one."
+            if (decoded != null) vm.auditionDecoded(decoded, sound.title) else status = "Couldn't play that one."
         }
     }
 
