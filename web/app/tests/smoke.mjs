@@ -29,13 +29,15 @@ const browser = await chromium.launch({
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  const logs = [];
+  page.on('pageerror', (e) => errors.push(e.message + '\n' + (e.stack || '')));
+  page.on('console', (m) => logs.push(m.type() + ': ' + m.text()));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => typeof window.dawProbe === 'function', null, { timeout: 60000 });
   const drawn = await page.waitForFunction(() => JSON.parse(window.dawProbe()).textW !== undefined, null, { timeout: 30000 }).catch(() => null);
   if (!drawn) {
-    fail('the screen never drew (WebGL: ' + (await page.evaluate(() => !!document.createElement('canvas').getContext('webgl2'))) + ')\n' + errors.join('\n'));
+    fail('the screen never drew (WebGL: ' + (await page.evaluate(() => !!document.createElement('canvas').getContext('webgl2'))) + ')\n' + errors.join('\n') + '\n--- console ---\n' + logs.slice(-40).join('\n'));
     break;
   }
   const probe = async () => JSON.parse(await page.evaluate(() => window.dawProbe()));

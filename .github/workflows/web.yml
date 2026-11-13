@@ -53,7 +53,7 @@ jobs:
       - name: Smoke test in Chromium (starts, plays sound, saves, survives taps)
         working-directory: web/app
         run: |
-          npm install --no-save --no-package-lock playwright@1.49.1
+          npm install --no-save --no-package-lock playwright@1.63.0
           npx playwright install --with-deps chromium
           node tests/smoke.mjs build/dist/wasmJs/productionExecutable
       - name: Assemble the site
