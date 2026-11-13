@@ -78,6 +78,8 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                 // ---------------------------------------------------------------- projects
                 SectionCard {
                     SettingRow("Projects", "Open, rename or start a project (\"${vm.project.name}\" is open)", onOpenProjects)
+                    Spacer(Modifier.height(12.dp))
+                    SettingRow("Export", "WAV, MP3, stems and MIDI, saved to Downloads") { vm.openExport() }
                 }
 
                 // ---------------------------------------------------------------- editing
