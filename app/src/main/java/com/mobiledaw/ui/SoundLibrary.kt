@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +59,7 @@ import com.mobiledaw.sound.ArchiveClient
 import com.mobiledaw.sound.CommonsClient
 import com.mobiledaw.sound.EnginePreset
 import com.mobiledaw.sound.FreesoundClient
+import com.mobiledaw.sound.FreesoundFilters
 import com.mobiledaw.sound.LicenseFilter
 import com.mobiledaw.sound.LicenseKind
 import com.mobiledaw.sound.OnlineSound
@@ -184,6 +187,8 @@ private fun LibraryRow(
     badge: LicenseKind? = null,
     indent: Int = 1,
     busy: Boolean = false,
+    /** Small info chips under the name (length, BPM, key, loop or one-shot). */
+    facts: List<String> = emptyList(),
     onPlay: () -> Unit,
     onAction: (() -> Unit)?,
 ) {
@@ -208,6 +213,19 @@ private fun LibraryRow(
                         Spacer(Modifier.width(6.dp))
                     }
                     if (subtitle != null) Text(subtitle, fontSize = 11.sp, color = DawColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (facts.isNotEmpty()) {
+                Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    facts.forEach { fact ->
+                        Text(
+                            fact,
+                            fontSize = 10.sp,
+                            color = DawColors.InkSoft,
+                            maxLines = 1,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(DawColors.Chip).padding(horizontal = 7.dp, vertical = 1.dp),
+                        )
+                    }
                 }
             }
         }
@@ -483,6 +501,8 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
     var query by remember(source) { mutableStateOf("") }
     var filter by remember(source) { mutableStateOf(LicenseFilter.NO_CREDIT) }
     var shortOnly by remember(source) { mutableStateOf(true) }
+    var extra by remember(source) { mutableStateOf(FreesoundFilters()) }
+    var filtersOpen by remember(source) { mutableStateOf(false) }
     var results by remember(source) { mutableStateOf<List<OnlineSound>>(emptyList()) }
     var items by remember(source) { mutableStateOf<List<ArchiveClient.Item>>(emptyList()) }
     val itemFiles = remember(source) { mutableStateMapOf<String, List<OnlineSound>>() }
@@ -494,14 +514,15 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
     var status by remember { mutableStateOf<String?>(null) }
 
     fun search(nextPage: Int) {
-        if (query.isBlank()) return
+        // Freesound can search by filters alone (e.g. every 90 BPM trap loop in A minor).
+        if (query.isBlank() && (source != SoundSource.FREESOUND || extra.isEmpty)) return
         searching = true
         error = null
         scope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     when (source) {
-                        SoundSource.FREESOUND -> fs.search(query, filter, nextPage, shortOnly) to emptyList<ArchiveClient.Item>()
+                        SoundSource.FREESOUND -> fs.search(query, filter, nextPage, shortOnly, extra) to emptyList<ArchiveClient.Item>()
                         SoundSource.COMMONS -> CommonsClient.search(query, filter, nextPage) to emptyList<ArchiveClient.Item>()
                         else -> emptyList<OnlineSound>() to ArchiveClient.search(query, filter, nextPage)
                     }
@@ -512,10 +533,11 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
                 page = nextPage
                 results = if (nextPage == 1) sounds else results + sounds
                 items = if (nextPage == 1) found else items + found
-                if (sounds.isEmpty() && found.isEmpty()) error = "Nothing found. Try other words or another licence filter."
+                if (sounds.isEmpty() && found.isEmpty()) error = "Nothing found. Try other words, another licence filter" + if (extra.isEmpty) "." else " or fewer filters."
             }.onFailure { e ->
                 error = when {
                     e is com.mobiledaw.sound.HttpError && e.code == 401 -> "Freesound didn't accept the API key. Check it below."
+                    e is com.mobiledaw.sound.HttpError && e.code == 400 && !extra.isEmpty -> "Freesound couldn't use those filters. Try fewer, or tap Clear."
                     e is com.mobiledaw.sound.HttpError && e.code == 429 -> "Too many searches for now (Freesound allows 60 a minute). Try again shortly."
                     else -> "Couldn't reach ${source.title}. Check your connection."
                 }
@@ -557,7 +579,19 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         LicenseFilter.entries.forEach { f -> DawChip(f.label, selected = f == filter, dotColor = null) { filter = f; search(1) } }
-        if (source == SoundSource.FREESOUND) DawChip("Under 30 s", selected = shortOnly, dotColor = null) { shortOnly = !shortOnly; search(1) }
+        if (source == SoundSource.FREESOUND) {
+            DawChip("Under 30 s", selected = shortOnly, dotColor = null) { shortOnly = !shortOnly; search(1) }
+            DawChip(if (extra.isEmpty) "Filters" else "Filters (${extra.count})", selected = filtersOpen || !extra.isEmpty, dotColor = null) {
+                filtersOpen = !filtersOpen
+            }
+        }
+    }
+    if (source == SoundSource.FREESOUND && filtersOpen) {
+        FreesoundFilterPanel(
+            initial = extra,
+            onApply = { extra = it; filtersOpen = false; search(1) },
+            onClear = { extra = FreesoundFilters(); filtersOpen = false; search(1) },
+        )
     }
     LibraryNote(
         status ?: when (source) {
@@ -610,12 +644,13 @@ private fun LazyListScope.soundRows(
         val seconds = s.durationSeconds?.let { if (it < 10) "%.1f s".format(it) else "${it.toInt()} s" }
         LibraryRow(
             s.title,
-            listOfNotNull(s.author, seconds).joinToString(" · "),
+            s.author,
             playing = lastPlayed == s.id,
             actionLabel = if (actionLabel == "+") "Save" else actionLabel,
             badge = s.license,
             busy = s.id in busy,
             indent = 0,
+            facts = listOfNotNull(seconds) + s.facts,
             onPlay = { onPlay(s) },
             onAction = { onAction(s) },
         )
@@ -811,4 +846,106 @@ private fun ColumnScope.CreditsPage(vm: DawViewModel) {
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
+}
+
+/** Freesound's extra filters: BPM, key, loop or one-shot, vibe and genre. Applied together. */
+@Composable
+private fun FreesoundFilterPanel(initial: FreesoundFilters, onApply: (FreesoundFilters) -> Unit, onClear: () -> Unit) {
+    var f by remember { mutableStateOf(initial) }
+    var bpmMin by remember { mutableStateOf(initial.bpmMin?.toString().orEmpty()) }
+    var bpmMax by remember { mutableStateOf(initial.bpmMax?.toString().orEmpty()) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(DawColors.Card)
+            .border(1.dp, DawColors.Line, RoundedCornerShape(16.dp))
+            .heightIn(max = 340.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+    ) {
+        FilterLabel("BPM")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BpmInput("From", bpmMin, Modifier.weight(1f)) { bpmMin = it }
+            Text("  to  ", fontSize = 13.sp, color = DawColors.Muted)
+            BpmInput("To", bpmMax, Modifier.weight(1f)) { bpmMax = it }
+        }
+        FilterLabel("Key")
+        ChipRow {
+            DawChip("Any", selected = f.key == null, dotColor = null) { f = f.copy(key = null) }
+            FreesoundFilters.KEYS.forEach { k -> DawChip(k, selected = f.key == k, dotColor = null) { f = f.copy(key = if (f.key == k) null else k) } }
+        }
+        ChipRow {
+            DawChip("Major or minor", selected = f.scale == null, dotColor = null) { f = f.copy(scale = null) }
+            DawChip("Major", selected = f.scale == "major", dotColor = null) { f = f.copy(scale = if (f.scale == "major") null else "major") }
+            DawChip("Minor", selected = f.scale == "minor", dotColor = null) { f = f.copy(scale = if (f.scale == "minor") null else "minor") }
+        }
+        FilterLabel("Type")
+        ChipRow {
+            FreesoundFilters.Kind.entries.forEach { k -> DawChip(k.label, selected = f.kind == k, dotColor = null) { f = f.copy(kind = k) } }
+        }
+        FilterLabel("Vibe")
+        ChipRow {
+            FreesoundFilters.Vibe.entries.forEach { v ->
+                DawChip(v.label, selected = v in f.vibes, dotColor = null) { f = f.copy(vibes = if (v in f.vibes) f.vibes - v else f.vibes + v) }
+            }
+        }
+        FilterLabel("Genre (sound tags)")
+        ChipRow {
+            FreesoundFilters.Genre.entries.forEach { g ->
+                DawChip(g.label, selected = g in f.genres, dotColor = null) { f = f.copy(genres = if (g in f.genres) f.genres - g else f.genres + g) }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextAction("Apply", strong = true) {
+                val lo = bpmMin.toIntOrNull()?.coerceIn(1, 400)
+                val hi = bpmMax.toIntOrNull()?.coerceIn(1, 400)
+                onApply(f.copy(bpmMin = if (lo != null && hi != null) minOf(lo, hi) else lo, bpmMax = if (lo != null && hi != null) maxOf(lo, hi) else hi))
+            }
+            TextAction("Clear", onClick = onClear)
+        }
+        Text(
+            "BPM, key, type and vibe come from Freesound's own analysis of each sound, so a few may be off. Genre matches the tags uploaders gave.",
+            fontSize = 11.sp,
+            color = DawColors.Muted,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun FilterLabel(text: String) {
+    Text(text.uppercase(), fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+}
+
+@Composable
+private fun ChipRow(content: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) { content() }
+}
+
+@Composable
+private fun BpmInput(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onChange(it.filter(Char::isDigit).take(3)) },
+        singleLine = true,
+        label = { Text(label) },
+        modifier = modifier,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = DawColors.Ink,
+            unfocusedTextColor = DawColors.Ink,
+            focusedBorderColor = DawColors.InkSoft,
+            unfocusedBorderColor = DawColors.Line,
+            focusedLabelColor = DawColors.InkSoft,
+            unfocusedLabelColor = DawColors.Muted,
+            cursorColor = DawColors.Ink,
+        ),
+    )
 }
