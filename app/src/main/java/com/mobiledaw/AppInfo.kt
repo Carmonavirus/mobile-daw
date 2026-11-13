@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.5", "2026-11-13T20:10:00Z",
+            listOf(
+                "Side-by-side view: the whole dividing line is now the resize handle, like on a Windows PC. With a mouse, hover anywhere on the line and the cursor turns into the left/right arrows; drag to resize. On touch, press anywhere along the line and drag. The line lights up while you do.",
+                "The two small arrows in the middle of the line still close a side, and the strip on the edge still opens it again.",
+            ),
+        ),
+        Release(
             "0.8.4", "2026-11-13T19:55:00Z",
             listOf(
                 "Channel rack: a channel's ⋯ menu (or a long-press on it) now has Fill every step, next to Fill every 2, 4 and 8 steps. Fills cover every bar of the pattern.",
