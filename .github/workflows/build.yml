@@ -29,6 +29,10 @@ jobs:
         run: |
           # Built by engine-test/build.sh in the first step.
           cd engine-test && ./out/exporttest
+      - name: Run the clip stretch test (pitch shift that keeps the tempo)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/stretchtest
       - name: Build and run the wavetable synth test (renders every factory preset)
         run: |
           mkdir -p engine-test/out
