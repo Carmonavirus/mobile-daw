@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace daw {
 
@@ -69,6 +70,28 @@ public:
         v.srcPos = 0.0;
         v.srcAge = 0;
         v.srcPrev = v.srcCur = 0.0f;
+    }
+
+    // Renders one hit of a built-in drum (kick/snare/hat/clap) at C4, full velocity, until it has
+    // died away (at most maxSeconds), with the silent tail cut off. The app plays built-in drums
+    // from this recording through the sampler, so their channels get trim, pitch, reverse, boost
+    // and the envelope like any imported sound.
+    static std::vector<float> renderOneShot(int instrument, float sampleRate, float maxSeconds = 3.0f) {
+        std::vector<float> out;
+        if (instrument < kKick || instrument > kClap || sampleRate <= 0.0f) return out;
+        Voice v;
+        start(v, 60, 1.0f, 0);
+        const auto limit = static_cast<size_t>(maxSeconds * sampleRate);
+        out.reserve(static_cast<size_t>(sampleRate));
+        while (v.active && out.size() < limit) out.push_back(tick(v, instrument, sampleRate));
+        // Hat and clap come out of the resampler one sample late; drop that leading zero.
+        if (!out.empty() && out.front() == 0.0f && (instrument == kHiHat || instrument == kClap)) out.erase(out.begin());
+        size_t end = out.size();
+        while (end > 0 && std::fabs(out[end - 1]) < 1e-4f) --end;
+        // Keep a couple of milliseconds after the last audible sample.
+        end = std::min(out.size(), end + static_cast<size_t>(0.002f * sampleRate));
+        out.resize(std::max<size_t>(end, 2));
+        return out;
     }
 
     static void release(Voice& v) {

@@ -368,12 +368,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val audioSlots = SequenceCompiler.audioSlots(p, NativeEngine.MAX_CHANNELS)
         NativeEngine.setChannelCount((p.channels.size + audioSlots.size).coerceAtMost(NativeEngine.MAX_CHANNELS))
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
-            NativeEngine.setChannel(i, c.instrument.id, c.volume, c.pan, c.mute, c.solo)
+            // Built-in drums and SoundFont drum hits play a recording of their hit through the
+            // sampler, like kit sounds, so every drum has the same channel settings.
+            val path = soundPath(c)
+            val engineInstrument = if (path != null) Instrument.SAMPLE.id else c.instrument.id
+            NativeEngine.setChannel(i, engineInstrument, c.volume, c.pan, c.mute, c.solo)
             NativeEngine.setChannelClip(i, false)
-            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, c.pitchSemis, c.reverse)
+            NativeEngine.setChannelSampler(i, c.cutItself, c.trimStart, c.trimEnd, c.envDelay, c.attack, c.hold, c.decay, c.sustain, c.release, c.tension, if (canTranspose(c)) c.pitchSemis else 0, c.reverse)
             NativeEngine.setChannelBoost(i, sampleBoostGain(c))
             syncSynth(i, c)
-            val path = if (c.instrument == Instrument.SAMPLE) c.sample else null
             if (loadedSamples[i] != path) {
                 val decoded = path?.let { decodeSample(it) }
                 NativeEngine.setSample(i, decoded?.frames, decoded?.sampleRate ?: 0f)
@@ -727,8 +730,56 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- kits & samples
 
+    /**
+     * The sound a channel plays through the sampler: an imported file, or a recording of a
+     * built-in drum (see [builtInDrumPath]). Null for synths and the other engines.
+     */
+    fun soundPath(c: Channel): String? = when {
+        c.instrument == Instrument.SAMPLE -> c.sample
+        c.instrument.isBuiltInDrum -> builtInDrumPath(c.instrument)
+        c.instrument == Instrument.SOUNDFONT && c.pitch != null -> soundFontHitPath(c)
+        else -> null
+    }
+
+    /**
+     * Whether Channel settings' Pitch applies. Everything but a whole SoundFont drum kit, where
+     * shifting the notes would swap which drum each key plays.
+     */
+    fun canTranspose(c: Channel): Boolean {
+        if (c.instrument != Instrument.SOUNDFONT || c.pitch != null) return true
+        val source = c.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
+        return sounds.soundFonts.presets(source).firstOrNull { it.index == c.variant }?.isDrumKit != true
+    }
+
+    /** SoundFont hits we know how to record, by pseudo path: (bank, preset, key). */
+    private val soundFontHits = HashMap<String, Triple<Int, Int, Int>>()
+
+    /**
+     * A single drum hit from a SoundFont kit is recorded once (when its SoundFont is loaded) and
+     * then played like an imported sound. Null until the SoundFont is ready, or if the hit is silent.
+     */
+    private fun soundFontHitPath(c: Channel): String? {
+        val source = c.source ?: com.mobiledaw.sound.SoundFontLibrary.BUILTIN
+        val key = c.pitch ?: return null
+        val bank = sounds.soundFonts.loadedBank(source) ?: return null
+        val path = "$BUILT_IN_PREFIX$source#${c.variant}:$key"
+        soundFontHits[path] = Triple(bank, c.variant, key)
+        return path.takeIf { decodeSample(it) != null }
+    }
+
+    private fun builtInDrumPath(instrument: Instrument) = "$BUILT_IN_PREFIX${instrument.name.lowercase()}"
+
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: run {
+            soundFontHits[path]?.let { (bank, variant, key) ->
+                val frames = NativeEngine.renderSoundFontHit(bank, variant, key, BUILT_IN_RATE) ?: return null
+                return WavDecoder.Decoded(frames, BUILT_IN_RATE).also { sampleCache[path] = it }
+            }
+            if (path.startsWith(BUILT_IN_PREFIX)) {
+                val instrument = Instrument.entries.firstOrNull { builtInDrumPath(it) == path && it.isBuiltInDrum } ?: return null
+                return WavDecoder.Decoded(NativeEngine.renderBuiltInDrum(instrument.id, BUILT_IN_RATE), BUILT_IN_RATE)
+                    .also { sampleCache[path] = it }
+            }
             WavDecoder.decode(kits.file(path), maxSecondsFor(path))?.also {
                 sampleCache[path] = it
                 trimSampleCache()
@@ -832,12 +883,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         peak
     }
 
-    /** Linear gain from a sample channel's Boost and Normalize settings (1 = untouched). */
+    /**
+     * Linear gain from a channel's Boost and Normalize settings (1 = untouched). Normalize needs a
+     * recorded sound to measure, so synths only get the Boost part.
+     */
     fun sampleBoostGain(c: Channel): Float {
-        if (c.instrument != Instrument.SAMPLE || c.sample == null) return 1f
         var g = Math.pow(10.0, c.boostDb.coerceIn(0f, BOOST_MAX_DB) / 20.0).toFloat()
+        val path = soundPath(c) ?: return g
         if (c.normalize) {
-            val peak = samplePeak(c.sample)
+            val peak = samplePeak(path)
             // Up to +24 dB, so a near-silent file doesn't turn into pure noise.
             if (peak > 0f) g *= (1f / peak).coerceIn(0.1f, 16f)
         }
@@ -1806,6 +1860,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         const val RECORDINGS_DIR = "recordings"
         /** Most a sample channel can be boosted, in dB. */
         const val BOOST_MAX_DB = 18f
+        /** Pseudo sample path for a built-in drum's recorded hit, e.g. "builtin:hat". */
+        private const val BUILT_IN_PREFIX = "builtin:"
+        private const val BUILT_IN_RATE = 48000f
         /** The app is in 4/4: metronome accents and the record count-in use this. */
         const val BEATS_PER_BAR = com.mobiledaw.model.TICKS_PER_BAR / com.mobiledaw.model.TICKS_PER_BEAT
         /** [countIn] value for the "GO" shown as the take starts. */

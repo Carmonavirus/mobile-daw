@@ -68,7 +68,9 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
         return
     }
     fun set(transform: (Channel) -> Channel) = vm.updateChannel(channelId, transform)
-    val isSample = channel.instrument == Instrument.SAMPLE && channel.sample != null
+    // Every one-shot sound (kit sounds, built-in drums, SoundFont drum hits) plays through the
+    // sampler, so they all get the full set. Synths get Pitch and Boost.
+    val soundPath = vm.soundPath(channel)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -150,8 +152,8 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                     }
                 }
 
-                if (isSample) {
-                    val path = channel.sample!!
+                if (soundPath != null) {
+                    val path = soundPath
                     val peaks = remember(path) { vm.samplePeaks(path, 160) }
                     val seconds = remember(path) { vm.sampleSeconds(path) }
                     val rawPeak = remember(path) { vm.samplePeak(path) }
@@ -187,6 +189,10 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                         }
                     }
 
+                }
+
+                val boostGain = vm.sampleBoostGain(channel)
+                if (soundPath != null || vm.canTranspose(channel)) {
                     Spacer(Modifier.height(10.dp))
                     Card {
                         LabeledSlider(
@@ -200,7 +206,7 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                             },
                             snapTo = 0f,
                         ) { v -> set { it.copy(pitchSemis = v.roundToInt().coerceIn(-12, 12)) } }
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (soundPath != null) Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Reverse", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                                 Text("Play the sound backwards.", fontSize = 12.sp, color = DawColors.Muted)
@@ -212,55 +218,57 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                             )
                         }
                     }
+                }
 
-                    Spacer(Modifier.height(10.dp))
-                    Card {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Boost", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, modifier = Modifier.weight(1f))
-                            val total = 20f * kotlin.math.log10(boostGain.coerceAtLeast(1e-4f))
-                            Text(
-                                if (abs(total) < 0.05f) "Off" else "%+.1f dB".format(total),
-                                fontSize = 12.sp,
-                                color = DawColors.Muted,
-                            )
-                        }
-                        Text("Makes the sound itself louder and punchier. Peaks are rounded off softly instead of clipping.", fontSize = 12.sp, color = DawColors.Muted)
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Knob(
-                                "BOOST",
-                                channel.boostDb,
-                                0f..DawViewModel.BOOST_MAX_DB,
-                                if (channel.boostDb < 0.05f) "0 dB" else "+%.1f dB".format(channel.boostDb),
-                                { vm.preview(channel) },
-                                Modifier.width(76.dp),
-                            ) { v -> set { it.copy(boostDb = if (v < 0.25f) 0f else v) } }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("Normalize", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-                                        Text("Bring the loudest peak up to full level first.", fontSize = 12.sp, color = DawColors.Muted)
-                                    }
-                                    Switch(
-                                        checked = channel.normalize,
-                                        onCheckedChange = { on ->
-                                            set { it.copy(normalize = on) }
-                                            vm.project.channels.firstOrNull { it.id == channelId }?.let { vm.preview(it) }
-                                        },
-                                        colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
-                                    )
+                Spacer(Modifier.height(10.dp))
+                Card {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Boost", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, modifier = Modifier.weight(1f))
+                        val total = 20f * kotlin.math.log10(boostGain.coerceAtLeast(1e-4f))
+                        Text(
+                            if (abs(total) < 0.05f) "Off" else "%+.1f dB".format(total),
+                            fontSize = 12.sp,
+                            color = DawColors.Muted,
+                        )
+                    }
+                    Text("Makes the sound itself louder and punchier. Peaks are rounded off softly instead of clipping.", fontSize = 12.sp, color = DawColors.Muted)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Knob(
+                            "BOOST",
+                            channel.boostDb,
+                            0f..DawViewModel.BOOST_MAX_DB,
+                            if (channel.boostDb < 0.05f) "0 dB" else "+%.1f dB".format(channel.boostDb),
+                            { vm.preview(channel) },
+                            Modifier.width(76.dp),
+                        ) { v -> set { it.copy(boostDb = if (v < 0.25f) 0f else v) } }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            if (soundPath != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Normalize", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                                    Text("Bring the loudest peak up to full level first.", fontSize = 12.sp, color = DawColors.Muted)
                                 }
-                                if (channel.boostDb > 0f || channel.normalize) {
-                                    Spacer(Modifier.height(6.dp))
-                                    Text("Reset boost", fontSize = 12.sp, color = DawColors.Accent, modifier = Modifier.pointerInput(Unit) {
-                                        detectTapGestures { set { it.copy(boostDb = 0f, normalize = false) } }
-                                    })
-                                }
+                                Switch(
+                                    checked = channel.normalize,
+                                    onCheckedChange = { on ->
+                                        set { it.copy(normalize = on) }
+                                        vm.project.channels.firstOrNull { it.id == channelId }?.let { vm.preview(it) }
+                                    },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
+                                )
+                            }
+                            if (channel.boostDb > 0f || channel.normalize) {
+                                Spacer(Modifier.height(6.dp))
+                                Text("Reset boost", fontSize = 12.sp, color = DawColors.Accent, modifier = Modifier.pointerInput(Unit) {
+                                    detectTapGestures { set { it.copy(boostDb = 0f, normalize = false) } }
+                                })
                             }
                         }
                     }
+                }
 
+                if (soundPath != null) {
                     Spacer(Modifier.height(10.dp))
                     Card {
                         Text("Envelope", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
@@ -298,7 +306,7 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                 } else {
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Trim and envelope appear when this channel plays a sound from your drum kits.",
+                        "Trim, reverse and the envelope are for one-shot sounds like drums. This instrument plays its notes with its own envelope.",
                         fontSize = 12.sp,
                         color = DawColors.Muted,
                         modifier = Modifier.padding(horizontal = 4.dp),

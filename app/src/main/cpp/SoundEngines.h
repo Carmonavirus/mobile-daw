@@ -77,6 +77,9 @@ public:
     // A SoundFont drum hit picked from a kit: every note plays [key], repitched by the note's
     // distance from [key] in semitones, like a sample. -1 plays notes as they are (whole kit).
     void setDrumKey(int slot, int key);
+    // UI thread: one hit of [key] from SoundFont [bank] preset [variant], recorded at [sampleRate]
+    // until it dies away (at most a few seconds), silent tail removed. Empty if it can't play.
+    std::vector<float> renderHit(int bank, int variant, int key, float sampleRate) const;
     // Takes ownership. Pass nullptr to clear.
     void setMultiSample(int slot, MultiSampleSet* set);
     // Plays a note on the audition slot with the given instrument (library preview).

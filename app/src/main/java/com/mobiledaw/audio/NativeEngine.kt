@@ -36,6 +36,12 @@ object NativeEngine {
     /** Slot 0..MAX_CHANNELS-1 is a channel, [AUDITION_SLOT] is the kit browser preview. */
     external fun setSample(slot: Int, frames: FloatArray?, sampleRate: Float)
 
+    /** One hit of a built-in drum (Kick/Snare/Hi-hat/Clap engine id) recorded at [sampleRate]. */
+    /** One hit of [key] from a loaded SoundFont bank's preset, recorded at [sampleRate]; null if silent. */
+    external fun renderSoundFontHit(bank: Int, variant: Int, key: Int, sampleRate: Float): FloatArray?
+
+    external fun renderBuiltInDrum(instrument: Int, sampleRate: Float): FloatArray
+
     /**
      * Offline: [frames] pitch shifted by [semis] at the same length (so the clip keeps its tempo).
      * [mode] is a [com.mobiledaw.model.ClipStretch] id. Slow on long clips: call off the main thread.

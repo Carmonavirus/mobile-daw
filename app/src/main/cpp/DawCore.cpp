@@ -356,6 +356,8 @@ Voice* Core::trigger(int channel, int pitch, float velocity, int64_t gateSamples
     if (channel < 0 || channel >= kMaxChannels) return nullptr;
     auto& pool = voices_[channel];
     const int instrument = params_[channel].instrument.load();
+    // Channel settings' Pitch transposes every instrument; samples apply it to their playback rate.
+    if (instrument != kSample) pitch = std::clamp(pitch + params_[channel].pitchSemis.load(), 0, 127);
     if (SoundEngines::handles(instrument)) {
         engines_.noteOn(channel, pitch, velocity, gateSamples);
         return nullptr;
@@ -512,7 +514,11 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
     while (r != previewWrite_.load(std::memory_order_acquire)) {
         const auto& p = previews_[r];
         if (p.hold < 0) {
-            if (p.channel >= 0 && p.channel < kMaxChannels) synths_[static_cast<size_t>(p.channel)].noteOff(p.pitch);
+            if (p.channel >= 0 && p.channel < kMaxChannels) {
+                // Same transpose the note-on got in trigger().
+                const int key = std::clamp(p.pitch + params_[p.channel].pitchSemis.load(), 0, 127);
+                synths_[static_cast<size_t>(p.channel)].noteOff(key);
+            }
         } else {
             // A held press only stays down on synth channels; everything else plays a short note.
             const bool held = p.hold > 0 && p.channel >= 0 && p.channel < kMaxChannels &&
@@ -596,8 +602,11 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         std::fill(busR_[static_cast<size_t>(b)].begin(), busR_[static_cast<size_t>(b)].begin() + frames, 0.0f);
     }
     SampleShape shapes[kMaxChannels];
+    float synthBoost[kMaxChannels];
     for (int c = 0; c < channelCount; ++c) {
         if (instruments[c] == kSample) shapes[c] = shapeFor(c);
+        // Synths and the other engines get Boost on their output (samples get it per voice).
+        synthBoost[c] = instruments[c] == kSample ? 1.0f : params_[c].boost.load();
     }
     const float master = master_.load();
     const float sr = static_cast<float>(sampleRate_);
@@ -680,6 +689,14 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
                     sum += x;
                 }
                 sumL = sumR = sum;
+            }
+            if (synthBoost[c] != 1.0f) {
+                sumL *= synthBoost[c];
+                sumR *= synthBoost[c];
+                if (synthBoost[c] > 1.0f) {
+                    sumL = boostSoftClip(sumL);
+                    sumR = boostSoftClip(sumR);
+                }
             }
             if (!audible[c]) continue;
             float l = sumL * gains[c][0];

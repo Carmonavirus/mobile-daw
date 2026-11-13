@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.4", "2026-11-13T11:50:00Z",
+            listOf(
+                "Channel settings are the same for every drum: the built-in Kick, Snare, Hi-hat and Clap and single drums from SoundFont kits now get Trim, Pitch, Reverse, Boost, Normalize and the Envelope, just like sounds from your drum kits.",
+                "Synths and instruments (Bass, Lead, Pad, Wavetable, SoundFont instruments...) now get Pitch and Boost in Channel settings too. Trim, Reverse and the Envelope stay for one-shot sounds.",
+            ),
+        ),
+        Release(
             "0.7.3", "2026-11-13T11:20:00Z",
             listOf(
                 "Pitch audio clips without changing their tempo: in the clip window (Pencil, tap a clip) pick Resample, Stretch or Vocal under Pitch.",
