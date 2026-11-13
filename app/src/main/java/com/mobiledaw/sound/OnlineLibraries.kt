@@ -92,6 +92,7 @@ private fun plain(html: String?): String =
  * Original files need the user to sign in (OAuth2); without it we save the high-quality preview.
  */
 class FreesoundClient(context: Context) {
+
     private val prefs = context.getSharedPreferences("freesound", Context.MODE_PRIVATE)
 
     var apiKey: String
@@ -211,6 +212,8 @@ class FreesoundClient(context: Context) {
     companion object {
         const val API = "https://freesound.org/apiv2"
         const val APPLY_URL = "https://freesound.org/apiv2/apply"
+        /** Freesound's own page that shows the sign-in code; the API credential must use it as its Callback URL. */
+        const val CALLBACK_URL = "https://freesound.org/home/app_permissions/permission_granted/"
     }
 }
 

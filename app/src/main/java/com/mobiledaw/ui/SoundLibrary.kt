@@ -653,7 +653,8 @@ private fun ColumnScope.FreesoundSetup(fs: FreesoundClient, onSaved: () -> Unit)
         Spacer(Modifier.height(6.dp))
         Text(
             "1. Make a free account on freesound.org.\n" +
-                "2. Open the API page below and fill in the short form (name: Mobile DAW, description: personal music app).\n" +
+                "2. Open the API page below and fill in the short form (name: Mobile DAW, description: personal music app, " +
+                "Callback URL: ${FreesoundClient.CALLBACK_URL}).\n" +
                 "3. Copy the \"Client secret / Api key\" and paste it here.",
             fontSize = 13.sp,
             color = DawColors.InkSoft,
@@ -685,10 +686,17 @@ private fun FreesoundAccount(fs: FreesoundClient, onChanged: () -> Unit) {
         TreeHeader("Freesound account", if (fs.signedIn) "Signed in" else "Key saved", expanded, level = 0) { expanded = !expanded }
         if (!expanded) return@Column
         Spacer(Modifier.height(6.dp))
+        val clipboard = LocalClipboardManager.current
         Text(
-            "Optional: sign in to save original files instead of previews. Use the Client id from the same API page.",
+            "Optional: sign in to save original files instead of previews. Use the Client id from the same API page. " +
+                "Sign-in only works if your API credential's Callback URL is set to:",
             fontSize = 12.sp, color = DawColors.Muted,
         )
+        Text(FreesoundClient.CALLBACK_URL, fontSize = 12.sp, color = DawColors.Ink)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextAction("Copy callback URL") { clipboard.setText(AnnotatedString(FreesoundClient.CALLBACK_URL)) }
+            TextAction("Edit credential") { uri.openUri(FreesoundClient.APPLY_URL) }
+        }
         TextInput("Client id", clientId) { clientId = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextAction("1. Open sign-in") {
