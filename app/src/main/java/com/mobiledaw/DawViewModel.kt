@@ -760,12 +760,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addChannel(instrument: Instrument) {
-        if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
+        if (rackFull()) return
         val id = project.nextId()
         val sameKind = project.channels.count { it.instrument == instrument }
         val name = if (sameKind == 0) instrument.label else "${instrument.label} ${sameKind + 1}"
         update { it.copy(channels = it.channels + Channel(id, name, instrument)) }
         selectedChannelId = id
+        announceAdded(name)
         if (instrument == Instrument.WAVETABLE) openSynth(id)
     }
 
@@ -1096,10 +1097,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun addSampleChannel(sound: KitLibrary.Sound) {
-        if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
+        if (rackFull()) return
         val id = project.nextId()
         update { it.copy(channels = it.channels + Channel(id, shortName(sound.name), Instrument.SAMPLE, sample = sound.path)) }
         selectedChannelId = id
+        announceAdded(sound.name)
     }
 
     /** A short channel name from a sound's filename, e.g. "808 - Christopher Spinza" -> "808". */
@@ -1203,7 +1205,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             }
             is com.mobiledaw.sound.SoundChoice.Engine -> {
                 if (channelId == null) {
-                    if (project.channels.size >= NativeEngine.MAX_CHANNELS) return
+                    if (rackFull()) return
                     val id = project.nextId()
                     update {
                         it.copy(
@@ -1214,6 +1216,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                     selectedChannelId = id
+                    announceAdded(choice.name)
                 } else {
                     // Keep the channel's own name, as with kit sounds.
                     updateChannel(channelId) {
@@ -1462,6 +1465,33 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     var pianoNotice by mutableStateOf<String?>(null)
         private set
     private var noticeJob: Job? = null
+
+    /** "Grand Piano added to the channel rack": shown for a moment after any add, on every screen. */
+    var addedNotice by mutableStateOf<String?>(null)
+        private set
+    /** False when the notice says the add didn't happen (rack full). */
+    var addedOk by mutableStateOf(true)
+        private set
+    private var addedJob: Job? = null
+
+    private fun showAddedNotice(text: String, ok: Boolean) {
+        addedNotice = text
+        addedOk = ok
+        addedJob?.cancel()
+        addedJob = viewModelScope.launch {
+            delay(2500)
+            addedNotice = null
+        }
+    }
+
+    private fun announceAdded(name: String) = showAddedNotice("$name added to the channel rack", ok = true)
+
+    /** True (and says so) when the rack has no room for another channel. */
+    private fun rackFull(): Boolean {
+        val full = project.channels.size >= NativeEngine.MAX_CHANNELS
+        if (full) showAddedNotice("The channel rack is full (${NativeEngine.MAX_CHANNELS} channels)", ok = false)
+        return full
+    }
 
     /** A short note at the bottom of the screen (keyboard shortcuts' feedback). */
     fun desktopNotice(text: String) = showPianoNotice(text)

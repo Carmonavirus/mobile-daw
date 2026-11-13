@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -44,7 +45,10 @@ import com.mobiledaw.ui.theme.DawColors
 internal fun PreviewScreen(vm: DawViewModel, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     DisposableEffect(Unit) { onDispose { vm.stopAudition() } }
     FullScreen(onDismiss) {
-        Column(Modifier.weight(1f).fillMaxWidth(), content = content)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Column(Modifier.fillMaxSize(), content = content)
+            AddedNotice(vm, Modifier.align(Alignment.BottomCenter))
+        }
         PreviewPlayerBar(vm)
     }
 }

@@ -94,7 +94,6 @@ enum class SoundSource(val title: String, val tab: String, val blurb: String) {
 @Composable
 fun SoundLibraryScreen(vm: DawViewModel, onDismiss: () -> Unit) {
     var open by remember { mutableStateOf<SoundSource?>(null) }
-    var added by remember { mutableStateOf<String?>(null) }
     PreviewScreen(vm, onDismiss = { if (open != null) open = null else onDismiss() }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (open != null) {
@@ -103,7 +102,7 @@ fun SoundLibraryScreen(vm: DawViewModel, onDismiss: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(open?.title ?: "Sound library", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                 Text(
-                    added ?: if (open == null) "Every free source in one place. Tap a sound to hear it, + adds it to the rack." else open!!.blurb,
+                    if (open == null) "Every free source in one place. Tap a sound to hear it, + adds it to the rack." else open!!.blurb,
                     fontSize = 12.sp,
                     color = DawColors.Muted,
                     maxLines = 2,
@@ -113,7 +112,6 @@ fun SoundLibraryScreen(vm: DawViewModel, onDismiss: () -> Unit) {
         }
         val pick: (SoundChoice) -> Unit = { choice ->
             vm.applyChoice(null, choice)
-            added = "Added ${choice.name} to the rack."
         }
         when (val source = open) {
             null -> LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
