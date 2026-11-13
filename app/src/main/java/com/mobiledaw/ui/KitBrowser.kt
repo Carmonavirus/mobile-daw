@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,7 +62,14 @@ private fun keywordFor(channelName: String): String? {
  * when it is null, adds the sound as a new channel.
  */
 @Composable
-fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
+fun KitPicker(
+    vm: DawViewModel,
+    replaceChannelId: Long?,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit,
+    /** When adding (not replacing): true for "+ Add drums", false for "+ Add sounds". */
+    forDrums: Boolean = true,
+) {
     val kits = remember(vm.kitsVersion) { vm.kits.kits() }
     val soundsByKit = remember(vm.kitsVersion) { kits.associateWith { vm.kits.sounds(it).groupBy { s -> s.group } } }
     val replacing = replaceChannelId?.let { id -> vm.project.channels.firstOrNull { it.id == id } }
@@ -85,6 +94,7 @@ fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> U
                 Instrument.SOUNDFONT -> SoundSource.SOUNDFONTS
                 Instrument.MACRO, Instrument.MODELED -> SoundSource.SYNTHS
                 Instrument.MULTISAMPLE -> SoundSource.SFZ
+                null -> if (forDrums) SoundSource.KITS else SoundSource.SOUNDFONTS
                 else -> SoundSource.KITS
             },
         )
@@ -93,7 +103,7 @@ fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> U
     FullScreen(onDismiss) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (replacing != null) "Sound for ${replacing.name}" else "Add a sound", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                Text(if (replacing != null) "Sound for ${replacing.name}" else if (forDrums) "Add drums" else "Add sounds", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
                 Text(
                     added ?: "Tap a sound to listen, then ${if (replacing != null) "Use" else "+"}.",
                     fontSize = 12.sp,
@@ -103,10 +113,29 @@ fun KitPicker(vm: DawViewModel, replaceChannelId: Long?, onOpenSettings: () -> U
             TextAction("Done", strong = true, onClick = onDismiss)
         }
 
+        // Adding: the app's own built-in sounds first, one tap each.
+        if (replacing == null) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("BUILT-IN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
+                Instrument.entries
+                    .filter { it.addable && it != Instrument.SAMPLE && it.isDrum == forDrums }
+                    .forEach { inst ->
+                        DawChip(inst.label, selected = false, dotColor = null) {
+                            vm.addChannel(inst)
+                            // The wavetable editor opens behind this picker, so close it.
+                            if (inst == Instrument.WAVETABLE) onDismiss() else added = "Added ${inst.label} to the rack."
+                        }
+                    }
+            }
+        }
         // Other sources (SoundFonts, synth engines, SFZ, online libraries) sit in tabs after Kits.
         SourceTabs(tab) { tab = it }
         if (tab != SoundSource.KITS) {
-            SourcePage(vm, tab, actionLabel = if (replacing != null) "Use" else "+", drumMode = replacing?.instrument?.isDrum ?: false) { choice ->
+            SourcePage(vm, tab, actionLabel = if (replacing != null) "Use" else "+", drumMode = replacing?.instrument?.isDrum ?: forDrums) { choice ->
                 vm.applyChoice(replacing?.id, choice)
                 if (replacing != null) onDismiss() else added = "Added ${choice.name} to the rack."
             }
