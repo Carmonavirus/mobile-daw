@@ -30,7 +30,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(url);
   await page.waitForFunction(() => typeof window.dawProbe === 'function', null, { timeout: 60000 });
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => JSON.parse(window.dawProbe()).textW !== undefined, null, { timeout: 30000 });
   const probe = async () => JSON.parse(await page.evaluate(() => window.dawProbe()));
   const start = await probe();
   console.log(viewport.width, 'start', JSON.stringify(start));

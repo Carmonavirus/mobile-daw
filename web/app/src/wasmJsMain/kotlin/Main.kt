@@ -46,7 +46,7 @@ private var probeText = ""
 private fun dawProbe(): String {
     val vm = probeVm ?: return "{}"
     val p = vm.project
-    return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()},$probeText}"
+    return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()}${if (probeText.isEmpty()) "" else ",$probeText"}}"
 }
 
 private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit)
