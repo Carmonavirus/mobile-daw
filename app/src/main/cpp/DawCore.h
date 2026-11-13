@@ -165,7 +165,7 @@ public:
     void setChannelInsert(int channel, int insert);
     void setInsertCount(int count) { insertCount_.store(count < 0 ? 0 : (count > fx::kMaxInserts ? fx::kMaxInserts : count)); }
     void setInsert(int index, float volume, float pan, bool mute);
-    // Puts an effect (fx::EffectType) in a slot of a mixer track's chain.
+    // Puts an effect (fx::EffectType) in a slot of a mixer track's chain; index fx::kMasterInsert is the master.
     void setInsertEffect(int index, int slot, int type, bool bypass);
     void setEffectParam(int index, int slot, int param, float value);
     // Mixer track meters (0..1).
@@ -279,10 +279,11 @@ private:
 
     SoundEngines engines_;
     // Mixer tracks and their per-block buses (audio thread).
-    std::unique_ptr<std::array<fx::Insert, fx::kMaxInserts>> inserts_;
+    // Mixer tracks, then the master's effects chain at fx::kMasterInsert.
+    std::unique_ptr<std::array<fx::Insert, fx::kMaxInserts + 1>> inserts_;
     std::atomic<int> insertCount_{0};
-    std::array<std::array<float, kBlock>, fx::kMaxInserts> busL_{};
-    std::array<std::array<float, kBlock>, fx::kMaxInserts> busR_{};
+    std::array<std::array<float, kBlock>, fx::kMaxInserts + 1> busL_{};
+    std::array<std::array<float, kBlock>, fx::kMaxInserts + 1> busR_{};
 
     // Metronome and count-in (audio thread, except the atomics).
     std::atomic<bool> metronome_{false};

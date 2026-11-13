@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobiledaw.DawViewModel
+import com.mobiledaw.model.ClipSettings
 import com.mobiledaw.model.EffectType
 import com.mobiledaw.model.EqSettings
 import com.mobiledaw.model.PitchSettings
@@ -72,6 +73,9 @@ fun EffectEditor(vm: DawViewModel, trackId: Long, effectId: Long) {
                     }
                     EffectType.PITCH -> PitchEditor(vm, trackId, effectId, vm.project, effect.pitch ?: PitchSettings()) { p ->
                         vm.updateEffect(trackId, effectId) { it.copy(pitch = p) }
+                    }
+                    EffectType.CLIP -> ClipEditor(effect.clip ?: ClipSettings()) { c ->
+                        vm.updateEffect(trackId, effectId) { it.copy(clip = c) }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
