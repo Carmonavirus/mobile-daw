@@ -166,7 +166,8 @@ private fun OptionsForm(vm: DawViewModel, error: String?) {
         )
     }
     Text(
-        "Saved to Download › Mobile DAW › ${name.ifBlank { "Untitled" }}. The metronome is never in an export.",
+        "Saved to Download › Mobile DAW › ${name.ifBlank { "Untitled" }}" +
+            (if (o.stems || o.midi) " as one .zip with every file." else ".") + " The metronome is never in an export.",
         fontSize = 12.sp,
         color = DawColors.Muted,
         modifier = Modifier.padding(top = 8.dp, bottom = 24.dp, start = 4.dp),
@@ -202,9 +203,21 @@ private fun DoneCard(vm: DawViewModel, state: ExportState.Done) {
     Spacer(Modifier.height(8.dp))
     Card {
         Text("Saved", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
-        Text(state.folder, fontSize = 13.sp, color = DawColors.Muted)
-        Spacer(Modifier.height(12.dp))
-        TextAction(if (state.all.size == 1) "Share" else "Share all (${state.all.size})", strong = true) { vm.shareExport(state.all) }
+        if (state.zip != null) {
+            Text("${state.folder}/${state.zip.name}", fontSize = 13.sp, color = DawColors.Muted)
+            Text(
+                "Everything (${state.all.size} files) is in one .zip, ${sizeLabel(state.zip.length())}.",
+                fontSize = 12.sp,
+                color = DawColors.Muted,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            TextAction("Share .zip", strong = true) { vm.shareExport(listOf(state.zip)) }
+        } else {
+            Text(state.folder, fontSize = 13.sp, color = DawColors.Muted)
+            Spacer(Modifier.height(12.dp))
+            TextAction(if (state.all.size == 1) "Share" else "Share all (${state.all.size})", strong = true) { vm.shareExport(state.all) }
+        }
     }
     if (state.mix.isNotEmpty() || state.midi != null) {
         Title("Files")

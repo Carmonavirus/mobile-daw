@@ -1845,6 +1845,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         closeChordGen(keep = true)
         clearPianoHistory()
         val loaded = store.load(name) ?: return
+        showProject(loaded)
+    }
+
+    private fun showProject(loaded: Project) {
         applyPlaying(false)
         project = loaded
         selectedPatternId = loaded.patterns.first().id
@@ -1853,8 +1857,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         store.save(loaded)
     }
 
-    fun newProject() {
-        saveNow()
+    fun isCurrentProject(name: String): Boolean = store.sameFile(name, project.name)
+
+    /**
+     * Deletes a saved project for good. Deleting the open one opens the most recent other
+     * project, or a new empty one when it was the last. Recordings and kits stay in the library.
+     */
+    fun deleteProject(name: String) {
+        if (!isCurrentProject(name)) {
+            store.delete(name)
+            return
+        }
+        // Don't let a pending save bring the deleted project back.
+        saveJob?.cancel()
+        closeChordGen(keep = false)
+        saveJob?.cancel()
+        clearPianoHistory()
+        store.delete(name)
+        val next = store.list().firstNotNullOfOrNull { store.load(it) }
+        if (next != null) showProject(next) else newProject(saveCurrent = false)
+    }
+
+    fun newProject(saveCurrent: Boolean = true) {
+        if (saveCurrent) saveNow()
         closeChordGen(keep = true)
         clearPianoHistory()
         applyPlaying(false)
@@ -2117,16 +2142,37 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                         },
                         cancelled = { exportCancel },
                     ).run()
+                    // Stems and MIDI come as many files: they go out as one .zip instead.
+                    val zip = if ((opts.stems || opts.midi) && files.size > 1) {
+                        java.io.File(dir, "$base.zip").also { out ->
+                            com.mobiledaw.export.ExportStorage.zip(
+                                files, dir, base, out,
+                                onProgress = { f ->
+                                    mainHandler.post {
+                                        if (exportState is com.mobiledaw.export.ExportState.Running) {
+                                            exportState = com.mobiledaw.export.ExportState.Running(f, "Packing everything into one .zip")
+                                        }
+                                    }
+                                },
+                                cancelled = { exportCancel },
+                            )
+                        }
+                    } else null
                     mainHandler.post { exportState = com.mobiledaw.export.ExportState.Running(1f, "Saving to Downloads") }
-                    files.forEach { f ->
-                        val sub = f.parentFile?.takeIf { it != dir }?.name
-                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
+                    if (zip != null) {
+                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, zip, base, null)
+                    } else {
+                        files.forEach { f ->
+                            val sub = f.parentFile?.takeIf { it != dir }?.name
+                            com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
+                        }
                     }
                     com.mobiledaw.export.ExportState.Done(
                         folder = com.mobiledaw.export.ExportStorage.folderLabel(ctx, base),
                         mix = files.filter { it.parentFile == dir && it.extension != "mid" },
                         stems = files.filter { it.parentFile != dir },
                         midi = files.firstOrNull { it.extension == "mid" },
+                        zip = zip,
                     )
                 }
                 exportState = done
