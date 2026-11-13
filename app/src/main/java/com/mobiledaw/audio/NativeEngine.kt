@@ -35,6 +35,12 @@ object NativeEngine {
     external fun previewNote(channel: Int, pitch: Int, velocity: Int)
     /** Slot 0..MAX_CHANNELS-1 is a channel, [AUDITION_SLOT] is the kit browser preview. */
     external fun setSample(slot: Int, frames: FloatArray?, sampleRate: Float)
+
+    /**
+     * Offline: [frames] pitch shifted by [semis] at the same length (so the clip keeps its tempo).
+     * [mode] is a [com.mobiledaw.model.ClipStretch] id. Slow on long clips: call off the main thread.
+     */
+    external fun shiftKeepLength(frames: FloatArray, sampleRate: Float, semis: Float, mode: Int): FloatArray
     external fun audition()
     external fun positionTicks(): Long
 

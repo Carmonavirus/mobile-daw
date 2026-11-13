@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "AudioEngine.h"
+#include "fx/ClipStretch.h"
 
 using daw::AudioEngine;
 using daw::NoteEvent;
@@ -98,6 +99,19 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setSample(
         env->GetFloatArrayRegion(frames, 0, len, data.data());
     }
     engine()->core().setSample(slot, std::move(data), sampleRate);
+}
+
+// Offline: `frames` pitch shifted by `semis` at the same length (fx/ClipStretch.h). Slow on long
+// clips; called off the main thread.
+JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_shiftKeepLength(
+    JNIEnv* env, jobject, jfloatArray frames, jfloat sampleRate, jfloat semis, jint mode) {
+    const jsize len = frames != nullptr ? env->GetArrayLength(frames) : 0;
+    std::vector<float> in(static_cast<size_t>(len));
+    if (len > 0) env->GetFloatArrayRegion(frames, 0, len, in.data());
+    const auto out = daw::fx::shiftKeepLength(in.data(), in.size(), sampleRate, semis, mode);
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(out.size()));
+    if (result != nullptr && !out.empty()) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(out.size()), out.data());
+    return result;
 }
 
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_seek(JNIEnv*, jobject, jlong tick) {

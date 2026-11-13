@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mobiledaw.audio.NativeEngine
 import com.mobiledaw.audio.Recorder
+import com.mobiledaw.audio.StretchCache
 import com.mobiledaw.audio.WavDecoder
 import com.mobiledaw.model.stepPitch
 import com.mobiledaw.model.KitLibrary
@@ -72,6 +73,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val sampleCache = object : LinkedHashMap<String, WavDecoder.Decoded>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WavDecoder.Decoded>?) = size > 48
     }
+
+    // Audio clips pitched with Stretch / Vocal play a rendered copy (see stretchedSample). Before
+    // init{}: syncEngine() reads these.
+    private val stretchPending = HashSet<String>()
+    private val stretchFailed = HashSet<String>()
+
+    /** Clip sounds being rendered at a new pitch right now, by [stretchKey]. */
+    var stretchingKeys by mutableStateOf(emptySet<String>())
+        private set
 
     // Declared before init {} below, which syncs the engine and needs them.
     /** SoundFonts, SFZ, synth engine presets, online libraries and credits. */
@@ -375,14 +385,21 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         audioSlots.forEach { (slot, clip) ->
             NativeEngine.setChannel(slot, Instrument.SAMPLE.id, clip.gain, 0f, clip.muted, false)
             val (trimA, trimB) = com.mobiledaw.model.ClipEdit.trimFractions(clip)
-            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, clip.pitchSemis, clip.reverse)
+            // A clip that keeps its tempo plays a copy rendered at the new pitch, at normal speed.
+            val enginePitch = if (clip.keepsTempo) 0 else clip.pitchSemis
+            NativeEngine.setChannelSampler(slot, false, trimA, trimB, 0f, 0f, 0f, 0f, 1f, 0.005f, 0f, enginePitch, clip.reverse)
             NativeEngine.setChannelBoost(slot, 1f)
             NativeEngine.setChannelClip(slot, true)
             sentPatches[slot] = null
-            if (loadedSamples[slot] != clip.path) {
-                val decoded = decodeSample(clip.path)
-                NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
-                loadedSamples[slot] = clip.path
+            val key = stretchKey(clip)
+            if (loadedSamples[slot] != key) {
+                val stretched = if (key != clip.path) stretchedSample(clip, key) else null
+                // Until the shifted copy is ready, the clip plays its original sound (in time).
+                val (decoded, loaded) = if (stretched != null) stretched to key else decodeSample(clip.path) to clip.path
+                if (loadedSamples[slot] != loaded) {
+                    NativeEngine.setSample(slot, decoded?.frames, decoded?.sampleRate ?: 0f)
+                    loadedSamples[slot] = loaded
+                }
             }
         }
         // While exporting, the engine plays the export's sequence; it gets this one back afterwards.
@@ -712,13 +729,67 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun decodeSample(path: String): WavDecoder.Decoded? =
         sampleCache[path] ?: run {
-            val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
-            val max = if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
-            WavDecoder.decode(kits.file(path), max)?.also {
+            WavDecoder.decode(kits.file(path), maxSecondsFor(path))?.also {
                 sampleCache[path] = it
                 trimSampleCache()
             }
         }
+
+    /** Which sound an audio clip's engine slot plays: its file, or a pitch-shifted copy of it. */
+    private fun stretchKey(clip: AudioClip): String =
+        if (clip.keepsTempo) "${clip.path}#stretch${clip.stretch.id}:${clip.pitchSemis}" else clip.path
+
+    /** True while the clip's new pitch is being rendered (it plays its original sound meanwhile). */
+    fun isStretching(clip: AudioClip): Boolean = stretchKey(clip) in stretchingKeys
+
+    /**
+     * The clip's sound shifted to its pitch at the same length, or null while it's being made.
+     * Rendering runs in the background (a few seconds for a long take) and is kept on disk, so it
+     * only happens once per clip and pitch; syncEngine() runs again when it's ready.
+     */
+    private fun stretchedSample(clip: AudioClip, key: String): WavDecoder.Decoded? {
+        sampleCache[key]?.let { return it }
+        if (key in stretchPending || key in stretchFailed) return null
+        stretchPending += key
+        stretchingKeys = stretchPending.toSet()
+        val src = kits.file(clip.path)
+        val semis = clip.pitchSemis
+        val mode = clip.stretch.id
+        val maxSeconds = maxSecondsFor(clip.path)
+        val cacheDir = java.io.File(getApplication<Application>().cacheDir, "stretched")
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    val file = java.io.File(cacheDir, "%08x.f32".format(
+                        "${clip.path}|${src.length()}|${src.lastModified()}|$mode|$semis".hashCode()))
+                    StretchCache.read(file) ?: WavDecoder.decode(src, maxSeconds)?.let { d ->
+                        WavDecoder.Decoded(NativeEngine.shiftKeepLength(d.frames, d.sampleRate, semis.toFloat(), mode), d.sampleRate)
+                            .also { StretchCache.write(file, it) }
+                    }
+                }.getOrNull()
+            }
+            stretchPending -= key
+            stretchingKeys = stretchPending.toSet()
+            if (result == null) {
+                stretchFailed += key
+                return@launch
+            }
+            sampleCache[key] = result
+            trimSampleCache()
+            syncEngine()
+        }
+        return null
+    }
+
+    /** Waits until every clip's new pitch has been rendered (before an export). */
+    private suspend fun awaitStretches() {
+        while (stretchPending.isNotEmpty()) delay(50)
+    }
+
+    private fun maxSecondsFor(path: String): Int {
+        val long = path.startsWith(RECORDINGS_DIR) || path.startsWith(com.mobiledaw.model.AudioImport.DIR + "/")
+        return if (long) WavDecoder.MAX_RECORDING_SECONDS else 60
+    }
 
     /**
      * Keeps decoded sounds under ~24M frames (about 100 MB of floats): a few long imported loops
@@ -1674,6 +1745,11 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         exportState = com.mobiledaw.export.ExportState.Running(0f, "Starting")
         viewModelScope.launch {
             try {
+                // Clips pitched with Stretch / Vocal must have their shifted sound ready first.
+                if (stretchPending.isNotEmpty()) {
+                    exportState = com.mobiledaw.export.ExportState.Running(0f, "Preparing pitched clips")
+                    awaitStretches()
+                }
                 val done = withContext(Dispatchers.Default) {
                     com.mobiledaw.export.ExportStorage.clearWork(ctx)
                     val dir = com.mobiledaw.export.ExportStorage.workDir(ctx)

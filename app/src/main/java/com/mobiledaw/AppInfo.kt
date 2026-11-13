@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.2", "2026-11-13T11:20:00Z",
+            listOf(
+                "Pitch audio clips without changing their tempo: in the clip window (Pencil, tap a clip) pick Resample, Stretch or Vocal under Pitch.",
+                "Stretch keeps the clip's length and timing at any pitch, for loops, beats or anything else. Vocal also keeps a singer's natural tone, so a lowered voice doesn't sound slowed down or deep.",
+                "Resample works like before (lower is slower, like a turntable). The new pitch takes a moment to make on long takes; the clip plays its original sound until then.",
+            ),
+        ),
+        Release(
             "0.7.1", "2026-11-13T10:40:00Z",
             listOf(
                 "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",
