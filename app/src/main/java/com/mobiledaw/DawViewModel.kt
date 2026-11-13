@@ -58,6 +58,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Which sample path each engine channel slot currently holds. */
     private val loadedSamples = arrayOfNulls<String>(NativeEngine.MAX_CHANNELS)
+    /** SoundFont hits we know how to record, by pseudo path: (bank, preset, key). */
+    private val soundFontHits = HashMap<String, Triple<Int, Int, Int>>()
+    private val samplePeakCache = HashMap<String, Float>()
 
     // The patch each engine slot last received, so unchanged sounds aren't resent.
     // Declared before init{} because syncEngine()/syncSynth() (run from init) reads it.
@@ -751,9 +754,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         return sounds.soundFonts.presets(source).firstOrNull { it.index == c.variant }?.isDrumKit != true
     }
 
-    /** SoundFont hits we know how to record, by pseudo path: (bank, preset, key). */
-    private val soundFontHits = HashMap<String, Triple<Int, Int, Int>>()
-
     /**
      * A single drum hit from a SoundFont kit is recorded once (when its SoundFont is loaded) and
      * then played like an imported sound. Null until the SoundFont is ready, or if the hit is silent.
@@ -871,8 +871,6 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         for (i in out.indices) out[i] /= max
         return out
     }
-
-    private val samplePeakCache = HashMap<String, Float>()
 
     /** The loudest absolute sample value in a sound (0..1+), or 0 if it can't be read. */
     fun samplePeak(path: String): Float = samplePeakCache[path] ?: run {
