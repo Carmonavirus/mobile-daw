@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.1", "2026-11-13T23:45:00Z",
+            listOf(
+                "Web app works offline: after one visit with internet, the whole app (screens, sound engine, built-in drums, synths and GeneralUser GS instruments) is kept on your device, so it opens and plays with no connection. Freesound and the other online sound libraries, and Google Drive sync, still need internet.",
+                "Add the web app to your home screen (iPhone: Share → Add to Home Screen; Android and Brave: Install app) and it opens like a normal app. Updates still arrive the next time you open it online.",
+            ),
+        ),
+        Release(
             "0.9.0", "2026-11-13T23:20:00Z",
             listOf(
                 "Piano roll: the moving soundwave above the play bar is now hidden by default, so the note grid is bigger. Tap the new Wave chip in the bottom row (next to Resume) to show it again. The app and the web app remember your choice.",
