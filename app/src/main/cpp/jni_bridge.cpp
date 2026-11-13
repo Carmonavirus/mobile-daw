@@ -91,14 +91,17 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_previewNote(
 }
 
 JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setSample(
-    JNIEnv* env, jobject, jint slot, jfloatArray frames, jfloat sampleRate) {
-    std::vector<float> data;
-    if (frames != nullptr) {
-        const jsize len = env->GetArrayLength(frames);
-        data.resize(static_cast<size_t>(len));
-        env->GetFloatArrayRegion(frames, 0, len, data.data());
-    }
-    engine()->core().setSample(slot, std::move(data), sampleRate);
+    JNIEnv* env, jobject, jint slot, jfloatArray frames, jfloatArray right, jfloat sampleRate) {
+    const auto copy = [env](jfloatArray a) {
+        std::vector<float> data;
+        if (a != nullptr) {
+            const jsize len = env->GetArrayLength(a);
+            data.resize(static_cast<size_t>(len));
+            env->GetFloatArrayRegion(a, 0, len, data.data());
+        }
+        return data;
+    };
+    engine()->core().setSample(slot, copy(frames), copy(right), sampleRate);
 }
 
 // One hit of a built-in drum (0 kick .. 3 clap) as a mono recording at `sampleRate`.

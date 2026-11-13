@@ -34,7 +34,8 @@ object NativeEngine {
     external fun setSequence(events: IntArray, loopTicks: Int)
     external fun previewNote(channel: Int, pitch: Int, velocity: Int)
     /** Slot 0..MAX_CHANNELS-1 is a channel, [AUDITION_SLOT] is the kit browser preview. */
-    external fun setSample(slot: Int, frames: FloatArray?, sampleRate: Float)
+    /** [frames] is the left (or mono) channel; [right] is null for mono sounds. */
+    external fun setSample(slot: Int, frames: FloatArray?, right: FloatArray?, sampleRate: Float)
 
     /** One hit of a built-in drum (Kick/Snare/Hi-hat/Clap engine id) recorded at [sampleRate]. */
     /** One hit of [key] from a loaded SoundFont bank's preset, recorded at [sampleRate]; null if silent. */

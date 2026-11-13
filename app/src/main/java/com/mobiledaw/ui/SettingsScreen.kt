@@ -211,8 +211,10 @@ private val GUIDE = listOf(
     ),
     "Rack" to listOf(
         "Tap a step" to "Turn it on or off.",
-        "Tap a channel's name" to "Choose its sound: Kits, Instruments (SoundFont), Synths, SFZ or online (Freesound, Commons, Archive).",
-        "+ Add sound" to "Same picker; the sound becomes a new channel.",
+        "Tap a channel's name" to "Open its channel settings: volume, pan, pitch, trim, envelope.",
+        "⇄ on a channel" to "Swap its sound: Kits, Instruments (SoundFont), Synths, SFZ or online (Freesound, Commons, Archive).",
+        "+ Add drums" to "Pick drums (built-in, your kits, drum sounds from the other tabs) as new channels.",
+        "+ Add sounds" to "Pick instruments and synths (built-in, SoundFont, Synths, SFZ, online) as new channels.",
         "Pinch the rack" to "Squeeze to see up to 4 bars at once, spread to go back to 1.",
         "Swipe anywhere in the rack" to "Next bars (swipe left) or previous bars (swipe right).",
         "⋯ on a channel" to "Rename, channel settings, change sound, fill, clear, loop, open piano roll, delete.",

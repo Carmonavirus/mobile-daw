@@ -9,6 +9,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.roundToInt
 
 /** Decodes audio files of any format Android supports (MP3, OGG, FLAC, AAC, WAV...) to mono floats. */
 object AudioFiles {
@@ -102,23 +103,33 @@ object AudioFiles {
         }
     }
 
-    /** Writes mono 16-bit PCM WAV. */
-    fun writeWav(file: File, frames: FloatArray, sampleRate: Int) {
+    /** Writes 16-bit PCM WAV: mono, or stereo when [right] is given (same length as [frames]). */
+    fun writeWav(file: File, frames: FloatArray, sampleRate: Int, right: FloatArray? = null) {
         file.parentFile?.mkdirs()
-        val data = ByteBuffer.allocate(frames.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-        for (s in frames) data.putShort((s.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
-        val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
-            put("RIFF".toByteArray()); putInt(36 + frames.size * 2); put("WAVE".toByteArray())
-            put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
-            putInt(sampleRate); putInt(sampleRate * 2); putShort(2); putShort(16)
-            put("data".toByteArray()); putInt(frames.size * 2)
+        val ch = if (right != null && right.size == frames.size) 2 else 1
+        val bytes = frames.size * 2 * ch
+        val data = ByteBuffer.allocate(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        fun put(s: Float) = data.putShort((s.coerceIn(-1f, 1f) * 32767f).roundToInt().toShort())
+        for (i in frames.indices) {
+            put(frames[i])
+            if (ch == 2) put(right!![i])
         }
+        val header = wavHeader(bytes, sampleRate, ch)
         RandomAccessFile(file, "rw").use { raf ->
             raf.setLength(0)
             raf.write(header.array())
             raf.write(data.array())
         }
     }
+
+    /** The 44-byte header of a 16-bit PCM WAV holding [dataBytes] of samples. */
+    fun wavHeader(dataBytes: Int, sampleRate: Int, channels: Int): ByteBuffer =
+        ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put("RIFF".toByteArray()); putInt(36 + dataBytes); put("WAVE".toByteArray())
+            put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(channels.toShort())
+            putInt(sampleRate); putInt(sampleRate * 2 * channels); putShort((2 * channels).toShort()); putShort(16)
+            put("data".toByteArray()); putInt(dataBytes)
+        }
 
     /** Growable float array without boxing. */
     private class FloatList {
