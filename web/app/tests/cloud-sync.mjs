@@ -43,7 +43,7 @@ const FAKE_GIS = `window.google = { accounts: { oauth2: {
 } } };`;
 
 function matches(meta, q) {
-  for (const part of q.split(' and ')) {
+  for (const part of q.split(/ and (?![^{]*\})/)) {
     const t = part.trim();
     let m;
     if ((m = t.match(/^'([^']+)' in parents$/))) { if (!(meta.parents || []).includes(m[1])) return false; }

@@ -94,7 +94,14 @@ object Vfs {
     }
 
     fun rename(from: String, to: String): Boolean {
-        if (!entries.containsKey(from) || entries.containsKey(to)) return false
+        if (!entries.containsKey(from)) return false
+        if (entries.containsKey(to)) {
+            // Like rename() on Android/Linux: a file replaces an existing file (that's how
+            // ProjectStore.save writes a project: to a .tmp file, then renamed over the old one).
+            if (!isFile(from) || !isFile(to)) return false
+            entries.remove(to)
+            vfsRemove(to)
+        }
         val moved = entries.keys.filter { it == from || it.startsWith("$from/") }
         for (k in moved) {
             val e = entries.remove(k)!!
