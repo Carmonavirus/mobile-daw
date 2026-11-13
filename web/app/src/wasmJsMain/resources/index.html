@@ -18,6 +18,23 @@
       if (!WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0]))) location.replace('classic/');
     } catch (e) { location.replace('classic/'); }
   </script>
+  <script>
+    // Fresh code after an update: the publish step stamps this page's build into BUILD and adds
+    // ?v=<build> to every script and .wasm, so a browser never mixes old and new files. If the
+    // browser kept an old copy of this page, reload once to get the new one.
+    window.DAW_PAGE_BUILD = '__BUILD__';
+    if (DAW_PAGE_BUILD.indexOf('__') !== 0) {
+      fetch('build-info.js?check=' + Date.now(), { cache: 'no-store' }).then((r) => r.text()).then((t) => {
+        const m = t.match(/version: '([^']+)'/);
+        let tried = null;
+        try { tried = sessionStorage.getItem('daw-reloaded'); } catch (e) {}
+        if (m && m[1] !== DAW_PAGE_BUILD && tried !== m[1]) {
+          try { sessionStorage.setItem('daw-reloaded', m[1]); } catch (e) {}
+          location.reload();
+        }
+      }).catch(() => {});
+    }
+  </script>
   <script src="build-info.js"></script>
   <script src="fflate.js"></script>
   <script src="platform.js"></script>
