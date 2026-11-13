@@ -57,8 +57,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * A small take on a sampler's channel settings: volume with boost, pan, cut itself, trim and a
- * fade-in / fade-out envelope. Changes apply live.
+ * A small take on a sampler's channel settings: volume, pan, cut itself, trim, pitch / reverse,
+ * Boost / Normalize and an envelope. Changes apply live.
  */
 @Composable
 fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () -> Unit, onDismiss: () -> Unit) {
@@ -154,6 +154,8 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                     val path = channel.sample!!
                     val peaks = remember(path) { vm.samplePeaks(path, 160) }
                     val seconds = remember(path) { vm.sampleSeconds(path) }
+                    val rawPeak = remember(path) { vm.samplePeak(path) }
+                    val boostGain = vm.sampleBoostGain(channel)
                     Spacer(Modifier.height(10.dp))
                     Card {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -168,6 +170,8 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                         Spacer(Modifier.height(8.dp))
                         TrimWaveform(
                             peaks = if (channel.reverse) peaks.reversedArray() else peaks,
+                            level = if (rawPeak > 0f) rawPeak * boostGain else 1f,
+                            boosted = boostGain > 1f,
                             start = channel.trimStart,
                             end = channel.trimEnd,
                             attack = if (seconds > 0) channel.attack / seconds else 0f,
@@ -206,6 +210,54 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                                 onCheckedChange = { on -> set { it.copy(reverse = on) }; vm.preview(channel) },
                                 colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
                             )
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Card {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Boost", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, modifier = Modifier.weight(1f))
+                            val total = 20f * kotlin.math.log10(boostGain.coerceAtLeast(1e-4f))
+                            Text(
+                                if (abs(total) < 0.05f) "Off" else "%+.1f dB".format(total),
+                                fontSize = 12.sp,
+                                color = DawColors.Muted,
+                            )
+                        }
+                        Text("Makes the sound itself louder and punchier. Peaks are rounded off softly instead of clipping.", fontSize = 12.sp, color = DawColors.Muted)
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Knob(
+                                "BOOST",
+                                channel.boostDb,
+                                0f..DawViewModel.BOOST_MAX_DB,
+                                if (channel.boostDb < 0.05f) "0 dB" else "+%.1f dB".format(channel.boostDb),
+                                { vm.preview(channel) },
+                                Modifier.width(76.dp),
+                            ) { v -> set { it.copy(boostDb = if (v < 0.25f) 0f else v) } }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Normalize", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+                                        Text("Bring the loudest peak up to full level first.", fontSize = 12.sp, color = DawColors.Muted)
+                                    }
+                                    Switch(
+                                        checked = channel.normalize,
+                                        onCheckedChange = { on ->
+                                            set { it.copy(normalize = on) }
+                                            vm.project.channels.firstOrNull { it.id == channelId }?.let { vm.preview(it) }
+                                        },
+                                        colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
+                                    )
+                                }
+                                if (channel.boostDb > 0f || channel.normalize) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("Reset boost", fontSize = 12.sp, color = DawColors.Accent, modifier = Modifier.pointerInput(Unit) {
+                                        detectTapGestures { set { it.copy(boostDb = 0f, normalize = false) } }
+                                    })
+                                }
+                            }
                         }
                     }
 
@@ -462,10 +514,19 @@ private fun Knob(
     }
 }
 
+private const val BOOST_KNEE = 0.8f
+
+/** Same curve as the engine's boost soft clipper (boostSoftClip in DawCore.cpp). */
+private fun softClipShown(x: Float): Float =
+    if (x <= BOOST_KNEE) x else BOOST_KNEE + (1f - BOOST_KNEE) * kotlin.math.tanh((x - BOOST_KNEE) / (1f - BOOST_KNEE))
+
 /** Waveform with draggable start/end handles; the faded regions show attack and release. */
 @Composable
 private fun TrimWaveform(
     peaks: FloatArray,
+    /** Loudest peak after Boost / Normalize (1 = full scale); bars above the soft-clip knee are tinted. */
+    level: Float = 1f,
+    boosted: Boolean = false,
     start: Float,
     end: Float,
     attack: Float,
@@ -510,8 +571,12 @@ private fun TrimWaveform(
                 var gain = 1f
                 if (inside && attack > 0f) gain = minOf(gain, (f - start) / attack)
                 if (inside && release > 0f) gain = minOf(gain, (end - f) / release)
-                val amp = (peaks[i] * 0.9f + 0.02f) * mid
-                val color = if (inside) DawColors.Note.copy(alpha = 0.35f + 0.65f * gain.coerceIn(0f, 1f)) else DawColors.LineStrong
+                val raw = peaks[i] * level
+                val shown = if (boosted) softClipShown(raw) else raw.coerceAtMost(1f)
+                val amp = (shown * 0.9f + 0.02f) * mid
+                val hot = boosted && raw > BOOST_KNEE
+                val base = if (hot) DawColors.Accent else DawColors.Note
+                val color = if (inside) base.copy(alpha = 0.35f + 0.65f * gain.coerceIn(0f, 1f)) else DawColors.LineStrong
                 drawLine(color, Offset(i * step + step / 2, mid - amp), Offset(i * step + step / 2, mid + amp), (step * 0.6f).coerceAtLeast(1f))
             }
         }
