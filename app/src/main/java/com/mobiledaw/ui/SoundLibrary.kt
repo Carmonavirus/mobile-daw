@@ -189,6 +189,9 @@ private fun LibraryRow(
     busy: Boolean = false,
     /** Small info chips under the name (length, BPM, key, loop or one-shot). */
     facts: List<String> = emptyList(),
+    /** An outlined button before the main one (online results: Save to the library only). */
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
     onPlay: () -> Unit,
     onAction: (() -> Unit)?,
 ) {
@@ -232,6 +235,19 @@ private fun LibraryRow(
         if (busy) {
             CircularProgressIndicator(Modifier.size(18.dp), color = DawColors.Ink, strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
+        }
+        if (secondaryLabel != null && onSecondary != null) {
+            Box(
+                Modifier
+                    .size(width = 58.dp, height = 34.dp)
+                    .clip(RoundedCornerShape(50))
+                    .border(1.dp, DawColors.LineStrong, RoundedCornerShape(50))
+                    .clickable(onClick = onSecondary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(secondaryLabel, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink)
+            }
+            Spacer(Modifier.width(6.dp))
         }
         if (actionLabel != null && onAction != null) {
             Box(
@@ -490,7 +506,6 @@ private fun ColumnScope.SfzPage(vm: DawViewModel, actionLabel: String, onPick: (
 
 @Composable
 private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, actionLabel: String, onPick: (SoundChoice) -> Unit) {
-    val pickAfterSave = actionLabel != "+"
     val scope = rememberCoroutineScope()
     val fs = vm.sounds.freesound
     var keyVersion by remember { mutableStateOf(0) }
@@ -555,7 +570,8 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
         }
     }
 
-    fun save(sound: OnlineSound) {
+    /** Save keeps the sound in the library; [andPick] also adds it to the rack (or the channel). */
+    fun save(sound: OnlineSound, andPick: Boolean) {
         busy.add(sound.id)
         status = "Saving ${sound.title}…"
         scope.launch {
@@ -567,8 +583,7 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
             } else {
                 status = "Saved to Drum kits → ${sound.source.label}." +
                     if (sound.license == LicenseKind.BY || sound.license == LicenseKind.BY_SA || sound.license == LicenseKind.NC) " Credit: ${sound.author} (see Credits)." else ""
-                // In the sound picker, saving also gives the sound to the channel.
-                if (pickAfterSave) onPick(SoundChoice.Sample(path, sound.title, sound.source.label))
+                if (andPick) onPick(SoundChoice.Sample(path, sound.title, sound.source.label))
             }
         }
     }
@@ -606,7 +621,7 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
             Row(Modifier.padding(16.dp)) { CircularProgressIndicator(Modifier.size(20.dp), color = DawColors.Ink, strokeWidth = 2.dp) }
         }
         error?.let { e -> item { LibraryNote(e) } }
-        soundRows(results, lastPlayed, busy, actionLabel, onPlay = ::preview, onAction = ::save)
+        soundRows(results, lastPlayed, busy, actionLabel, onPlay = ::preview, onSave = { save(it, false) }, onAction = { save(it, true) })
         items.forEach { item ->
             val open = itemFiles.containsKey(item.id)
             item(key = "ia:${item.id}") {
@@ -622,7 +637,7 @@ private fun ColumnScope.OnlinePage(vm: DawViewModel, source: SoundSource, action
                     }
                 }
             }
-            if (open) soundRows(itemFiles[item.id].orEmpty(), lastPlayed, busy, actionLabel, onPlay = ::preview, onAction = ::save)
+            if (open) soundRows(itemFiles[item.id].orEmpty(), lastPlayed, busy, actionLabel, onPlay = ::preview, onSave = { save(it, false) }, onAction = { save(it, true) })
         }
         if (results.isNotEmpty() || items.isNotEmpty()) item {
             Row(Modifier.padding(vertical = 10.dp)) { TextAction(if (searching) "Loading…" else "More results") { if (!searching) search(page + 1) } }
@@ -638,6 +653,7 @@ private fun LazyListScope.soundRows(
     busy: List<String>,
     actionLabel: String,
     onPlay: (OnlineSound) -> Unit,
+    onSave: (OnlineSound) -> Unit,
     onAction: (OnlineSound) -> Unit,
 ) {
     items(sounds, key = { "s:${it.source}:${it.id}" }) { s ->
@@ -646,7 +662,9 @@ private fun LazyListScope.soundRows(
             s.title,
             s.author,
             playing = lastPlayed == s.id,
-            actionLabel = if (actionLabel == "+") "Save" else actionLabel,
+            actionLabel = actionLabel,
+            secondaryLabel = "Save",
+            onSecondary = { onSave(s) },
             badge = s.license,
             busy = s.id in busy,
             indent = 0,

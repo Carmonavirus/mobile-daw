@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -278,13 +281,19 @@ fun DrumKitsSection(vm: DawViewModel) {
 
 @Composable
 internal fun FullScreen(onDismiss: () -> Unit, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    // The dialog window may not receive the activity's insets, so read the navigation bar height
+    // here and pad whatever the dialog itself doesn't, keeping bottom bars clear of the gesture bar.
+    val density = LocalDensity.current
+    val outerNav = WindowInsets.navigationBars.getBottom(density)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val innerNav = WindowInsets.navigationBars.getBottom(density)
         Column(
             Modifier
                 .fillMaxSize()
                 .background(DawColors.Paper)
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(bottom = with(density) { (outerNav - innerNav).coerceAtLeast(0).toDp() }),
             content = content,
         )
     }
