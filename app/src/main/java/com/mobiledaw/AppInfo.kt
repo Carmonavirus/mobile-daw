@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.8.2", "2026-11-13T19:20:00Z",
+            listOf(
+                "New projects now start empty: no demo beat, no preloaded sounds, no notes and nothing on the playlist. Tap + Add drums or + Add sounds in the Rack to begin.",
+                "The first time you open the app you get an empty project too. Your saved projects are not changed.",
+            ),
+        ),
+        Release(
             "0.8.1", "2026-11-13T16:30:00Z",
             listOf(
                 "The app now turns sideways. Tablets turn right away, like any app.",

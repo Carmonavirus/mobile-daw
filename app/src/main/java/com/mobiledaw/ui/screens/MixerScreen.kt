@@ -90,6 +90,7 @@ fun MixerScreen(vm: DawViewModel) {
         )
     }
     val noTracks: @Composable () -> Unit = { Hint("No mixer tracks. Add one to give a group of sounds its own effects.") }
+    val noChannels: @Composable () -> Unit = { Hint("No sounds yet. Add drums or sounds in the Channel rack.") }
     val channelStrip: @Composable (Int, com.mobiledaw.model.Channel) -> Unit = { index, ch ->
         Strip(
             name = ch.name,
@@ -133,6 +134,7 @@ fun MixerScreen(vm: DawViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Channels") }
+                if (p.channels.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { noChannels() }
                 gridItemsIndexed(p.channels, key = { _, c -> c.id }) { index, ch -> channelStrip(index, ch) }
             }
         }
@@ -149,6 +151,7 @@ fun MixerScreen(vm: DawViewModel) {
                 TrackCard(vm, p, track, vm.trackLevels.getOrElse(index) { 0f }, onRename = { renaming = track })
             }
             item { SectionHeader("Channels") }
+            if (p.channels.isEmpty()) item { noChannels() }
             itemsIndexed(p.channels, key = { _, c -> c.id }) { index, ch -> channelStrip(index, ch) }
         }
     }

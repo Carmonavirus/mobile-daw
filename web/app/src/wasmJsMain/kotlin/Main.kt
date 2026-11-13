@@ -49,7 +49,7 @@ private fun dawProbe(): String {
     return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()}${if (probeText.isEmpty()) "" else ",$probeText"}}"
 }
 
-private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit)
+private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit, addBeat: () -> Unit)
 
 private fun currentConfig() = Configuration(windowWidth(), windowHeight())
 
@@ -72,7 +72,11 @@ fun main() {
         ThemeStore.load(app)
         val vm = DawViewModel(app)
         probeVm = vm
-        registerProbe(::dawProbe) { vm.togglePlay() }
+        registerProbe(::dawProbe, { vm.togglePlay() }) {
+            // Tests only: new songs start empty, so put a kick on the beat to have something to hear.
+            vm.addChannel(com.mobiledaw.model.Instrument.KICK)
+            vm.selectedChannel?.let { kick -> listOf(0, 4, 8, 12).forEach { vm.toggleStep(kick, it) } }
+        }
         val config = mutableStateOf(currentConfig())
         onWindowResize { config.value = currentConfig() }
         onPageVisibility { visible -> if (visible) vm.onResume() else vm.onPause() }
