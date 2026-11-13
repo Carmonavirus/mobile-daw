@@ -90,6 +90,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                 }
 
+                // ---------------------------------------------------------------- sync
+                SectionTitle("Sync across devices")
+                SectionCard { CloudSyncSection(vm) }
+
                 // ---------------------------------------------------------------- editing
                 SectionTitle("Editing")
                 SectionCard {

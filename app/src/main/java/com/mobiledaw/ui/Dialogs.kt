@@ -97,7 +97,9 @@ fun TextAction(label: String, modifier: Modifier = Modifier, strong: Boolean = f
 @Composable
 fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(vm.project.name) }
-    var saved by remember { mutableStateOf(vm.savedProjects()) }
+    // Re-read when a Google Drive sync brings projects from another device.
+    var saved by remember(vm.cloud.revision) { mutableStateOf(vm.savedProjects()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.cloud.syncSoon(0) }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
     DawDialog(onDismiss, "Projects") {
         OutlinedTextField(

@@ -212,6 +212,7 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
         }
         MetronomeToggle(vm.metronomeOn, vm::toggleMetronome, Modifier.align(Alignment.CenterStart))
         MenuGlyph(onMenu, Modifier.align(Alignment.CenterEnd))
+        CloudStatusButton(vm, onMenu, Modifier.align(Alignment.CenterEnd).padding(end = 42.dp))
     }
 }
 
@@ -562,7 +563,8 @@ private fun SplitPanes(
  * The split line, Windows style: hover anywhere along it and the cursor turns into the
  * two-way resize arrows; press anywhere on it and drag sideways to resize. The whole height is a
  * comfortably wide touch target. The line lights up while hovered or dragged.
- * The two small arrows in the middle close the pane they point into.
+ * The two small arrows at the top close the pane they point into; they show while the mouse is
+ * over the line, or for a few seconds after a touch on it.
  */
 @Composable
 private fun DividerHandle(
@@ -576,21 +578,45 @@ private fun DividerHandle(
 ) {
     val hover = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val hovered by hover.collectIsHoveredAsState()
+    // Touch has no hover: a touch on the line shows the arrows for a few seconds instead.
+    var touchedAt by remember { mutableStateOf(0L) }
+    var touchShow by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(touchedAt) {
+        if (touchedAt != 0L) {
+            touchShow = true
+            kotlinx.coroutines.delay(3000)
+            touchShow = false
+        }
+    }
     val active = hovered || dragging
+    val showArrows = hovered || dragging || touchShow
     Box(
         modifier
             .width(width)
             .fillMaxHeight()
             .hoverable(hover)
             .ewResizeCursor()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val e = awaitPointerEvent(PointerEventPass.Initial)
+                        if (e.type == androidx.compose.ui.input.pointer.PointerEventType.Press &&
+                            e.changes.any { it.type == androidx.compose.ui.input.pointer.PointerType.Touch }
+                        ) touchedAt = e.changes.first().uptimeMillis
+                    }
+                }
+            }
             .semantics { contentDescription = "Drag to resize" },
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.TopCenter,
     ) {
         if (active) Box(Modifier.width(3.dp).fillMaxHeight().background(DawColors.Accent))
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            ArrowButton(pointsLeft = true, label = "Close $leftName", onClick = onCloseLeft)
-            Spacer(Modifier.height(8.dp))
-            ArrowButton(pointsLeft = false, label = "Close $rightName", onClick = onCloseRight)
+        // The close arrows sit at the top of the line, and only show while you're on it.
+        if (showArrows) {
+            Column(Modifier.padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                ArrowButton(pointsLeft = true, label = "Close $leftName", onClick = onCloseLeft)
+                Spacer(Modifier.height(6.dp))
+                ArrowButton(pointsLeft = false, label = "Close $rightName", onClick = onCloseRight)
+            }
         }
     }
 }

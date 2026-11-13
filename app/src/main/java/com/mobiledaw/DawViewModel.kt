@@ -341,6 +341,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     private var saveJob: Job? = null
 
+    /** Google Drive sync of projects and their sounds (see [com.mobiledaw.cloud.CloudSync]). */
+    val cloud = com.mobiledaw.cloud.CloudSync(app, store, viewModelScope).also { c ->
+        // A save of unsaved edits first, so the sync sends what's on screen.
+        c.beforeSync = { if (saveJob?.isActive == true) saveNow() }
+        c.openProjectKey = { store.key(project.name) }
+        c.onSynced = { applyCloudChanges(it) }
+        store.onChange = { c.syncSoon() }
+    }
+
     val selectedPattern: Pattern
         get() = project.pattern(selectedPatternId) ?: project.patterns.first()
 
@@ -350,6 +359,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     init {
         syncEngine()
         loadLatency()
+        cloud.syncSoon(1_000)
         viewModelScope.launch {
             var polls = 0
             while (isActive) {
@@ -393,6 +403,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (exporting) return
         NativeEngine.start()
         syncEngine()
+        cloud.visible = true
+        cloud.syncSoon(500)
     }
 
     fun onPause() {
@@ -402,6 +414,30 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (!exporting) applyPlaying(false)
         NativeEngine.stop()
         saveNow()
+        cloud.visible = false
+        cloud.syncSoon(0)
+    }
+
+    /** A sync brought new files: reload the open project if it changed, and its sounds. */
+    private fun applyCloudChanges(r: com.mobiledaw.cloud.SyncResult) {
+        var resync = false
+        if (r.newSounds) {
+            loadedSamples.fill(null)
+            resync = true
+        }
+        if (store.key(project.name) in r.changedProjects) {
+            val loaded = store.load(project.name)
+            if (loaded != null && loaded != project) {
+                saveJob?.cancel()
+                undoSnapshot = null
+                clearPianoHistory()
+                project = loaded
+                if (loaded.pattern(selectedPatternId) == null) selectedPatternId = loaded.patterns.first().id
+                if (loaded.channels.none { it.id == selectedChannelId }) selectedChannelId = loaded.channels.firstOrNull()?.id ?: 0L
+                resync = true
+            }
+        }
+        if (resync) syncEngine()
     }
 
     private var visible = true
