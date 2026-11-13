@@ -32,3 +32,13 @@ internal object Math {
     fun min(a: Int, b: Int): Int = kotlin.math.min(a, b)
     fun floorMod(a: Int, b: Int): Int = a.mod(b)
 }
+
+internal inline fun <R> synchronized(lock: Any, block: () -> R): R = block()
+@Target(AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY_GETTER, AnnotationTarget.PROPERTY_SETTER)
+internal annotation class Synchronized
+internal object Charsets {
+    val UTF_8 = java.nio.charset.Charset("UTF-8")
+    val US_ASCII = java.nio.charset.Charset("US-ASCII")
+}
+internal inline fun String.toByteArray(charset: java.nio.charset.Charset = Charsets.UTF_8): ByteArray = encodeToByteArray()
+internal val <T : Any> kotlin.reflect.KClass<T>.java: kotlin.reflect.KClass<T> get() = this

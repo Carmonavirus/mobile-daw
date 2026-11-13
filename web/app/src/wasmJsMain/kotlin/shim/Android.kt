@@ -20,8 +20,11 @@ open class Context {
         intent.data?.let { com.mobiledaw.web.Browser.open(it.key) }
     }
 
+    fun getSystemService(name: String): Any? = if (name == AUDIO_SERVICE) android.media.AudioManager() else null
+
     companion object {
         const val MODE_PRIVATE = 0
+        const val AUDIO_SERVICE = "audio"
     }
 }
 
@@ -56,6 +59,11 @@ class Intent(val action: String? = null, var data: android.net.Uri? = null) {
     val clipData: ClipData? = null
     fun addFlags(flags: Int): Intent = this
     fun putExtra(name: String, value: Any?): Intent = this
+    fun <T : Any> getParcelableExtra(name: String, cls: kotlin.reflect.KClass<T>): T? = null
+    fun <T> getParcelableExtra(name: String): T? = null
+    fun <T : Any> getParcelableArrayListExtra(name: String, cls: kotlin.reflect.KClass<T>): ArrayList<T>? = null
+    fun <T> getParcelableArrayListExtra(name: String): ArrayList<T>? = null
+    fun putParcelableArrayListExtra(name: String, value: ArrayList<*>): Intent = this
     companion object {
         const val ACTION_SEND = "android.intent.action.SEND"
         const val ACTION_SEND_MULTIPLE = "android.intent.action.SEND_MULTIPLE"

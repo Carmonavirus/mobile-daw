@@ -32,3 +32,28 @@ internal object Math {
     fun min(a: Int, b: Int): Int = kotlin.math.min(a, b)
     fun floorMod(a: Int, b: Int): Int = a.mod(b)
 }
+
+internal inline fun <R> synchronized(lock: Any, block: () -> R): R = block()
+@Target(AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY_GETTER, AnnotationTarget.PROPERTY_SETTER)
+internal annotation class Synchronized
+internal object Charsets {
+    val UTF_8 = java.nio.charset.Charset("UTF-8")
+    val US_ASCII = java.nio.charset.Charset("US-ASCII")
+}
+internal inline fun String.toByteArray(charset: java.nio.charset.Charset = Charsets.UTF_8): ByteArray = encodeToByteArray()
+
+/** android.graphics.Canvas.drawText for the EQ's labels, drawn with Skia on the web. */
+internal fun org.jetbrains.skia.Canvas.drawText(text: String, x: Float, y: Float, paint: android.graphics.Paint) {
+    val font = org.jetbrains.skia.Font(com.mobiledaw.web.WebFonts.typeface(paint.isFakeBoldText), paint.textSize)
+    val line = org.jetbrains.skia.TextLine.make(text, font)
+    val left = when (paint.textAlign) {
+        android.graphics.Paint.Align.LEFT -> x
+        android.graphics.Paint.Align.CENTER -> x - line.width / 2f
+        android.graphics.Paint.Align.RIGHT -> x - line.width
+    }
+    val p = org.jetbrains.skia.Paint().apply {
+        color = paint.color
+        isAntiAlias = paint.isAntiAlias
+    }
+    drawTextLine(line, left, y, p)
+}

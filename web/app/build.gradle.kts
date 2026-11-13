@@ -15,6 +15,8 @@ val androidOnly = listOf(
     "com/mobiledaw/PhoneTurn.kt",
     "com/mobiledaw/audio/NativeEngine.kt",
     "com/mobiledaw/audio/SynthEngine.kt",
+    "com/mobiledaw/audio/Recorder.kt",
+    "com/mobiledaw/export/ExportStorage.kt",
 )
 
 kotlin {

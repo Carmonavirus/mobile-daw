@@ -17,6 +17,12 @@ daw::Core* gCore = nullptr;
 daw::Core& core() { return *gCore; }
 }  // namespace
 
+// Shared with bridge.cpp.
+daw::Core& webCore() {
+    if (gCore == nullptr) gCore = new daw::Core();
+    return *gCore;
+}
+
 // ---- memory, for passing arrays in and out
 EXPORT void* daw_malloc(int bytes) { return std::malloc(static_cast<size_t>(bytes > 0 ? bytes : 1)); }
 EXPORT void daw_free(void* p) { std::free(p); }

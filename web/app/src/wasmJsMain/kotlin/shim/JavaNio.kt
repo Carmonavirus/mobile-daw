@@ -87,6 +87,12 @@ class ByteBuffer private constructor(private val data: ByteArray, private val of
     fun putLong(v: Long): ByteBuffer { writeN(pos, 8, v); pos += 8; return this }
     fun putFloat(v: Float): ByteBuffer = putInt(v.toBits())
     fun putFloat(i: Int, v: Float): ByteBuffer = putInt(i, v.toBits())
+    val int: Int get() = getInt()
+    val float: Float get() = getFloat()
+    val short: Short get() = getShort()
+    val long: Long get() = getLong()
+    fun asFloatBuffer(): FloatBuffer = FloatBuffer(this, pos, (lim - pos) / 4)
+    fun asShortBuffer(): ShortBuffer = ShortBuffer(this, pos, (lim - pos) / 2)
 
     companion object {
         fun allocate(n: Int) = ByteBuffer(ByteArray(n), 0, n)
@@ -94,4 +100,32 @@ class ByteBuffer private constructor(private val data: ByteArray, private val of
         fun wrap(b: ByteArray) = ByteBuffer(b, 0, b.size)
         fun wrap(b: ByteArray, off: Int, len: Int) = ByteBuffer(b, 0, b.size).position(off).limit(off + len)
     }
+}
+
+/** A view of a ByteBuffer's remaining bytes as floats (same byte order). */
+class FloatBuffer internal constructor(private val bytes: ByteBuffer, private val start: Int, private val count: Int) {
+    private var pos = 0
+    fun remaining(): Int = count - pos
+    fun hasRemaining(): Boolean = pos < count
+    fun get(): Float = bytes.getFloat(start + 4 * pos++)
+    fun get(i: Int): Float = bytes.getFloat(start + 4 * i)
+    fun get(dst: FloatArray): FloatBuffer { for (i in dst.indices) dst[i] = get(); return this }
+    fun put(v: Float): FloatBuffer { bytes.putFloat(start + 4 * pos++, v); return this }
+    fun put(src: FloatArray): FloatBuffer { for (v in src) put(v); return this }
+    fun position(): Int = pos
+    fun limit(): Int = count
+}
+
+/** A view of a ByteBuffer's remaining bytes as 16-bit values (same byte order). */
+class ShortBuffer internal constructor(private val bytes: ByteBuffer, private val start: Int, private val count: Int) {
+    private var pos = 0
+    fun remaining(): Int = count - pos
+    fun hasRemaining(): Boolean = pos < count
+    fun get(): Short = bytes.getShort(start + 2 * pos++)
+    fun get(i: Int): Short = bytes.getShort(start + 2 * i)
+    fun get(dst: ShortArray): ShortBuffer { for (i in dst.indices) dst[i] = get(); return this }
+    fun put(v: Short): ShortBuffer { bytes.putShort(start + 2 * pos++, v); return this }
+    fun put(src: ShortArray): ShortBuffer { for (v in src) put(v); return this }
+    fun position(): Int = pos
+    fun limit(): Int = count
 }

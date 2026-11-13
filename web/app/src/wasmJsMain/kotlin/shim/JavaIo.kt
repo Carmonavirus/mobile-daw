@@ -15,40 +15,44 @@ class File(path: String) : Comparable<File> {
     constructor(parent: File?, child: String) : this(if (parent == null) child else Vfs.join(parent.path, child))
     constructor(parent: String?, child: String) : this(if (parent == null) child else Vfs.join(parent, child))
 
-    val path: String = Vfs.normalize(path)
+    /** As given: relative paths stay relative (resolved against "/", the app's working folder). */
+    val path: String = Vfs.normalize(path).let { if (path.startsWith("/")) it else it.removePrefix("/") }
+    private val abs: String get() = if (path.startsWith("/")) path else "/$path"
+    val invariantSeparatorsPath: String get() = path
+    val isAbsolute: Boolean get() = path.startsWith("/")
     val name: String get() = path.substringAfterLast('/')
     val extension: String get() = name.substringAfterLast('.', "")
     val nameWithoutExtension: String get() = name.substringBeforeLast('.')
-    val parent: String? get() = if (path.contains('/')) path.substringBeforeLast('/').ifEmpty { "/" } else null
+    val parent: String? get() = if (path.contains('/') && path != "/") path.substringBeforeLast('/').ifEmpty { "/" } else null
     val parentFile: File? get() = parent?.let { File(it) }
-    val absolutePath: String get() = path
-    val absoluteFile: File get() = this
-    val canonicalPath: String get() = path
-    val canonicalFile: File get() = this
+    val absolutePath: String get() = abs
+    val absoluteFile: File get() = File(abs)
+    val canonicalPath: String get() = abs
+    val canonicalFile: File get() = File(abs)
 
-    fun exists(): Boolean = Vfs.exists(path)
-    val isDirectory: Boolean get() = Vfs.isDir(path)
-    val isFile: Boolean get() = Vfs.isFile(path)
+    fun exists(): Boolean = Vfs.exists(abs)
+    val isDirectory: Boolean get() = Vfs.isDir(abs)
+    val isFile: Boolean get() = Vfs.isFile(abs)
     fun isDirectory(): Boolean = isDirectory
-    fun length(): Long = Vfs.size(path)
-    fun lastModified(): Long = Vfs.modified(path)
-    fun setLastModified(time: Long): Boolean = Vfs.touch(path, time)
-    fun mkdirs(): Boolean = Vfs.mkdirs(path)
-    fun mkdir(): Boolean = Vfs.mkdirs(path)
-    fun createNewFile(): Boolean = if (exists()) false else { Vfs.write(path, ByteArray(0)); true }
-    fun delete(): Boolean = Vfs.delete(path, recursive = false)
-    fun deleteRecursively(): Boolean = Vfs.delete(path, recursive = true)
-    fun renameTo(dest: File): Boolean = Vfs.rename(path, dest.path)
-    fun list(): Array<String>? = if (isDirectory) Vfs.children(path).map { it.substringAfterLast('/') }.toTypedArray() else null
-    fun listFiles(): Array<File>? = if (isDirectory) Vfs.children(path).map { File(it) }.toTypedArray() else null
+    fun length(): Long = Vfs.size(abs)
+    fun lastModified(): Long = Vfs.modified(abs)
+    fun setLastModified(time: Long): Boolean = Vfs.touch(abs, time)
+    fun mkdirs(): Boolean = Vfs.mkdirs(abs)
+    fun mkdir(): Boolean = Vfs.mkdirs(abs)
+    fun createNewFile(): Boolean = if (exists()) false else { Vfs.write(abs, ByteArray(0)); true }
+    fun delete(): Boolean = Vfs.delete(abs, recursive = false)
+    fun deleteRecursively(): Boolean = Vfs.delete(abs, recursive = true)
+    fun renameTo(dest: File): Boolean = Vfs.rename(abs, dest.abs)
+    fun list(): Array<String>? = if (isDirectory) Vfs.children(abs).map { it.substringAfterLast('/') }.toTypedArray() else null
+    fun listFiles(): Array<File>? = if (isDirectory) Vfs.children(abs).map { File(it) }.toTypedArray() else null
     fun listFiles(filter: (File) -> Boolean): Array<File>? = listFiles()?.filter(filter)?.toTypedArray()
     fun listFiles(filter: FileFilter): Array<File>? = listFiles()?.filter { filter.accept(it) }?.toTypedArray()
 
-    fun readBytes(): ByteArray = Vfs.read(path) ?: throw FileNotFoundException(path)
+    fun readBytes(): ByteArray = Vfs.read(abs) ?: throw FileNotFoundException(path)
     fun readText(): String = readBytes().decodeToString()
-    fun writeBytes(bytes: ByteArray) = Vfs.write(path, bytes.copyOf())
-    fun writeText(text: String) = Vfs.write(path, text.encodeToByteArray())
-    fun appendBytes(bytes: ByteArray) = Vfs.write(path, (Vfs.read(path) ?: ByteArray(0)) + bytes)
+    fun writeBytes(bytes: ByteArray) = Vfs.write(abs, bytes.copyOf())
+    fun writeText(text: String) = Vfs.write(abs, text.encodeToByteArray())
+    fun appendBytes(bytes: ByteArray) = Vfs.write(abs, (Vfs.read(abs) ?: ByteArray(0)) + bytes)
     fun readLines(): List<String> = readText().lines()
     fun inputStream(): InputStream = FileInputStream(this)
     fun outputStream(): FileOutputStream = FileOutputStream(this)
@@ -69,7 +73,7 @@ class File(path: String) : Comparable<File> {
 
     fun relativeTo(base: File): File = File(toRelativeString(base))
     fun toRelativeString(base: File): String =
-        if (path == base.path) "" else if (path.startsWith(base.path + "/")) path.removePrefix(base.path + "/") else path
+        if (abs == base.abs) "" else if (abs.startsWith(base.abs.trimEnd('/') + "/")) abs.removePrefix(base.abs.trimEnd('/') + "/") else path
 
     fun resolve(relative: String): File = File(this, relative)
     fun walkTopDown(): Sequence<File> = sequence {
@@ -83,6 +87,12 @@ class File(path: String) : Comparable<File> {
     override fun equals(other: Any?): Boolean = other is File && other.path == path
     override fun hashCode(): Int = path.hashCode()
     override fun toString(): String = path
+
+    companion object {
+        const val separator = "/"
+        const val separatorChar = '/'
+        const val pathSeparator = ":"
+    }
 }
 
 fun interface FileFilter { fun accept(f: File): Boolean }
@@ -186,8 +196,8 @@ class FileOutputStream(private val file: File, private val append: Boolean = fal
     constructor(path: String) : this(File(path))
     private var closed = false
     override fun flush() {
-        val prev = if (append) Vfs.read(file.path) ?: ByteArray(0) else ByteArray(0)
-        Vfs.write(file.path, prev + toByteArray())
+        val prev = if (append) Vfs.read(file.absolutePath) ?: ByteArray(0) else ByteArray(0)
+        Vfs.write(file.absolutePath, prev + toByteArray())
     }
     override fun close() {
         if (closed) return
@@ -211,7 +221,7 @@ class BufferedInputStream(private val inp: InputStream, size: Int = 8192) : Inpu
 
 /** Random access over a file's bytes; written back when closed. */
 class RandomAccessFile(private val file: File, mode: String) : Closeable {
-    private var data: ByteArray = Vfs.read(file.path) ?: if (mode.contains('w')) ByteArray(0) else throw FileNotFoundException(file.path)
+    private var data: ByteArray = Vfs.read(file.absolutePath) ?: if (mode.contains('w')) ByteArray(0) else throw FileNotFoundException(file.absolutePath)
     private var size = data.size
     private var pos = 0L
     private val writable = mode.contains('w')
@@ -246,6 +256,6 @@ class RandomAccessFile(private val file: File, mode: String) : Closeable {
     }
     fun readFully(b: ByteArray) { read(b, 0, b.size) }
     override fun close() {
-        if (writable) Vfs.write(file.path, data.copyOf(size))
+        if (writable) Vfs.write(file.absolutePath, data.copyOf(size))
     }
 }
