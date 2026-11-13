@@ -99,4 +99,36 @@ object ClipEdit {
         val b = ((clip.offset + clip.seconds) / src).coerceIn(a, 1f)
         return a to b
     }
+
+    /**
+     * Slides the sound inside an audio clip by [ms] (positive = later, negative = earlier) while
+     * the clip stays put on the grid: it plays from a different point of the file. Used to line
+     * a recording up by ear. If the file has nothing left before the clip (nothing to slide in),
+     * the rest of a "later" move shifts the clip itself. [AudioClip.timingMs] keeps the total.
+     */
+    fun shiftTiming(clip: AudioClip, ms: Int, bpm: Int): AudioClip {
+        if (ms == 0) return clip
+        val src = clip.sourceSeconds
+        val d = ms / 1000f * clip.rate // seconds of the file
+        var seconds = clip.seconds
+        var moveSeconds = 0f // left over for moving the clip later, in file seconds
+        val offset: Float
+        if (!clip.reverse) {
+            var o = clip.offset - d
+            if (o < 0f) { moveSeconds = -o; o = 0f }
+            if (o > src - MIN_AUDIO_SECONDS) o = src - MIN_AUDIO_SECONDS
+            seconds = seconds.coerceAtMost(src - o).coerceAtLeast(MIN_AUDIO_SECONDS)
+            offset = o
+        } else {
+            // Reversed, the clip starts at the window's end: a later sound means a later window end.
+            var end = clip.offset + clip.seconds + d
+            if (end > src) { moveSeconds = end - src; end = src }
+            end = end.coerceAtLeast(MIN_AUDIO_SECONDS)
+            val start = (end - seconds).coerceAtLeast(0f)
+            seconds = end - start
+            offset = start
+        }
+        val moveTicks = if (moveSeconds > 0f) (moveSeconds / clip.rate * bpm.coerceAtLeast(1) / 60f * TICKS_PER_BEAT).toInt() else 0
+        return clip.copy(offset = offset, seconds = seconds, fileSeconds = src, startTick = clip.startTick + moveTicks, timingMs = clip.timingMs + ms)
+    }
 }

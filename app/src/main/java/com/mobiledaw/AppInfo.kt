@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.7.1", "2026-11-13T10:40:00Z",
+            listOf(
+                "Recording timing: tap a recording on the playlist and use Timing (− / + for 5 ms, « / » for 25 ms) to slide your voice earlier or later until it sits on the beat. The clip stays where it is.",
+                "Use for new takes (in that window) saves the fix for your earbuds, so the next takes land right. Also in Settings → Audio sync → Recording timing.",
+                "Takes keep the count-in audio hidden before them, so they can be slid later as well as earlier.",
+            ),
+        ),
+        Release(
             "0.7", "2026-11-13T04:00:00Z",
             listOf(
                 "Export: Settings → Export (or tap the song name → Export). Pick Song (the whole playlist) or Pattern, then any of WAV (16/24-bit), MP3 (128/192/320 kbps), Stems and MIDI.",

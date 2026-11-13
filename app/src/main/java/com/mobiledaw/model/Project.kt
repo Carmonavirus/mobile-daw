@@ -158,6 +158,12 @@ data class AudioClip(
     /** Clip volume, 0..2 (1 = as recorded). */
     val gain: Float = 1f,
     val muted: Boolean = false,
+    /** Total "Timing" nudge applied in the clip window, in ms (positive = later). For display. */
+    val timingMs: Int = 0,
+    /** For recordings: the output's recording timing (ms) in effect when this take was made. */
+    val takeTimingMs: Int = 0,
+    /** True for mic recordings made in the app (they keep the count-in before [offset]). */
+    val recorded: Boolean = false,
 ) {
     /** Playback speed from the pitch change. */
     val rate: Float get() = 2.0.pow(pitchSemis / 12.0).toFloat()
