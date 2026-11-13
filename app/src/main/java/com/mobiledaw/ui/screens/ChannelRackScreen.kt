@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
 import com.mobiledaw.PlayMode
@@ -101,6 +102,17 @@ fun ChannelRackScreen(vm: DawViewModel) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (vm.project.channels.isEmpty()) {
+                item {
+                    Text(
+                        "No sounds yet. Tap Add drums or Add sounds to start.",
+                        fontSize = 13.sp,
+                        color = DawColors.Muted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 4.dp),
+                    )
+                }
+            }
             items(vm.project.channels, key = { it.id }) { channel ->
                 val index = vm.project.channels.indexOf(channel)
                 ChannelRow(

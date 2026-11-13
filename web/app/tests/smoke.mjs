@@ -1,5 +1,5 @@
 // Smoke test of the built web app (build/dist/wasmJs/productionExecutable): it starts, loads the
-// APK's first song, plays sound through the engine, saves the song, and survives random taps.
+// APK's first (empty) song, adds a kick, plays sound through the engine, saves the song, and survives random taps.
 // Usage: node tests/smoke.mjs <dist folder>
 import http from 'node:http';
 import fs from 'node:fs';
@@ -43,7 +43,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   const probe = async () => JSON.parse(await page.evaluate(() => window.dawProbe()));
   const start = await probe();
   console.log(viewport.width, 'start', JSON.stringify(start));
-  if (start.channels < 1) fail('no channels in the first song');
+  // A first visit opens an empty song; add a kick pattern so there is something to play.
+  if (start.channels !== 0) fail('the first song should start empty, it has ' + start.channels + ' channels');
+  await page.evaluate(() => window.dawAddBeat());
+  if ((await probe()).channels !== 1) fail('adding a sound did not work');
   if (!(start.textW > 0)) fail('text does not render (no font)');
   await page.mouse.click(viewport.width / 2, viewport.height / 2);
   await page.evaluate(() => window.dawTogglePlay());

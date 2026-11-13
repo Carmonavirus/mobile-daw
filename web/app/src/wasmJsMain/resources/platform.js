@@ -474,4 +474,4 @@ function hideSplash() { const s = document.getElementById('splash'); if (s) s.re
 function showStartError(msg) { const s = document.getElementById('splash'); if (s) s.textContent = msg; }
 
 /** Test hooks (see web/app/tests). */
-function registerProbe(probe, togglePlay) { window.dawProbe = probe; window.dawTogglePlay = togglePlay; }
+function registerProbe(probe, togglePlay, addBeat) { window.dawProbe = probe; window.dawTogglePlay = togglePlay; window.dawAddBeat = addBeat; }

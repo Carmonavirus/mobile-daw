@@ -2083,7 +2083,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val p = DemoProject.empty(store.uniqueName("New project"))
         project = p
         selectedPatternId = p.patterns.first().id
-        selectedChannelId = p.channels.first().id
+        selectedChannelId = p.channels.firstOrNull()?.id ?: 0L
         mode = PlayMode.PATTERN
         syncEngine()
         store.save(p)

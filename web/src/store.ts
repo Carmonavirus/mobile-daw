@@ -205,7 +205,7 @@ export async function deleteProjectByName(name: string) {
   if (name === project.value.name) {
     const list = await storage.listProjects();
     if (list.length) await openByName(list[0].name);
-    else await openProject(demoProject(await storage.uniqueName('First beat')));
+    else await openProject(demoProject(await storage.uniqueName('New song')));
   }
 }
 

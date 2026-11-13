@@ -310,46 +310,17 @@ const MINOR = [0, 2, 3, 5, 7, 8, 10];
 export const inScale = (pitch: number, key: number, minor: boolean) => (minor ? MINOR : MAJOR).includes(mod12(pitch - key));
 export const keyLabel = (p: Project) => NOTE_NAMES[mod12(p.key)] + (p.minor ? 'm' : '');
 
-/** The project a first visit opens with: same short beat as the Android app's DemoProject. */
-export function demoProject(name = 'First beat'): Project {
-  const S = TICKS_PER_STEP;
-  const B = TICKS_PER_BAR;
-  const channels = [
-    defaultChannel(1, 'Kick', 'KICK', { volume: 0.9 }),
-    defaultChannel(2, 'Snare', 'SNARE', { volume: 0.75 }),
-    defaultChannel(3, 'Hat', 'HAT', { volume: 0.6, pan: 0.2 }),
-    defaultChannel(4, 'Clap', 'CLAP', { volume: 0.6, pan: -0.15 }),
-    defaultChannel(5, 'Bass', 'BASS', { volume: 0.8 }),
-    defaultChannel(6, 'Lead', 'LEAD', { volume: 0.55 }),
-  ];
-  const steps = (...s: number[]) => s.map((i) => ({ start: i * S, length: S, pitch: 60, velocity: 100 }));
-  const drums: Pattern = {
-    id: 7, name: 'Drums', bars: 1,
-    notes: { 1: steps(0, 7, 10), 2: steps(4, 12), 3: steps(0, 2, 4, 6, 8, 10, 12, 14, 15), 4: steps(12) },
-  };
-  const bass = [36, 32, 39, 34].flatMap((root, bar) => [
-    { start: bar * B, length: S * 6, pitch: root, velocity: 100 },
-    { start: bar * B + S * 8, length: S * 4, pitch: root, velocity: 100 },
-    { start: bar * B + S * 14, length: S * 2, pitch: root + 12, velocity: 100 },
-  ]);
-  const lead = [[0, 72], [6, 75], [12, 79], [16, 77], [22, 75], [28, 72], [32, 75], [38, 79], [44, 82], [48, 79], [54, 77], [60, 74]]
-    .map(([step, pitch]) => ({ start: step * S, length: S * 5, pitch, velocity: 100 }));
-  const melody: Pattern = { id: 8, name: 'Melody', bars: 4, notes: { 5: bass, 6: lead } };
-  const clip = (lane: number, bar: number, patternId: number): Clip => ({ lane, bar, patternId, nudge: 0, trim: 0, length: 0, muted: false });
-  const clips = [...Array.from({ length: 8 }, (_, i) => clip(0, i, 7)), clip(1, 0, 8), clip(1, 4, 8)];
-  return normalizeProject({ name, bpm: 140, key: 0, minor: true, channels, patterns: [drums, melody], clips });
+/** The project a first visit opens with: empty, same as the Android app's DemoProject. */
+export function demoProject(name = 'New song'): Project {
+  return emptyProject(name);
 }
 
+/** A new song: no sounds, no notes, no playlist clips, just one blank pattern. */
 export function emptyProject(name: string): Project {
   return normalizeProject({
     name,
-    channels: [
-      defaultChannel(1, 'Kick', 'KICK', { volume: 0.9 }),
-      defaultChannel(2, 'Snare', 'SNARE', { volume: 0.75 }),
-      defaultChannel(3, 'Hat', 'HAT', { volume: 0.6 }),
-      defaultChannel(4, 'Lead', 'LEAD', { volume: 0.55 }),
-    ],
-    patterns: [{ id: 5, name: 'Pattern 1', bars: 1, notes: {} }],
+    channels: [],
+    patterns: [{ id: 1, name: 'Pattern 1', bars: 1, notes: {} }],
     clips: [],
   });
 }

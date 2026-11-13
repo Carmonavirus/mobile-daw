@@ -53,6 +53,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.mobiledaw.DawViewModel
 import com.mobiledaw.model.stepPitch
@@ -100,7 +101,17 @@ fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
             }
         }
 
-        if (channel == null) return@Column
+        if (channel == null) {
+            Text(
+                if (vm.project.channels.isEmpty()) "No sounds yet. Add drums or sounds in the Channel rack, then draw notes here."
+                else "Pick a sound above to draw its notes.",
+                fontSize = 13.sp,
+                color = DawColors.Muted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
+            )
+            return@Column
+        }
 
         // clipToBounds stops any note/label drawing from spilling up over the track chips.
         Box(Modifier.weight(1f).fillMaxWidth()) {
