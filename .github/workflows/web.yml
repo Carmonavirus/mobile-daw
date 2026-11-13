@@ -3,19 +3,33 @@ name: Web app
 # Builds the browser version: the APK's own Kotlin/Compose screens compiled to WebAssembly
 # (web/app) on top of the app's C++ audio engine compiled to WebAssembly (web/engine). The older
 # Preact version (web/src) is published under classic/ for browsers without WebAssembly GC.
-# Pushes to the install branch publish it to GitHub Pages (gh-pages branch).
+# Pushes to the install branch publish it to GitHub Pages (gh-pages branch), on their own: this
+# never waits for the APK build. Runs on every push so the web-build check always reports; the
+# changes job skips it (counts as passed) when nothing the web app uses changed.
 on:
   push:
-    paths:
-      - 'web/**'
-      - 'app/src/main/cpp/**'
-      - 'app/src/main/assets/**'
-      - 'app/src/main/java/**'
-      - '.github/workflows/web.yml'
   workflow_dispatch:
 
 jobs:
+  # Works out whether this push touches the APK, the web app, or both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.diff.outputs.apk }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/changed-areas.sh
+
   build:
+    name: web-build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
