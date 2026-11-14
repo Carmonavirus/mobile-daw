@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.3", "2026-11-14T00:10:00Z",
+            listOf(
+                "New Key Detector effect: in the Mixer, tap + Add effect → Key Detector on any track (or the Master for the whole song). Play your song or a sample and it shows the key it hears, like \"A minor\", with how sure it is, updating live.",
+                "Tap \"Use as song key\" to make it the project's key; Pitch Correct and the piano roll's key shading follow it. \"Notes heard\" shows which notes came up most, and you can choose how far back it listens (last 5 s, last 20 s or everything) or start over.",
+            ),
+        ),
+        Release(
             "0.9.2", "2026-11-13T23:50:00Z",
             listOf(
                 "Share projects with friends: Projects → Share packs a project and every sound it uses (imported loops, recordings, kit samples, SoundFonts, SFZ) into one .zip. Send it from the share sheet or save it to Download/Mobile DAW/Shared projects.",

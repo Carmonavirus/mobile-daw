@@ -77,6 +77,9 @@ fun EffectEditor(vm: DawViewModel, trackId: Long, effectId: Long) {
                     EffectType.CLIP -> ClipEditor(effect.clip ?: ClipSettings()) { c ->
                         vm.updateEffect(trackId, effectId) { it.copy(clip = c) }
                     }
+                    EffectType.KEY -> KeyEditor(vm, trackId, effectId, effect.key ?: com.mobiledaw.model.KeySettings(), effect.bypass) { k ->
+                        vm.updateEffect(trackId, effectId) { it.copy(key = k) }
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
             }

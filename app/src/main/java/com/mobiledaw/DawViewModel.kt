@@ -2633,6 +2633,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             EffectType.EQ -> Effect(id, type, eq = EqSettings.flat())
             EffectType.PITCH -> Effect(id, type, pitch = PitchSettings())
             EffectType.CLIP -> Effect(id, type, clip = ClipSettings())
+            EffectType.KEY -> Effect(id, type, key = com.mobiledaw.model.KeySettings())
         }
         updateMixerTrack(trackId) { it.copy(effects = it.effects + fx) }
         openEffect = trackId to id
@@ -2676,6 +2677,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val i = fxIndex(trackId)
         val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
         if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readPitch(i, slot, out) else out.fill(0f)
+    }
+
+    /** Live Key Detector readout (see [com.mobiledaw.model.KeyReading]). */
+    fun readKey(trackId: Long, effectId: Long, out: FloatArray) {
+        val i = fxIndex(trackId)
+        val slot = project.mixerTrack(trackId)?.effects?.indexOfFirst { it.id == effectId } ?: -1
+        if (i >= 0 && slot in 0 until NativeEngine.MAX_SLOTS) NativeEngine.readKey(i, slot, out) else {
+            out.fill(0f)
+            out[0] = -1f
+            out[2] = -1f
+        }
     }
 
     // ---------------------------------------------------------------- export

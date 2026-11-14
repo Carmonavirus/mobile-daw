@@ -110,6 +110,8 @@ object NativeEngine {
     external fun readInsertSignal(index: Int, out: FloatArray)
     /** out[0] = detected Hz, out[1] = corrected Hz; 0 when nothing is sung. */
     external fun readPitch(index: Int, slot: Int, out: FloatArray)
+    /** Key Detector readout, 18 floats: see fx::KeyReadout in app/src/main/cpp/fx/KeyDetector.h. */
+    external fun readKey(index: Int, slot: Int, out: FloatArray)
 
     // ---- export (see app/src/main/cpp/export_jni.cpp)
 

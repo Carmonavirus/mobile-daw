@@ -19,6 +19,7 @@ enum class EffectType(val id: Int, val label: String, val blurb: String) {
     EQ(1, "Parametric EQ", "Shape the tone with up to 8 bands"),
     PITCH(2, "Pitch Correct", "Pull the voice to the notes of a key"),
     CLIP(3, "Soft Clipper", "Drive it in and round off the peaks"),
+    KEY(4, "Key Detector", "Listens and tells you which key the sound is in"),
 }
 
 /** Band shapes. The id must match fx::BandType in app/src/main/cpp/fx/ParametricEq.h. */
@@ -192,6 +193,51 @@ data class ClipSettings(
     }
 }
 
+/** How much of the past the Key Detector listens to. */
+enum class KeyMemory(val label: String, val seconds: Float) {
+    SHORT("Last 5 s", 5f),
+    MEDIUM("Last 20 s", 20f),
+    ALL("Everything", 0f),
+}
+
+/** Key Detector settings. Matches fx::KeyParam in app/src/main/cpp/fx/KeyDetector.h. */
+@Serializable
+data class KeySettings(
+    val memory: KeyMemory = KeyMemory.MEDIUM,
+    /** Bumped by "Start over"; any change makes the detector forget what it heard. */
+    val restarts: Int = 0,
+) {
+    fun toParams() = floatArrayOf(restarts.toFloat(), memory.seconds)
+}
+
+/** A key as the engine numbers it: 0..11 = C..B major, 12..23 = C..B minor. */
+data class DetectedKey(val root: Int, val minor: Boolean) {
+    val label: String get() = NOTE_NAMES[root] + if (minor) " minor" else " major"
+
+    /** The major/minor key with the same notes (A minor <-> C major). */
+    val relative: DetectedKey get() = if (minor) DetectedKey((root + 3) % 12, false) else DetectedKey((root + 9) % 12, true)
+
+    /** Pitch classes of the key's scale. */
+    val notes: Set<Int> get() = (if (minor) PitchScale.MINOR else PitchScale.MAJOR).steps.map { (it + root) % 12 }.toSet()
+
+    companion object {
+        fun of(index: Int): DetectedKey? = if (index in 0 until 24) DetectedKey(index % 12, index >= 12) else null
+    }
+}
+
+/** Live Key Detector readout; see fx::KeyReadout. */
+class KeyReading(raw: FloatArray) {
+    val key: DetectedKey? = DetectedKey.of(raw.getOrElse(0) { -1f }.toInt())
+    val confidence: Float = raw.getOrElse(1) { 0f }
+    val second: DetectedKey? = DetectedKey.of(raw.getOrElse(2) { -1f }.toInt())
+    val heardSeconds: Float = raw.getOrElse(5) { 0f }
+    val chroma: FloatArray = FloatArray(12) { raw.getOrElse(6 + it) { 0f } }
+
+    companion object {
+        const val SIZE = 18
+    }
+}
+
 @Serializable
 data class Effect(
     val id: Long,
@@ -200,11 +246,13 @@ data class Effect(
     val eq: EqSettings? = null,
     val pitch: PitchSettings? = null,
     val clip: ClipSettings? = null,
+    val key: KeySettings? = null,
 ) {
     fun params(project: Project): FloatArray = when (type) {
         EffectType.EQ -> (eq ?: EqSettings.flat()).toParams()
         EffectType.PITCH -> (pitch ?: PitchSettings()).toParams(project)
         EffectType.CLIP -> (clip ?: ClipSettings()).toParams()
+        EffectType.KEY -> (key ?: KeySettings()).toParams()
     }
 }
 

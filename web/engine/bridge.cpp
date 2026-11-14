@@ -189,6 +189,11 @@ EXPORT void ne_readPitch(int index, int slot, float* out, int len) {
     core().readPitch(index, slot, tmp);
     for (int i = 0; i < len && i < 2; ++i) out[i] = tmp[i];
 }
+EXPORT void ne_readKey(int index, int slot, float* out, int len) {
+    float tmp[daw::fx::kKeyOutCount];
+    core().readKey(index, slot, tmp);
+    for (int i = 0; i < len && i < daw::fx::kKeyOutCount; ++i) out[i] = tmp[i];
+}
 
 // ---- export: offline rendering on this instance (the page's own copy of the engine)
 EXPORT int ne_offlineBegin() { return core().sampleRate(); }

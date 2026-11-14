@@ -12,7 +12,7 @@ class DawProcessor extends AudioWorkletProcessor {
     this.e = null;
     this.queue = [];
     this.count = 0;
-    this.want = { scope: 0, signal: null, pitch: null };
+    this.want = { scope: 0, signal: null, pitch: null, key: null };
     this.port.onmessage = (ev) => (this.e ? this.handle(ev.data) : this.queue.push(ev.data));
     this.init(options.processorOptions.wasm).catch((err) => this.port.postMessage({ t: 'error', message: String(err) }));
   }
@@ -106,6 +106,10 @@ class DawProcessor extends AudioWorkletProcessor {
       if (w.pitch) {
         e.ne_readPitch(w.pitch.index, w.pitch.slot, this.scratch, 2);
         s.pitch = { index: w.pitch.index, slot: w.pitch.slot, data: this.floats(this.scratch, 2) };
+      }
+      if (w.key) {
+        e.ne_readKey(w.key.index, w.key.slot, this.scratch, 18);
+        s.key = { index: w.key.index, slot: w.key.slot, data: this.floats(this.scratch, 18) };
       }
       this.port.postMessage(s);
     }

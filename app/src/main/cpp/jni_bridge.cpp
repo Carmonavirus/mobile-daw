@@ -1,6 +1,7 @@
 // JNI entry points for com.mobiledaw.audio.NativeEngine.
 #include <jni.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -231,6 +232,13 @@ JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readPitch(JNIEnv* e
     float tmp[2];
     engine()->core().readPitch(index, slot, tmp);
     if (env->GetArrayLength(out) >= 2) env->SetFloatArrayRegion(out, 0, 2, tmp);
+}
+
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_readKey(JNIEnv* env, jobject, jint index, jint slot, jfloatArray out) {
+    float tmp[daw::fx::kKeyOutCount];
+    engine()->core().readKey(index, slot, tmp);
+    const jsize n = std::min<jsize>(env->GetArrayLength(out), daw::fx::kKeyOutCount);
+    env->SetFloatArrayRegion(out, 0, n, tmp);
 }
 
 }  // extern "C"

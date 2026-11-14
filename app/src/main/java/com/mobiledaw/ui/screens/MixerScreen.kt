@@ -282,6 +282,7 @@ private fun summary(fx: Effect, p: Project): String = when (fx.type) {
         fun db(v: Float) = (if (v > 0.05f) "+" else "") + "%.1f".format(v)
         "gain ${db(c.gain)} · threshold ${db(c.threshold)} · post ${db(c.post)} dB"
     }
+    EffectType.KEY -> "listens to: " + (fx.key ?: com.mobiledaw.model.KeySettings()).memory.label.lowercase() + " · tap to see the key"
 }
 
 @Composable
