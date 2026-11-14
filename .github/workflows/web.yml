@@ -75,6 +75,9 @@ jobs:
       - name: Google Drive sync test (two devices, pretend Drive)
         working-directory: web/app
         run: node tests/cloud-sync.mjs build/dist/wasmJs/productionExecutable
+      - name: Share and import a project between two friends
+        working-directory: web/app
+        run: node tests/project-share.mjs build/dist/wasmJs/productionExecutable
       - name: Assemble the site
         run: |
           mkdir -p site

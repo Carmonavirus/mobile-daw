@@ -101,6 +101,14 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
     var saved by remember(vm.cloud.revision) { mutableStateOf(vm.savedProjects()) }
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.cloud.syncSoon(0) }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
+    val importer = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            vm.importProject(uri)
+            onDismiss()
+        }
+    }
     DawDialog(onDismiss, "Projects") {
         OutlinedTextField(
             value = name,
@@ -116,7 +124,13 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
             TextAction("Export") { onDismiss(); vm.openExport() }
         }
         Spacer(Modifier.height(16.dp))
-        Text("OPEN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("OPEN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted, modifier = Modifier.weight(1f))
+            TextAction("Import project") {
+                importer.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         LazyColumn(Modifier.heightIn(max = 280.dp)) {
             items(saved, key = { it }) { item ->
                 val current = vm.isCurrentProject(item)
@@ -138,6 +152,15 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(vertical = 12.dp),
                     )
+                    Box(
+                        Modifier
+                            .clip(CircleShape)
+                            .clickable { vm.shareProject(item); onDismiss() }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Share", fontSize = 13.sp, color = DawColors.Ink, fontWeight = FontWeight.Medium)
+                    }
                     Box(
                         Modifier
                             .clip(CircleShape)
@@ -170,6 +193,59 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
                     name = vm.project.name
                 }
             }
+        }
+    }
+}
+
+/**
+ * "Share project" and "Import project" progress and results: packing a project with its sounds
+ * into one .zip to send to a friend, and opening one a friend sent.
+ */
+@Composable
+fun ProjectShareDialog(vm: DawViewModel) {
+    val state = vm.projectShare ?: return
+    when (state) {
+        is DawViewModel.ProjectShareState.Busy -> DawDialog({}, "One moment") {
+            Text(state.text, fontSize = 14.sp, color = DawColors.InkSoft)
+        }
+        is DawViewModel.ProjectShareState.Done -> DawDialog(vm::closeProjectShare, state.title) {
+            Text(state.text, fontSize = 14.sp, color = DawColors.InkSoft)
+            Spacer(Modifier.height(16.dp))
+            TextAction("OK", strong = true) { vm.closeProjectShare() }
+        }
+        is DawViewModel.ProjectShareState.Ready -> DawDialog(vm::closeProjectShare, "Share \"${state.name}\"") {
+            val tenthsMb = (state.file.length() * 10 / (1024 * 1024)).coerceAtLeast(1)
+            val sounds = when (state.sounds) {
+                0 -> "It uses no sound files"
+                1 -> "It's packed with its 1 sound"
+                else -> "It's packed with its ${state.sounds} sounds"
+            }
+            Text(
+                "$sounds, one .zip of ${tenthsMb / 10}.${tenthsMb % 10} MB. Send it to a friend: in Mobile DAW " +
+                    "(phone or web) they tap Projects → Import project, or share the file to the app. " +
+                    "It opens as a new project, so nothing of theirs is replaced.",
+                fontSize = 14.sp,
+                color = DawColors.InkSoft,
+            )
+            if (state.missing > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${state.missing} sound${if (state.missing == 1) " isn't" else "s aren't"} on this device any more, so ${if (state.missing == 1) "it was" else "they were"} left out.",
+                    fontSize = 13.sp,
+                    color = DawColors.Mute,
+                )
+            }
+            state.savedTo?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(if (it.isEmpty()) "Couldn't save it to Downloads." else "Saved to $it.", fontSize = 13.sp, color = DawColors.Ink)
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextAction("Share", strong = true) { vm.sendSharedProject() }
+                TextAction("Save to Downloads") { vm.saveSharedProject() }
+            }
+            Spacer(Modifier.height(8.dp))
+            TextAction("Done") { vm.closeProjectShare() }
         }
     }
 }

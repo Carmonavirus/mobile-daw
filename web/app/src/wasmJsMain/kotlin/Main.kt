@@ -25,6 +25,7 @@ import com.mobiledaw.ui.theme.ThemeStore
 import com.mobiledaw.web.Vfs
 import com.mobiledaw.web.WebApp
 import com.mobiledaw.web.WebFonts
+import com.mobiledaw.web.toJs
 import com.mobiledaw.web.toKotlin
 import kotlinx.browser.document
 import kotlinx.coroutines.MainScope
@@ -70,6 +71,30 @@ private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit, 
 private external fun registerCloudProbe(probe: () -> String, signIn: () -> Unit, syncNow: () -> Unit, newProject: () -> Unit)
 
 /** Tests only: what the Google Drive sync is doing, as JSON. */
+private external fun registerShareProbe(
+    probe: () -> String,
+    share: () -> Unit,
+    zipBytes: () -> Int8Array?,
+    importZip: (Int8Array) -> Unit,
+    importAudio: (Int8Array, String) -> Unit,
+    fileBytes: (String) -> Int8Array?,
+)
+
+/** For web/app/tests/project-share.mjs: the share sheet's state and the open project's sounds. */
+private fun shareProbe(): String {
+    val vm = probeVm ?: return "{}"
+    val state = when (val s = vm.projectShare) {
+        null -> "\"none\""
+        is DawViewModel.ProjectShareState.Busy -> "\"busy\""
+        is DawViewModel.ProjectShareState.Ready -> "\"ready\",\"sounds\":${s.sounds},\"missing\":${s.missing}"
+        is DawViewModel.ProjectShareState.Done -> "\"done\",\"title\":\"${s.title}\""
+    }
+    val p = vm.project
+    val paths = p.audioClips.joinToString(",") { "\"${it.path}\"" }
+    val names = vm.savedProjects().joinToString(",") { "\"${it.replace("\"", "")}\"" }
+    return "{\"state\":$state,\"open\":\"${p.name}\",\"channels\":${p.channels.size},\"audio\":[$paths],\"projects\":[$names]}"
+}
+
 private fun cloudProbe(): String {
     val vm = probeVm ?: return "{}"
     val c = vm.cloud
@@ -143,6 +168,14 @@ fun main() {
             vm.selectedChannel?.let { kick -> listOf(0, 4, 8, 12).forEach { vm.toggleStep(kick, it) } }
         }
         registerCloudProbe(::cloudProbe, { vm.cloud.signIn() }, { vm.cloud.syncSoon(0) }, { vm.newProject() })
+        registerShareProbe(
+            ::shareProbe,
+            { vm.shareProject(vm.project.name) },
+            { (vm.projectShare as? DawViewModel.ProjectShareState.Ready)?.file?.readBytes()?.toJs() },
+            { bytes -> vm.importProject(com.mobiledaw.web.Picked.add("shared.zip", bytes.toKotlin())) },
+            { bytes, name -> vm.importAudioToLane(listOf(com.mobiledaw.web.Picked.add(name, bytes.toKotlin())), 0) },
+            { path -> java.io.File(app.filesDir, path).takeIf { it.isFile }?.readBytes()?.toJs() },
+        )
         // PC / laptop: keyboard shortcuts, typing keyboard and mouse extras (see ui/DesktopKeys.kt).
         com.mobiledaw.ui.Wheel.reportsPixels = true
         listenDesktopInput(

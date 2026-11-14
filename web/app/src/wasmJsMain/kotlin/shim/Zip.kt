@@ -5,6 +5,8 @@ package java.util.zip
 import com.mobiledaw.web.Unzip
 
 class ZipEntry(val name: String, internal val data: ByteArray?) {
+    constructor(name: String) : this(name, null)
+    var time: Long = 0L
     val isDirectory: Boolean get() = name.endsWith("/")
     fun isDirectory(): Boolean = isDirectory
     val size: Long get() = data?.size?.toLong() ?: 0L
