@@ -86,6 +86,7 @@ enum class SoundSource(val title: String, val tab: String, val blurb: String) {
     FREESOUND("Freesound", "Freesound", "Search 600k+ community sounds; CC0 by default"),
     COMMONS("Wikimedia Commons", "Commons", "Public-domain and Creative Commons recordings"),
     ARCHIVE("Internet Archive", "Archive", "Creative Commons and public-domain audio collections"),
+    DIG("Dig for samples", "Dig", "A random old soul, funk, jazz or library record to sample, like crate digging"),
     FREE_SITES("Free sample sites", "Sites", "Where to download free packs to import"),
     CREDITS("Credits & licences", "Credits", "Who made the sounds you saved, and the licences of built-in sounds"),
 }
@@ -173,6 +174,7 @@ fun ColumnScope.SourcePage(vm: DawViewModel, source: SoundSource, actionLabel: S
         SoundSource.SYNTHS -> EnginePage(vm, actionLabel, drumMode, onPick)
         SoundSource.SFZ -> SfzPage(vm, actionLabel, onPick)
         SoundSource.FREESOUND, SoundSource.COMMONS, SoundSource.ARCHIVE -> OnlinePage(vm, source, actionLabel, onPick)
+        SoundSource.DIG -> SampleDiggerPage()
         SoundSource.FREE_SITES -> FreeSitesPage()
         SoundSource.CREDITS -> CreditsPage(vm)
         SoundSource.KITS -> {}
