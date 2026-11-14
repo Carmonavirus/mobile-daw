@@ -48,6 +48,9 @@ object NativeEngine {
      * [mode] is a [com.mobiledaw.model.ClipStretch] id. Slow on long clips: call off the main thread.
      */
     external fun shiftKeepLength(frames: FloatArray, sampleRate: Float, semis: Float, mode: Int): FloatArray
+
+    /** Notes in a mono sound, flat (see fx::detectNotesFlat in cpp/fx/NoteDetect.h). Call off the main thread. */
+    external fun detectNotes(frames: FloatArray, sampleRate: Float): FloatArray
     external fun audition()
 
     /** Stops every library preview (sample and engine). */

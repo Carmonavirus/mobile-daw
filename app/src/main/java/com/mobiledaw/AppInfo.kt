@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.4", "2026-11-14T01:00:00Z",
+            listOf(
+                "New note viewer: tap an audio clip on the playlist (or open Channel settings on a sample) and tap See notes. It finds the notes in the sound and shows them as blobs on a piano roll, with a line for the exact pitch so slides and vibrato show.",
+                "Tap a note to see its name, how many cents sharp or flat it is and how long it lasts. The top line shows the range and the key the notes fit. Zoom with − and +. Works best on one voice or instrument at a time (vocals, bass, 808s, leads).",
+            ),
+        ),
+        Release(
             "0.9.3", "2026-11-14T00:10:00Z",
             listOf(
                 "New Key Detector effect: in the Mixer, tap + Add effect → Key Detector on any track (or the Master for the whole song). Play your song or a sample and it shows the key it hears, like \"A minor\", with how sure it is, updating live.",

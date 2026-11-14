@@ -46,6 +46,8 @@ object NativeEngine {
         Engine.resultFloats(Engine.call(PAGE, "ne_renderBuiltInDrum", instrument, sampleRate).toInt())
     fun shiftKeepLength(frames: FloatArray, sampleRate: Float, semis: Float, mode: Int): FloatArray =
         Engine.resultFloats(Engine.call(PAGE, "ne_shiftKeepLength", frames, sampleRate, semis, mode).toInt())
+    fun detectNotes(frames: FloatArray, sampleRate: Float): FloatArray =
+        Engine.resultFloats(Engine.call(PAGE, "ne_detectNotes", frames, sampleRate).toInt())
 
     fun audition() { Engine.call(LIVE, "ne_audition") }
     fun stopAudition() { Engine.call(LIVE, "ne_stopAudition") }

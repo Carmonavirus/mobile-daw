@@ -16,6 +16,7 @@
 #include "Synth.h"
 #include "export/Mp3Encoder.h"
 #include "fx/ClipStretch.h"
+#include "fx/NoteDetect.h"
 #include "wavesynth/WaveSynth.h"
 
 #define EXPORT extern "C" __attribute__((used, visibility("default")))
@@ -99,6 +100,9 @@ EXPORT int ne_renderSoundFontHit(int bank, int variant, int key, float sampleRat
 }
 EXPORT int ne_shiftKeepLength(const float* frames, int n, float sampleRate, float semis, int mode) {
     return resultFloats(daw::fx::shiftKeepLength(frames, static_cast<size_t>(n), sampleRate, semis, mode));
+}
+EXPORT int ne_detectNotes(const float* frames, int n, float sampleRate) {
+    return resultFloats(daw::fx::detectNotesFlat(frames, static_cast<size_t>(n), sampleRate));
 }
 EXPORT void ne_audition() { core().audition(); }
 EXPORT void ne_stopAudition() { core().stopAudition(); }

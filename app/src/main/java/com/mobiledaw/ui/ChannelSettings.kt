@@ -192,6 +192,18 @@ fun ChannelSettingsSheet(vm: DawViewModel, channelId: Long, onChangeSound: () ->
                             })
                         }
                     }
+                    SeeNotesRow(
+                        vm,
+                        com.mobiledaw.model.NoteSource(
+                            title = channel.name,
+                            path = path,
+                            from = channel.trimStart,
+                            to = channel.trimEnd,
+                            pitchSemis = channel.pitchSemis,
+                            rate = com.mobiledaw.model.NoteAnalysis.semitoneRate(channel.pitchSemis),
+                            reverse = channel.reverse,
+                        ),
+                    )
 
                 }
 

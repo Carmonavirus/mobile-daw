@@ -34,7 +34,7 @@ for f in $TP/lame/libmp3lame/*.c; do
 done
 [ "${#pids[@]}" -gt 0 ] && wait "${pids[@]}"
 pids=()
-for t in chord_test:chordtest fx_test:fxtest metronome_test:metronometest export_test:exporttest stretch_test:stretchtest sample_quality_test:samplequalitytest; do
+for t in notes_test:notestest chord_test:chordtest fx_test:fxtest metronome_test:metronometest export_test:exporttest stretch_test:stretchtest sample_quality_test:samplequalitytest; do
   src="engine-test/${t%%:*}.cpp"
   [ -f "$src" ] && g++ -std=c++17 -O2 -Wall -Wextra $INC "$src" $CPP/DawCore.cpp $CPP/fx/*.cpp $CPP/wavesynth/*.cpp -I$TP/lame/include $CPP/export/*.cpp "${objs[@]}" "${lame[@]}" -pthread -lm -o "$OUT/${t##*:}"
 done
