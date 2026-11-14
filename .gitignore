@@ -8,3 +8,4 @@ build/
 .externalNativeBuild/
 .cxx/
 engine-test/out/
+app/src/main/assets/soundfonts/GeneralUser-GS.sf2*

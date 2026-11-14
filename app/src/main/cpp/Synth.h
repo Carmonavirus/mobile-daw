@@ -1,8 +1,10 @@
 // Built-in instruments. Every sound is synthesised, so the app ships without sample files.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace daw {
 
@@ -15,10 +17,13 @@ enum Instrument : int {
     kLead = 5,
     kPluck = 6,
     kPad = 7,
-    kInstrumentCount = 8,
+    kSample = 8,  // plays an imported audio file, rendered by Core
+    // 9-12 are reserved for the sound-source instruments.
+    kWavetable = 13,  // two-oscillator wavetable synth (wavesynth/), rendered by Core in stereo
+    kInstrumentCount = 14,
 };
 
-inline bool isDrum(int instrument) { return instrument <= kClap; }
+inline bool isDrum(int instrument) { return instrument <= kClap || instrument == kSample; }
 
 struct Voice {
     bool active = false;
@@ -36,6 +41,14 @@ struct Voice {
     float hpState = 0.0f;       // noise high-pass memory
     float lastNoise = 0.0f;
     uint32_t noiseSeed = 22222;
+    float fade = 1.0f;      // choke fade-out multiplier ("cut itself")
+    float fadeStep = 0.0f;  // > 0 while the voice is being choked
+    // Repitched noise drums (hat, clap): their sound is rendered at its own clock, which runs
+    // faster or slower than the output like a sample played back at another pitch.
+    double srcPos = 0.0;    // fraction of the way from srcPrev to srcCur
+    int64_t srcAge = 0;     // source samples rendered so far
+    float srcPrev = 0.0f;
+    float srcCur = 0.0f;
 };
 
 class Synth {
@@ -52,6 +65,33 @@ public:
         v.filterLow = v.filterBand = 0.0f;
         v.hpState = v.lastNoise = 0.0f;
         v.noiseSeed = 22222u + static_cast<uint32_t>(pitch) * 7919u;
+        v.fade = 1.0f;
+        v.fadeStep = 0.0f;
+        v.srcPos = 0.0;
+        v.srcAge = 0;
+        v.srcPrev = v.srcCur = 0.0f;
+    }
+
+    // Renders one hit of a built-in drum (kick/snare/hat/clap) at C4, full velocity, until it has
+    // died away (at most maxSeconds), with the silent tail cut off. The app plays built-in drums
+    // from this recording through the sampler, so their channels get trim, pitch, reverse, boost
+    // and the envelope like any imported sound.
+    static std::vector<float> renderOneShot(int instrument, float sampleRate, float maxSeconds = 3.0f) {
+        std::vector<float> out;
+        if (instrument < kKick || instrument > kClap || sampleRate <= 0.0f) return out;
+        Voice v;
+        start(v, 60, 1.0f, 0);
+        const auto limit = static_cast<size_t>(maxSeconds * sampleRate);
+        out.reserve(static_cast<size_t>(sampleRate));
+        while (v.active && out.size() < limit) out.push_back(tick(v, instrument, sampleRate));
+        // Hat and clap come out of the resampler one sample late; drop that leading zero.
+        if (!out.empty() && out.front() == 0.0f && (instrument == kHiHat || instrument == kClap)) out.erase(out.begin());
+        size_t end = out.size();
+        while (end > 0 && std::fabs(out[end - 1]) < 1e-4f) --end;
+        // Keep a couple of milliseconds after the last audible sample.
+        end = std::min(out.size(), end + static_cast<size_t>(0.002f * sampleRate));
+        out.resize(std::max<size_t>(end, 2));
+        return out;
     }
 
     static void release(Voice& v) {
@@ -66,8 +106,9 @@ public:
         switch (instrument) {
             case kKick: out = kick(v, t, sampleRate); break;
             case kSnare: out = snare(v, t, sampleRate); break;
-            case kHiHat: out = hat(v, t); break;
-            case kClap: out = clap(v, t); break;
+            // Every semitone away from C4 (60) repitches the hit like a sample: G3 is an octave under G4.
+            case kHiHat: out = resampled(v, sampleRate, [&v](float st) { return hat(v, st); }); break;
+            case kClap: out = resampled(v, sampleRate, [&v](float st) { return clap(v, st); }); break;
             case kBass: out = bass(v, sampleRate); break;
             case kLead: out = lead(v, sampleRate); break;
             case kPluck: out = pluck(v, t, sampleRate); break;
@@ -155,6 +196,22 @@ private:
             }
         }
         return v.env;
+    }
+
+    // Plays a generator at 2^((pitch - 60) / 12) times its own speed with linear interpolation,
+    // which is how a sampler repitches a recording (shorter and brighter when higher).
+    // At pitch 60 it outputs the generator unchanged, one sample late.
+    template <typename Gen>
+    static float resampled(Voice& v, float sampleRate, Gen gen) {
+        const double ratio = std::clamp(std::pow(2.0, (v.pitch - 60) / 12.0), 1.0 / 16.0, 16.0);
+        v.srcPos += ratio;
+        while (v.srcPos >= 1.0 && v.active) {
+            v.srcPos -= 1.0;
+            v.srcPrev = v.srcCur;
+            v.srcCur = gen(static_cast<float>(v.srcAge) / sampleRate);
+            v.srcAge++;
+        }
+        return v.srcPrev + (v.srcCur - v.srcPrev) * static_cast<float>(std::min(v.srcPos, 1.0));
     }
 
     static float decayEnv(Voice& v, float t, float seconds) {

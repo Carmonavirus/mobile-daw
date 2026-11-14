@@ -1,0 +1,489 @@
+// Desktop tests for the mixer effects: parametric EQ response, pitch correction accuracy,
+// and mixer-track routing in the core. Writes out/pitch_*.wav so the result can be heard.
+#include <cmath>
+#include <cstdio>
+#include <cstdint>
+#include <vector>
+
+#include "DawCore.h"
+#include "fx/ParametricEq.h"
+#include "fx/PitchCorrector.h"
+#include "fx/SoftClipper.h"
+#include "fx/KeyDetector.h"
+
+using namespace daw;
+using namespace daw::fx;
+
+static int failures = 0;
+static void check(bool ok, const char* what, double value) {
+    std::printf("%s %-58s %.3f\n", ok ? "ok  " : "FAIL", what, value);
+    if (!ok) ++failures;
+}
+
+constexpr float kSr = 48000.0f;
+constexpr double kPi = 3.14159265358979;
+
+static void writeWav(const char* path, const std::vector<float>& mono) {
+    FILE* f = std::fopen(path, "wb");
+    if (!f) return;
+    auto w32 = [&](uint32_t v) { std::fwrite(&v, 4, 1, f); };
+    auto w16 = [&](uint16_t v) { std::fwrite(&v, 2, 1, f); };
+    const uint32_t bytes = static_cast<uint32_t>(mono.size() * 2);
+    std::fwrite("RIFF", 1, 4, f); w32(36 + bytes); std::fwrite("WAVEfmt ", 1, 8, f);
+    w32(16); w16(1); w16(1); w32(48000); w32(96000); w16(2); w16(16);
+    std::fwrite("data", 1, 4, f); w32(bytes);
+    for (float s : mono) w16(static_cast<uint16_t>(static_cast<int16_t>(std::fmax(-1.f, std::fmin(1.f, s)) * 32767)));
+    std::fclose(f);
+}
+
+// RMS gain of the EQ on a sine at `hz`, after it has settled.
+static double eqGain(const float* params, double hz) {
+    ParametricEq eq;
+    eq.prepare(kSr);
+    const int n = 24000;
+    std::vector<float> l(n), r(n);
+    for (int i = 0; i < n; ++i) l[i] = r[i] = static_cast<float>(0.25 * std::sin(2 * kPi * hz * i / kSr));
+    for (int i = 0; i < n; i += 256) eq.process(&l[i], &r[i], std::min(256, n - i), params);
+    double in = 0, out = 0;
+    for (int i = n / 2; i < n; ++i) {
+        const double x = 0.25 * std::sin(2 * kPi * hz * i / kSr);
+        in += x * x;
+        out += double(l[i]) * l[i];
+    }
+    return 20 * std::log10(std::sqrt(out / in));
+}
+
+// Frequency of a periodic signal from its autocorrelation peak (between 70 and 1500 Hz).
+static double measureHz(const std::vector<float>& x, int from, int len) {
+    int bestLag = 0;
+    double best = -1e9;
+    std::vector<double> ac(700);
+    for (int lag = 32; lag < 690; ++lag) {
+        double s = 0, e = 0;
+        for (int i = from; i < from + len; ++i) {
+            s += double(x[i]) * x[i + lag];
+            e += double(x[i + lag]) * x[i + lag];
+        }
+        ac[lag] = s / std::sqrt(e + 1e-12);
+    }
+    // First strong peak, so octave errors don't win.
+    double maxAc = 0;
+    for (int lag = 32; lag < 690; ++lag) maxAc = std::max(maxAc, ac[lag]);
+    for (int lag = 33; lag < 689; ++lag) {
+        if (ac[lag] > 0.9 * maxAc && ac[lag] >= ac[lag - 1] && ac[lag] >= ac[lag + 1]) {
+            bestLag = lag;
+            best = ac[lag];
+            break;
+        }
+    }
+    if (bestLag == 0) return 0;
+    const double a = ac[bestLag - 1], b = best, c = ac[bestLag + 1];
+    const double off = 0.5 * (a - c) / (a - 2 * b + c);
+    return kSr / (bestLag + off);
+}
+
+// Level of one frequency (Goertzel), as RMS.
+static double toneLevel(const std::vector<float>& x, int from, int len, double hz) {
+    const double w = 2 * kPi * hz / kSr, c = 2 * std::cos(w);
+    double s1 = 0, s2 = 0;
+    for (int i = from; i < from + len; ++i) {
+        const double hann = 0.5 - 0.5 * std::cos(2 * kPi * (i - from) / len);
+        const double s0 = x[i] * hann + c * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    return std::sqrt(s1 * s1 + s2 * s2 - c * s1 * s2) / (len * 0.25);
+}
+
+// A voice-like test tone: a few harmonics with a slow vibrato around `hz`.
+static std::vector<float> voice(double hz, int n, double vibratoCents) {
+    std::vector<float> x(n);
+    double phase = 0;
+    for (int i = 0; i < n; ++i) {
+        const double f = hz * std::pow(2.0, vibratoCents * std::sin(2 * kPi * 5.0 * i / kSr) / 1200.0);
+        phase += 2 * kPi * f / kSr;
+        x[i] = static_cast<float>(0.3 * std::sin(phase) + 0.15 * std::sin(2 * phase) + 0.08 * std::sin(3 * phase) + 0.04 * std::sin(4 * phase));
+    }
+    return x;
+}
+
+static std::vector<float> correct(std::vector<float> in, float mask, float retuneMs, float transpose, PitchCorrector* keep = nullptr,
+                                  int voices = kVoicesOff, float voicesLevel = 0.0f, float mix = 1.0f) {
+    PitchCorrector local;
+    PitchCorrector& pc = keep ? *keep : local;
+    pc.prepare(kSr);
+    float p[kPitchParamCount] = {};
+    p[kPitchNoteMask] = mask;
+    p[kPitchRetuneMs] = retuneMs;
+    p[kPitchAmount] = 1.0f;
+    p[kPitchTranspose] = transpose;
+    p[kPitchMix] = mix;
+    p[kPitchRange] = 1.0f;
+    p[kPitchVoices] = static_cast<float>(voices);
+    p[kPitchVoicesLevel] = voicesLevel;
+    std::vector<float> r = in;
+    for (size_t i = 0; i < in.size(); i += 192) {
+        const int n = static_cast<int>(std::min<size_t>(192, in.size() - i));
+        pc.process(&in[i], &r[i], n, p);
+    }
+    return in;
+}
+
+// A rich tone (8 harmonics, falling 1/h) for the key detector tests.
+static void addTone(std::vector<float>& out, size_t start, size_t len, int midi, float amp) {
+    const double hz = 440.0 * std::pow(2.0, (midi - 69) / 12.0);
+    for (size_t i = 0; i < len && start + i < out.size(); ++i) {
+        const double t = i / double(kSr);
+        const double env = std::min(1.0, t * 50.0) * std::exp(-t * 1.5);
+        double v = 0;
+        for (int h = 1; h <= 8; ++h) if (hz * h < 20000) v += std::sin(2 * kPi * hz * h * t) / h;
+        out[start + i] += static_cast<float>(amp * env * v);
+    }
+}
+
+// Plays chords (each a list of MIDI notes, root first, bass an octave down) with a little
+// noise "hi-hat", then returns what the key detector made of it.
+static std::vector<float> detectKey(const std::vector<std::vector<int>>& chords, double secondsPerChord, int loops, float memory, float noise = 0.05f) {
+    const size_t per = static_cast<size_t>(secondsPerChord * kSr);
+    std::vector<float> mono(per * chords.size() * loops, 0.0f);
+    size_t at = 0;
+    for (int l = 0; l < loops; ++l)
+        for (const auto& c : chords) {
+            for (int n : c) addTone(mono, at, per, n, 0.08f);
+            addTone(mono, at, per, c[0] - 12, 0.12f);
+            at += per;
+        }
+    uint32_t seed = 1;
+    for (size_t i = 0; i < mono.size(); ++i) {
+        seed = seed * 1664525u + 1013904223u;
+        const double beat = std::fmod(i / double(kSr), 0.25);
+        if (beat < 0.03) mono[i] += noise * static_cast<float>((seed >> 9) / double(1u << 23) - 0.5) * 2.0f * static_cast<float>(1.0 - beat / 0.03);
+    }
+    KeyDetector kd;
+    kd.prepare(kSr);
+    float params[kKeyParamCount] = {0.0f, memory};
+    std::vector<float> l(mono), r(mono);
+    for (size_t i = 0; i < mono.size(); i += 256) {
+        const int n = static_cast<int>(std::min<size_t>(256, mono.size() - i));
+        kd.process(l.data() + i, r.data() + i, n, params);
+    }
+    std::vector<float> out(kKeyOutCount);
+    kd.read(out.data());
+    return out;
+}
+
+int main() {
+    // ---- EQ
+    float p[kEqParamCount] = {};
+    auto band = [&](int b, BandType t, float f, float g, float q, float slope = 1) {
+        float* v = p + b * kEqBandParams;
+        v[0] = 1; v[1] = static_cast<float>(t); v[2] = f; v[3] = g; v[4] = q; v[5] = slope;
+    };
+    band(0, BandType::Bell, 1000, 12, 1);
+    check(std::fabs(eqGain(p, 1000) - 12) < 0.5, "EQ bell +12 dB at its centre (dB)", eqGain(p, 1000));
+    check(std::fabs(eqGain(p, 100)) < 1.0, "EQ bell leaves 100 Hz alone (dB)", eqGain(p, 100));
+    band(1, BandType::LowCut, 200, 0, 0.707f, 2);
+    check(eqGain(p, 50) < -20, "EQ 24 dB/oct low cut at 200 Hz, 50 Hz (dB)", eqGain(p, 50));
+    p[0 * kEqBandParams] = 0;  // bell off, so only the low cut and output gain remain
+    p[kEqOutputParam] = -6;
+    check(std::fabs(eqGain(p, 5000) + 6) < 0.2, "EQ output gain -6 dB (dB)", eqGain(p, 5000));
+    p[1 * kEqBandParams] = 0;
+    p[kEqOutputParam] = 0;
+    check(std::fabs(eqGain(p, 1000)) < 0.05, "EQ with every band off is flat (dB)", eqGain(p, 1000));
+
+    // ---- pitch correction
+    const int n = static_cast<int>(kSr * 2);
+    const float cMajor = static_cast<float>((1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11));
+    const float chromatic = 4095.0f;
+    {
+        // 40 cents sharp of A4 -> pulled to 440 Hz.
+        auto in = voice(440.0 * std::pow(2.0, 40 / 1200.0), n, 0);
+        auto out = correct(in, cMajor, 0, 0);
+        const double hz = measureHz(out, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 440.0)) < 8, "pitch: A4 +40 cents corrected to 440 Hz (Hz)", hz);
+        writeWav("out/pitch_sharp_in.wav", in);
+        writeWav("out/pitch_sharp_out.wav", out);
+    }
+    {
+        // C#4 is not in C major: snaps to C4 or D4, whichever is nearer (C#4 + 30 cents -> D4).
+        auto out = correct(voice(277.18 * std::pow(2.0, 30 / 1200.0), n, 0), cMajor, 0, 0);
+        const double hz = measureHz(out, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 293.66)) < 10, "pitch: out-of-key C#4+30c snaps to D4 (Hz)", hz);
+    }
+    {
+        // Low male voice with vibrato, chromatic: lands on G2 on average.
+        auto out = correct(voice(98.0 * std::pow(2.0, -35 / 1200.0), n, 20), chromatic, 0, 0);
+        const double hz = measureHz(out, n / 2, 8192);
+        check(std::fabs(1200 * std::log2(hz / 98.0)) < 15, "pitch: low G2 -35 cents with vibrato -> G2 (Hz)", hz);
+    }
+    {
+        auto out = correct(voice(440.0, n, 0), chromatic, 20, 12);
+        const double hz = measureHz(out, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 880.0)) < 10, "pitch: +12 transpose moves A4 to A5 (Hz)", hz);
+    }
+    {
+        // Already in tune: the output keeps the pitch and its level.
+        auto in = voice(329.63, n, 0);
+        PitchCorrector pc;
+        auto out = correct(in, cMajor, 30, 0, &pc);
+        double ein = 0, eout = 0;
+        for (int i = n / 2; i < n; ++i) { ein += double(in[i]) * in[i]; eout += double(out[i]) * out[i]; }
+        const double db = 10 * std::log10(eout / ein);
+        check(std::fabs(db) < 1.5, "pitch: in-tune E4 keeps its level (dB)", db);
+        check(std::fabs(pc.detectedHz() - 329.63) < 3, "pitch: detector reads E4 (Hz)", pc.detectedHz());
+    }
+    {
+        // Hard tune: 0 ms retune flattens a wide vibrato into a straight line on the note.
+        auto in = voice(440.0, n, 60);
+        auto out = correct(in, cMajor, 0, 0);
+        double worstIn = 0, worstOut = 0;
+        for (int k = 0; k < 16; ++k) {
+            const int from = n / 2 + k * 2400;
+            worstIn = std::max(worstIn, std::fabs(1200 * std::log2(measureHz(in, from, 1200) / 440.0)));
+            worstOut = std::max(worstOut, std::fabs(1200 * std::log2(measureHz(out, from, 1200) / 440.0)));
+        }
+        check(worstIn > 40 && worstOut < 8, "pitch: hard tune flattens 60c vibrato, worst (cents)", worstOut);
+        writeWav("out/pitch_vibrato_in.wav", in);
+        writeWav("out/pitch_hardtune_out.wav", out);
+    }
+    {
+        // Slow retune keeps most of the vibrato (natural setting).
+        auto in = voice(440.0, n, 60);
+        auto out = correct(in, cMajor, 200, 0);
+        double worstOut = 0;
+        for (int k = 0; k < 16; ++k)
+            worstOut = std::max(worstOut, std::fabs(1200 * std::log2(measureHz(out, n / 2 + k * 2400, 1200) / 440.0)));
+        check(worstOut > 30, "pitch: 200 ms retune keeps the vibrato (cents)", worstOut);
+    }
+    {
+        // A bigger move keeps roughly its level: +5 semitones. (The shifter keeps the tone, so a
+        // sparse test tone loses a little; real voices have a smoother spectrum.)
+        auto in = voice(440.0, n, 0);
+        auto out = correct(in, chromatic, 0, 5);
+        const double hz = measureHz(out, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 587.33)) < 10, "pitch: +5 transpose moves A4 to D5 (Hz)", hz);
+        double ein = 0, eout = 0;
+        for (int i = n / 2; i < n; ++i) { ein += double(in[i]) * in[i]; eout += double(out[i]) * out[i]; }
+        check(std::fabs(10 * std::log10(eout / ein)) < 3.5, "pitch: +5 transpose keeps the level (dB)", 10 * std::log10(eout / ein));
+        writeWav("out/pitch_up5_out.wav", out);
+    }
+    {
+        // Mix 0 is the dry voice, delayed by exactly the reported latency.
+        auto in = voice(300.0, n, 30);
+        PitchCorrector pc;
+        auto out = correct(in, cMajor, 0, 0, &pc, kVoicesOff, 0, 0.0f);
+        const int lat = pc.latency();
+        double err = 0;
+        for (int i = lat; i < n; ++i) err = std::max(err, double(std::fabs(out[i] - in[i - lat])));
+        check(err < 1e-5 && lat > 0 && lat < 0.03 * kSr, "pitch: dry path delayed by the latency (max err)", err);
+    }
+    {
+        // Harmony voices: A4 in C major gets C5 (a third up) and E5 (a fifth up).
+        auto in = voice(440.0, n, 0);
+        auto plain = correct(in, cMajor, 0, 0);
+        auto chord = correct(in, cMajor, 0, 0, nullptr, kVoicesChord, 1.0f);
+        const int from = n / 2, len = 16384;
+        const double c5 = toneLevel(chord, from, len, 523.25), e5 = toneLevel(chord, from, len, 659.26);
+        const double c5Plain = toneLevel(plain, from, len, 523.25);
+        check(c5 > 0.07 && e5 > 0.07 && c5Plain < 0.02, "pitch: chord voices add C5 and E5 (level)", std::min(c5, e5));
+        writeWav("out/pitch_chord_out.wav", chord);
+        auto low = correct(in, cMajor, 0, 0, nullptr, kVoicesOctaveDown, 1.0f);
+        check(toneLevel(low, from, len, 220.0) > 0.1, "pitch: octave-down voice adds A3 (level)", toneLevel(low, from, len, 220.0));
+        auto dbl = correct(in, cMajor, 0, 0, nullptr, kVoicesDouble, 1.0f);
+        const double hz = measureHz(dbl, n / 2, 4096);
+        check(std::fabs(1200 * std::log2(hz / 440.0)) < 10, "pitch: double voices stay on A4 (Hz)", hz);
+    }
+    {
+        // Silence in, silence out, and no NaNs.
+        std::vector<float> zero(n, 0.0f);
+        auto out = correct(zero, cMajor, 0, 5);
+        double peak = 0;
+        bool nan = false;
+        for (float s : out) { peak = std::max(peak, double(std::fabs(s))); nan |= std::isnan(s); }
+        check(peak < 1e-6 && !nan, "pitch: silence stays silent", peak);
+    }
+
+    // ---- mixer tracks in the core
+    auto renderPeak = [](bool routed, bool trackMuted) {
+        Core core;
+        core.setSampleRate(48000);
+        core.setChannelCount(1);
+        core.setChannel(0, 5, 0.8f, 0.0f, false, false);  // lead synth
+        core.setInsertCount(1);
+        core.setInsert(0, 1.0f, 0.0f, trackMuted);
+        core.setInsertEffect(0, 0, kFxEq, false);
+        core.setChannelInsert(0, routed ? 0 : -1);
+        std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat * 4, 69, 1.0f}};
+        core.setSequence(ev, kTicksPerBeat * 4);
+        core.setPlaying(true);
+        std::vector<float> buf(2 * 4800 * 2);
+        core.render(buf.data(), 4800 * 2);  // bigger than one block: exercises the split
+        double peak = 0;
+        for (float s : buf) peak = std::max(peak, double(std::fabs(s)));
+        float lv[1];
+        core.readInsertLevels(lv, 1);
+        return std::make_pair(peak, double(lv[0]));
+    };
+    auto direct = renderPeak(false, false);
+    auto routed = renderPeak(true, false);
+    auto muted = renderPeak(true, true);
+    check(direct.first > 0.05, "core: channel straight to master is audible", direct.first);
+    check(std::fabs(routed.first - direct.first) < 0.02, "core: through a flat mixer track, same level", routed.first);
+    check(routed.second > 0.05, "core: mixer track meter moves", routed.second);
+    check(muted.first < 1e-4, "core: muted mixer track silences its channels", muted.first);
+
+    // ---- soft clipper
+    {
+        check(SoftClipper::shape(0.3f, 0.5f) == 0.3f, "clip: below threshold untouched", SoftClipper::shape(0.3f, 0.5f));
+        check(SoftClipper::shape(50.f, 0.5f) <= 1.0f && SoftClipper::shape(50.f, 0.5f) > 0.99f, "clip: ceiling is 0 dBFS", SoftClipper::shape(50.f, 0.5f));
+        const float a = SoftClipper::shape(0.5001f, 0.5f), b = SoftClipper::shape(0.5f, 0.5f);
+        check(std::fabs((a - b) / 0.0001f - 1.0f) < 0.01f, "clip: knee is smooth (slope 1 at threshold)", (a - b) / 0.0001f);
+        auto runClip = [](double hz, float gainDb, float thrDb, float postDb, std::vector<float>* keep) {
+            SoftClipper c;
+            c.prepare(kSr);
+            const int n = 48000;
+            std::vector<float> l(n), r(n);
+            for (int i = 0; i < n; ++i) l[i] = r[i] = static_cast<float>(0.5 * std::sin(2 * kPi * hz * i / kSr));
+            const float params[3] = {gainDb, thrDb, postDb};
+            for (int i = 0; i < n; i += 192) c.process(&l[i], &r[i], std::min(192, n - i), params);
+            if (keep) *keep = l;
+            double peak = 0;
+            for (int i = n / 2; i < n; ++i) peak = std::max(peak, double(std::fabs(l[i])));
+            return peak;
+        };
+        const double clean = runClip(1000, 0, 0, 0, nullptr);
+        check(std::fabs(clean - 0.5) < 0.01, "clip: 0 dB settings pass a -6 dB sine", clean);
+        const double driven = runClip(1000, 18, -6, 0, nullptr);
+        check(driven <= 1.02 && driven > 0.8, "clip: +18 dB gain stays under the ceiling", driven);
+        const double post = runClip(1000, 18, -6, -6, nullptr);
+        check(std::fabs(post / driven - 0.5012) < 0.02, "clip: post lowers the output 6 dB", post / driven);
+        // Aliasing: a hard-driven 7 kHz tone makes 21, 35 kHz... harmonics. Without oversampling
+        // 35 kHz folds to 13 kHz and 49 kHz to 1 kHz; measure those against the fundamental.
+        std::vector<float> out;
+        runClip(7000, 24, -12, 0, &out);
+        const double fund = toneLevel(out, 24000, 9600, 7000);
+        const double alias = std::max(toneLevel(out, 24000, 9600, 13000), toneLevel(out, 24000, 9600, 1000));
+        check(20 * std::log10(alias / fund) < -50, "clip: folded harmonics 50 dB down (oversampled)", 20 * std::log10(alias / fund + 1e-12));
+        bool nan = false;
+        std::vector<float> l(4096, 0.f), r(4096, 0.f);
+        SoftClipper c;
+        c.prepare(kSr);
+        const float params[3] = {36, -36, 12};
+        c.process(l.data(), r.data(), 4096, params);
+        double peak = 0;
+        for (float s : l) { peak = std::max(peak, double(std::fabs(s))); nan |= std::isnan(s); }
+        check(peak < 1e-6 && !nan, "clip: silence stays silent", peak);
+    }
+
+    // ---- master effects chain in the core (exports render through it too)
+    auto masterPeak = [](bool clipOn) {
+        Core core;
+        core.setSampleRate(48000);
+        core.setChannelCount(1);
+        core.setChannel(0, 5, 1.0f, 0.0f, false, false);
+        core.setMasterVolume(1.0f);
+        if (clipOn) {
+            core.setInsertEffect(kMasterInsert, 0, kFxClip, false);
+            core.setEffectParam(kMasterInsert, 0, kClipGain, 0.0f);
+            core.setEffectParam(kMasterInsert, 0, kClipThreshold, -12.0f);
+            core.setEffectParam(kMasterInsert, 0, kClipPost, -12.0f);
+        }
+        std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat * 4, 69, 1.0f}};
+        core.setSequence(ev, kTicksPerBeat * 4);
+        core.setPlaying(true);
+        std::vector<float> buf(2 * 9600);
+        core.renderMix(buf.data(), 9600);
+        double peak = 0;
+        for (float s : buf) peak = std::max(peak, double(std::fabs(s)));
+        return peak;
+    };
+    const double mOff = masterPeak(false), mOn = masterPeak(true);
+    check(mOff > 0.1, "core: master without effects is audible", mOff);
+    check(mOn < 0.26 && mOn > 0.01, "core: master soft clipper + post in renderMix", mOn);
+
+    // ---- key detector
+    {
+        auto expect = [](const char* what, const std::vector<float>& r, int key) {
+            std::printf("     key %d conf %.2f (r1 %.2f, second %d r2 %.2f, heard %.1f s)\n",
+                        int(r[kKeyOutKey]), r[kKeyOutConfidence], r[kKeyOutBestScore], int(r[kKeyOutSecond]), r[kKeyOutSecondScore], r[kKeyOutHeard]);
+            check(int(r[kKeyOutKey]) == key, what, r[kKeyOutKey]);
+        };
+        // C major: C F G C, I vi IV V
+        auto cMaj = detectKey({{60, 64, 67}, {65, 69, 72}, {67, 71, 74}, {60, 64, 67}, {57, 60, 64}, {65, 69, 72}, {67, 71, 74, 77}}, 1.0, 2, 20.0f);
+        expect("key: C major progression -> C major", cMaj, 0);
+        check(cMaj[kKeyOutConfidence] > 0.5f, "key: C major is confident", cMaj[kKeyOutConfidence]);
+        // A minor: Am Dm E Am (harmonic minor's E major gives the G#)
+        auto aMin = detectKey({{57, 60, 64}, {62, 65, 69}, {64, 68, 71}, {57, 60, 64}}, 1.0, 3, 20.0f);
+        expect("key: Am Dm E Am -> A minor", aMin, 12 + 9);
+        // F# major: F# B C# F#
+        auto fsMaj = detectKey({{66, 70, 73}, {71, 75, 78}, {73, 77, 80}, {66, 70, 73}}, 1.0, 3, 0.0f);
+        expect("key: F# B C# F# -> F# major", fsMaj, 6);
+        // E minor: Em C D B
+        auto eMin = detectKey({{52, 55, 59}, {48, 52, 55}, {50, 54, 57}, {47, 51, 54}, {52, 55, 59}}, 1.0, 3, 20.0f);
+        expect("key: Em C D B Em -> E minor", eMin, 12 + 4);
+        // Eb major in a low register, more noise
+        auto ebMaj = detectKey({{51, 55, 58}, {56, 60, 63}, {58, 62, 65}, {51, 55, 58}}, 1.0, 3, 20.0f, 0.2f);
+        expect("key: Eb Ab Bb Eb (noisy) -> Eb major", ebMaj, 3);
+        // Memory: after C major, 12 s of D major with a 5 s memory should read D major.
+        {
+            KeyDetector kd;
+            kd.prepare(kSr);
+            auto feed = [&](const std::vector<std::vector<int>>& chords, int loops, float memory, float reset) {
+                const size_t per = static_cast<size_t>(kSr);
+                std::vector<float> mono(per * chords.size() * loops, 0.0f);
+                size_t at = 0;
+                for (int l = 0; l < loops; ++l)
+                    for (const auto& c : chords) { for (int n : c) addTone(mono, at, per, n, 0.1f); at += per; }
+                std::vector<float> r(mono);
+                float params[kKeyParamCount] = {reset, memory};
+                for (size_t i = 0; i < mono.size(); i += 512)
+                    kd.process(mono.data() + i, r.data() + i, int(std::min<size_t>(512, mono.size() - i)), params);
+            };
+            std::vector<float> out(kKeyOutCount);
+            feed({{60, 64, 67}, {65, 69, 72}, {67, 71, 74}}, 4, 5.0f, 0.0f);
+            feed({{62, 66, 69}, {67, 71, 74}, {69, 73, 76}}, 4, 5.0f, 0.0f);
+            kd.read(out.data());
+            check(int(out[kKeyOutKey]) == 2, "key: 5 s memory follows a change to D major", out[kKeyOutKey]);
+            // Silence holds the result.
+            std::vector<float> quiet(48000 * 3, 0.0f), quiet2(quiet);
+            float params[kKeyParamCount] = {0.0f, 5.0f};
+            for (size_t i = 0; i < quiet.size(); i += 512) kd.process(quiet.data() + i, quiet2.data() + i, 512, params);
+            kd.read(out.data());
+            check(int(out[kKeyOutKey]) == 2, "key: silence keeps the last key", out[kKeyOutKey]);
+            // Start over clears it.
+            params[kKeyReset] = 1.0f;
+            kd.process(quiet.data(), quiet2.data(), 512, params);
+            kd.read(out.data());
+            check(int(out[kKeyOutKey]) == -1 && out[kKeyOutHeard] == 0.0f, "key: start over clears what was heard", out[kKeyOutKey]);
+        }
+        // Passes the sound through untouched, and reads -1 on silence.
+        {
+            KeyDetector kd;
+            kd.prepare(kSr);
+            std::vector<float> l(4800), r(4800);
+            for (size_t i = 0; i < l.size(); ++i) l[i] = r[i] = 0.3f * std::sin(i * 0.05f);
+            std::vector<float> l0(l);
+            float params[kKeyParamCount] = {0.0f, 0.0f};
+            kd.process(l.data(), r.data(), int(l.size()), params);
+            check(l == l0, "key: sound passes through unchanged", 0);
+            KeyDetector quiet;
+            quiet.prepare(kSr);
+            std::vector<float> z(48000, 0.0f), z2(z), out(kKeyOutCount);
+            quiet.process(z.data(), z2.data(), int(z.size()), params);
+            quiet.read(out.data());
+            check(int(out[kKeyOutKey]) == -1, "key: silence reads no key", out[kKeyOutKey]);
+        }
+        // Through the core on a mixer track.
+        {
+            Core core;
+            core.setSampleRate(48000);
+            core.setInsertEffect(kMasterInsert, 2, kFxKey, false);
+            std::vector<float> out(kKeyOutCount);
+            core.readKey(kMasterInsert, 2, out.data());
+            check(int(out[kKeyOutKey]) == -1, "core: key readout before any sound", out[kKeyOutKey]);
+        }
+    }
+
+    std::printf(failures ? "\n%d check(s) failed\n" : "\nall effect checks passed\n", failures);
+    return failures ? 1 : 0;
+}

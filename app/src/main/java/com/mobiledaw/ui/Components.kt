@@ -83,18 +83,28 @@ fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
 }
 
 @Composable
-fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, diameter: androidx.compose.ui.unit.Dp = 44.dp) {
     Box(
         modifier
-            .size(44.dp)
+            .size(diameter)
             .clip(CircleShape)
-            .background(DawColors.Ink)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            .background(DawColors.Note)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = if (playing) "Pause" else "Play",
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(16.dp)) {
+        Canvas(Modifier.size(diameter * 0.36f)) {
             if (playing) {
-                drawRoundRect(DawColors.Paper, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f, 3f))
+                // Pause: two upright bars.
+                val bar = size.width * 0.32f
+                val r = androidx.compose.ui.geometry.CornerRadius(bar * 0.3f, bar * 0.3f)
+                val barSize = androidx.compose.ui.geometry.Size(bar, size.height)
+                drawRoundRect(DawColors.OnNote, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.1f, 0f), size = barSize, cornerRadius = r)
+                drawRoundRect(DawColors.OnNote, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.9f - bar, 0f), size = barSize, cornerRadius = r)
             } else {
                 val path = Path().apply {
                     moveTo(size.width * 0.12f, 0f)
@@ -102,7 +112,7 @@ fun PlayButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modif
                     lineTo(size.width * 0.12f, size.height)
                     close()
                 }
-                drawPath(path, DawColors.Paper)
+                drawPath(path, DawColors.OnNote)
             }
         }
     }

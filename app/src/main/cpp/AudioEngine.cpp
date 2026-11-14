@@ -1,5 +1,9 @@
 #include "AudioEngine.h"
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 #include <android/log.h>
 
 #define LOG_TAG "MobileDawEngine"
@@ -50,17 +54,52 @@ void AudioEngine::stop() {
 }
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* audioData, int32_t numFrames) {
-    core_.render(static_cast<float*>(audioData), numFrames);
+    // inCallback_ is raised before offline_ is read, and beginOffline raises offline_ before it
+    // reads inCallback_, so the two threads can never both be inside the Core.
+    inCallback_.store(true);
+    if (offline_.load()) {
+        std::fill_n(static_cast<float*>(audioData), static_cast<size_t>(numFrames) * 2, 0.0f);
+    } else {
+        core_.render(static_cast<float*>(audioData), numFrames);
+    }
+    inCallback_.store(false);
     return oboe::DataCallbackResult::Continue;
 }
 
+void AudioEngine::beginOffline() {
+    offline_.store(true);
+    while (inCallback_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+void AudioEngine::endOffline() {
+    offline_.store(false);
+}
+
+double AudioEngine::outputLatencyMillis() {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (!stream_ || stream_->getState() != oboe::StreamState::Started) return -1.0;
+    auto result = stream_->calculateLatencyMillis();
+    return result ? result.value() : -1.0;
+}
+
+int AudioEngine::outputDeviceId() {
+    std::lock_guard<std::mutex> guard(lock_);
+    return stream_ ? stream_->getDeviceId() : 0;
+}
+
+double AudioEngine::bufferLatencyMillis() {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (!stream_ || stream_->getSampleRate() <= 0) return -1.0;
+    return 1000.0 * stream_->getBufferSizeInFrames() / stream_->getSampleRate();
+}
+
 void AudioEngine::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {
-    // Typically a headphone plug/unplug: reopen on the new device.
-    if (error == oboe::Result::ErrorDisconnected) {
-        std::lock_guard<std::mutex> guard(lock_);
-        stream_.reset();
-        openStream();
-    }
+    // A disconnect (headphone plug/unplug, or another app taking exclusive audio) closes the
+    // stream. Reopen so playback resumes on the current device instead of going silent.
+    LOGE("stream closed with error: %s; reopening", oboe::convertToText(error));
+    std::lock_guard<std::mutex> guard(lock_);
+    stream_.reset();
+    openStream();
 }
 
 }  // namespace daw

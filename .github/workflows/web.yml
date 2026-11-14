@@ -1,0 +1,129 @@
+name: Web app
+
+# Builds the browser version: the APK's own Kotlin/Compose screens compiled to WebAssembly
+# (web/app) on top of the app's C++ audio engine compiled to WebAssembly (web/engine). The older
+# Preact version (web/src) is published under classic/ for browsers without WebAssembly GC.
+# Pushes to the install branch publish it to GitHub Pages (gh-pages branch), on their own: this
+# never waits for the APK build. Runs on every push so the web-build check always reports; the
+# changes job skips it (counts as passed) when nothing the web app uses changed.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  # Works out whether this push touches the APK, the web app, or both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.diff.outputs.apk }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/changed-areas.sh
+
+  build:
+    name: web-build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Compile the audio engine to WebAssembly
+        run: web/engine/build.sh
+      - name: Test the WebAssembly engine (drums, synths, every wavetable preset)
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+      - name: Build the classic web app
+        working-directory: web
+        run: npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Fetch the GeneralUser GS SoundFont (same file as the APK)
+        run: |
+          f=app/src/main/assets/soundfonts/GeneralUser-GS.sf2
+          mkdir -p "$(dirname "$f")"
+          curl -sSfL -o "$f" https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
+          echo "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe  $f" | sha256sum -c -
+      - name: Build the web app (the APK's own screens)
+        run: ./gradlew --no-daemon -p web/app wasmJsBrowserDistribution
+      - name: Smoke test in Chromium (starts, plays sound, saves, survives taps, pinch zoom)
+        working-directory: web/app
+        run: |
+          npm install --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node tests/smoke.mjs build/dist/wasmJs/productionExecutable
+          node tests/desktop.mjs build/dist/wasmJs/productionExecutable
+          node tests/touch.mjs build/dist/wasmJs/productionExecutable
+      - name: Google Drive sync test (two devices, pretend Drive)
+        working-directory: web/app
+        run: node tests/cloud-sync.mjs build/dist/wasmJs/productionExecutable
+      - name: Share and import a project between two friends
+        working-directory: web/app
+        run: node tests/project-share.mjs build/dist/wasmJs/productionExecutable
+      - name: Assemble the site
+        run: |
+          mkdir -p site
+          cp -r web/app/build/dist/wasmJs/productionExecutable/. site/
+          rm -f site/*.map
+          cp -r web/dist site/classic
+          echo "window.DAW_BUILD = { version: 'web-${GITHUB_SHA::7}', time: $(date +%s)000 };" > site/build-info.js
+          # Cache-busting: every script and .wasm is fetched as name?v=<build>, so an update always
+          # reaches the browser in one piece (no new page running old code from the cache).
+          v="web-${GITHUB_SHA::7}"
+          sed -i -E "s/__BUILD__/$v/; s/src=\"([a-z-]+\.js)\"/src=\"\1?v=$v\"/g" site/index.html
+          sed -i "s|\"./daw.wasm\"|\"./daw.wasm?v=$v\"|" site/daw.js
+          sed -i "s|fetch('engine.wasm')|fetch('engine.wasm?v=$v')|; s|addModule('engine-worklet.js')|addModule('engine-worklet.js?v=$v')|" site/platform.js
+          grep -q "daw.wasm?v=$v" site/daw.js && grep -q "daw.js?v=$v" site/index.html && grep -q "engine.wasm?v=$v" site/platform.js
+          # Offline: the service worker gets this build's file list (with content hashes).
+          node web/app/tools/offline-files.mjs site "$v"
+      - name: Offline test (first visit saves the app, then it starts and plays with no server)
+        working-directory: web/app
+        run: node tests/offline.mjs ../../site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: site
+
+  # The site always shows the install branch, the same code as the latest APK.
+  publish:
+    needs: build
+    if: github.ref_name == 'claude/sample-import'
+    runs-on: ubuntu-latest
+    concurrency: publish-web
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-app
+          path: site
+      - name: Publish to the gh-pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd site
+          touch .nojekyll
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Web app from ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          echo "Site: https://$(echo ${GITHUB_REPOSITORY_OWNER} | tr A-Z a-z).github.io/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_STEP_SUMMARY"
