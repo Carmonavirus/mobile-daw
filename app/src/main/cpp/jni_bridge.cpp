@@ -7,6 +7,7 @@
 
 #include "AudioEngine.h"
 #include "fx/ClipStretch.h"
+#include "fx/NoteDetect.h"
 
 using daw::AudioEngine;
 using daw::NoteEvent;
@@ -122,6 +123,18 @@ JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_shiftKeepLen
     std::vector<float> in(static_cast<size_t>(len));
     if (len > 0) env->GetFloatArrayRegion(frames, 0, len, in.data());
     const auto out = daw::fx::shiftKeepLength(in.data(), in.size(), sampleRate, semis, mode);
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(out.size()));
+    if (result != nullptr && !out.empty()) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(out.size()), out.data());
+    return result;
+}
+
+// Offline: the notes in a mono sound for the note viewer (fx/NoteDetect.h, flat layout).
+JNIEXPORT jfloatArray JNICALL Java_com_mobiledaw_audio_NativeEngine_detectNotes(
+    JNIEnv* env, jobject, jfloatArray frames, jfloat sampleRate) {
+    const jsize len = frames != nullptr ? env->GetArrayLength(frames) : 0;
+    std::vector<float> in(static_cast<size_t>(len));
+    if (len > 0) env->GetFloatArrayRegion(frames, 0, len, in.data());
+    const auto out = daw::fx::detectNotesFlat(in.data(), in.size(), sampleRate);
     jfloatArray result = env->NewFloatArray(static_cast<jsize>(out.size()));
     if (result != nullptr && !out.empty()) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(out.size()), out.data());
     return result;

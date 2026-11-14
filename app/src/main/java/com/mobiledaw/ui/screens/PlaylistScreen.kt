@@ -870,6 +870,19 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
             color = DawColors.Muted,
             modifier = Modifier.padding(top = 4.dp),
         )
+        val src = clip.sourceSeconds.coerceAtLeast(0.001f)
+        com.mobiledaw.ui.SeeNotesRow(
+            vm,
+            com.mobiledaw.model.NoteSource(
+                title = clip.name,
+                path = clip.path,
+                from = clip.offset / src,
+                to = (clip.offset + clip.seconds) / src,
+                pitchSemis = clip.pitchSemis,
+                rate = clip.rate,
+                reverse = clip.reverse,
+            ),
+        )
 
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

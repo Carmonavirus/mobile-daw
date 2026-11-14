@@ -1034,6 +1034,31 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val noteCache = HashMap<String, com.mobiledaw.model.NoteAnalysis>()
+
+    /**
+     * The notes in a sound for the note viewer, as it plays (transposed / sped up / reversed).
+     * Detection runs in the background (well under a second for a few minutes of audio on a
+     * phone) and is remembered, so reopening the viewer is instant. Null if it can't be read.
+     */
+    suspend fun analyseNotes(src: com.mobiledaw.model.NoteSource): com.mobiledaw.model.NoteAnalysis? {
+        noteCache[src.cacheKey]?.let { return it.asPlayed(src) }
+        val decoded = decodeSample(src.path) ?: return null
+        val raw = withContext(Dispatchers.Default) {
+            runCatching {
+                val f = decoded.frames
+                val r = decoded.right
+                val a = (src.from.coerceIn(0f, 1f) * f.size).toInt()
+                val b = (src.to.coerceIn(0f, 1f) * f.size).toInt().coerceIn(a, f.size)
+                val mono = FloatArray(b - a) { i -> if (r != null) 0.5f * (f[a + i] + r[a + i]) else f[a + i] }
+                com.mobiledaw.model.NoteAnalysis.fromFlat(NativeEngine.detectNotes(mono, decoded.sampleRate))
+            }.getOrNull()
+        } ?: return null
+        if (noteCache.size > 16) noteCache.clear()
+        noteCache[src.cacheKey] = raw
+        return raw.asPlayed(src)
+    }
+
     /** Peak values (0..1) across a sample, for drawing its waveform. */
     fun samplePeaks(path: String, bins: Int): FloatArray {
         val decoded = decodeSample(path) ?: return FloatArray(0)
