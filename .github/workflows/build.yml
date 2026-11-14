@@ -34,6 +34,10 @@ jobs:
           curl -sSfL -o engine-test/out/GeneralUser-GS.sf2 \
             https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
           cd engine-test && ./out/enginetest out/GeneralUser-GS.sf2
+      - name: Run the chord test (stacked notes all sound, on every instrument)
+        run: |
+          # Built by engine-test/build.sh in the first step; uses the SoundFont fetched there.
+          cd engine-test && ./out/chordtest out/GeneralUser-GS.sf2
       - name: Build and run the mixer effects test (EQ, pitch correction, mixer tracks)
         run: |
           # build.sh (above) also links the effects test against the full engine.
