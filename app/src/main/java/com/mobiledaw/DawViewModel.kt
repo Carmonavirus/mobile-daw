@@ -2276,7 +2276,15 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun receiveShared(intent: android.content.Intent?) {
         val uris = audioImport.urisFrom(intent)
-        if (uris.isEmpty()) return
+        if (uris.isEmpty()) {
+            // A link shared as text, e.g. Instagram → Share → Mobile DAW on a reel.
+            val text = intent?.takeIf { it.action == android.content.Intent.ACTION_SEND && it.type?.startsWith("text/") == true }
+                ?.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: return
+            tab = Tab.PLAYLIST
+            val link = com.mobiledaw.sound.LinkImport.findLink(text)
+            if (link == null) audioImportMessage = "That share had no link in it." else importFromLink(link, lane = null)
+            return
+        }
         // Copy straight away: the permission to read a shared file doesn't last.
         viewModelScope.launch {
             val zip = withContext(Dispatchers.IO) { uris.map { isZip(it) } }
@@ -2314,6 +2322,62 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (imported.size < uris.size) audioImportMessage = "Skipped ${uris.size - imported.size} file(s) that weren't readable audio."
             then(imported)
+        }
+    }
+
+    // ---------------------------------------------------------------- audio from a link (Instagram reels)
+
+    private val linkImport = com.mobiledaw.sound.LinkImport(java.io.File(app.cacheDir, "links"))
+
+    /** What the playlist says while an import runs. */
+    var importingLabel by mutableStateOf("Importing audio…")
+        private set
+
+    /** The user's own downloader (Settings → Link downloads); empty = built in only. */
+    var linkService by mutableStateOf(
+        com.mobiledaw.sound.LinkImport.Service(prefs.getString("link_service_url", null).orEmpty(), prefs.getString("link_service_key", null).orEmpty()),
+    )
+        private set
+
+    fun changeLinkService(url: String, key: String) {
+        linkService = com.mobiledaw.sound.LinkImport.Service(url.trim(), key.trim())
+        prefs.edit().putString("link_service_url", url.trim()).putString("link_service_key", key.trim()).apply()
+    }
+
+    /** Playlist row the "Add audio from a link" box is open for, or null when it is closed. */
+    var linkDialogLane by mutableStateOf<Int?>(null)
+
+    /**
+     * Downloads the video or audio behind [link] (an Instagram reel), keeps its sound and puts it on
+     * playlist row [lane] with its own mixer track. With no [lane] (a link shared to the app) the
+     * row picker opens, like for a shared file. Only runs when the user pastes or shares a link.
+     */
+    fun importFromLink(link: String, lane: Int?) {
+        if (importingAudio) return
+        importingAudio = true
+        importingLabel = "Getting the audio from the link…"
+        audioImportMessage = null
+        viewModelScope.launch {
+            val fetched = withContext(Dispatchers.IO) { runCatching { linkImport.fetch(link, linkService) } }
+            val media = fetched.getOrElse {
+                importingAudio = false
+                importingLabel = "Importing audio…"
+                audioImportMessage = (it as? com.mobiledaw.sound.LinkImport.LinkError)?.message
+                    ?: "Couldn't get the audio: ${it.message ?: "unknown error"}"
+                return@launch
+            }
+            importingLabel = "Converting the audio…"
+            com.mobiledaw.sound.MediaPrep.prepare(media.file)
+            val imported = withContext(Dispatchers.IO) {
+                runCatching { audioImport.importFile(media.file, media.name) }.getOrNull().also { media.file.delete() }
+            }
+            importingAudio = false
+            importingLabel = "Importing audio…"
+            when {
+                imported == null -> audioImportMessage = "Downloaded it, but couldn't find any sound in it."
+                lane == null -> sharedAudio = listOf(imported)
+                else -> placeImported(listOf(imported), lane)
+            }
         }
     }
 

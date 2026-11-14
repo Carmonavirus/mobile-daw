@@ -132,6 +132,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     ) { libraryOpen = true }
                 }
 
+                // ---------------------------------------------------------------- link downloads
+                SectionTitle("Link downloads")
+                SectionCard { LinkDownloadsSection(vm) }
+
                 // ---------------------------------------------------------------- appearance
                 SectionTitle("Appearance")
                 SectionCard {

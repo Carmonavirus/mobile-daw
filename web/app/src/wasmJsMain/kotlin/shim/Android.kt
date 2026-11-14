@@ -59,6 +59,7 @@ class Intent(val action: String? = null, var data: android.net.Uri? = null) {
     val clipData: ClipData? = null
     fun addFlags(flags: Int): Intent = this
     fun putExtra(name: String, value: Any?): Intent = this
+    fun getStringExtra(name: String): String? = null
     fun <T : Any> getParcelableExtra(name: String, cls: kotlin.reflect.KClass<T>): T? = null
     fun <T> getParcelableExtra(name: String): T? = null
     fun <T : Any> getParcelableArrayListExtra(name: String, cls: kotlin.reflect.KClass<T>): ArrayList<T>? = null
@@ -69,6 +70,7 @@ class Intent(val action: String? = null, var data: android.net.Uri? = null) {
         const val ACTION_SEND_MULTIPLE = "android.intent.action.SEND_MULTIPLE"
         const val ACTION_VIEW = "android.intent.action.VIEW"
         const val EXTRA_STREAM = "android.intent.extra.STREAM"
+        const val EXTRA_TEXT = "android.intent.extra.TEXT"
         const val FLAG_ACTIVITY_NEW_TASK = 0x10000000
         const val FLAG_GRANT_READ_URI_PERMISSION = 1
     }

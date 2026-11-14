@@ -39,6 +39,12 @@
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/ogg" />
             </intent-filter>
+            <!-- A link shared as text, e.g. Instagram → Share on a reel: its audio goes on the playlist. -->
+            <intent-filter android:label="@string/link_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
             <!-- A project a friend shared (Projects > Share), sent or opened as a .zip. -->
             <intent-filter android:label="@string/import_label">
                 <action android:name="android.intent.action.SEND" />
