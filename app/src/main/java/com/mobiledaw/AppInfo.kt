@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.5", "2026-11-14T11:30:00Z",
+            listOf(
+                "Add a reel's audio straight from Instagram: on a reel tap Share → Mobile DAW (\"Add audio to Mobile DAW\"), then pick a playlist row. Or tap a playlist row number → Add audio from a link and paste the reel's link.",
+                "The sound lands on that row with its own mixer track, like any imported loop. Public reels only, for personal use.",
+                "Settings → Link downloads: add your own downloader (a cobalt server, or any address with {url}) as a backup for when Instagram changes something. The web app needs one, because Instagram blocks browser pages from reading reels.",
+            ),
+        ),
+        Release(
             "0.9.4", "2026-11-14T01:00:00Z",
             listOf(
                 "New note viewer: tap an audio clip on the playlist (or open Channel settings on a sample) and tap See notes. It finds the notes in the sound and shows them as blobs on a piano roll, with a line for the exact pitch so slides and vibrato show.",

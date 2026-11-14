@@ -179,6 +179,7 @@ fun DawApp(vm: DawViewModel) {
     if (showProjects) ProjectsDialog(vm) { showProjects = false }
     ProjectShareDialog(vm)
     SharedAudioDialog(vm)
+    LinkImportDialog(vm)
     if (showTempo) TempoKeyDialog(vm) { showTempo = false }
     if (Desktop.shortcutsOpen) ShortcutsSheet(vm) { Desktop.shortcutsOpen = false }
     if (vm.exportOpen) ExportScreen(vm)

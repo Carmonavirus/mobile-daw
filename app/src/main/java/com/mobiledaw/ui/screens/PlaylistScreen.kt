@@ -285,7 +285,7 @@ fun PlaylistScreen(vm: DawViewModel) {
     Column(Modifier.fillMaxSize()) {
         PatternBar(vm)
         val importNote = when {
-            vm.importingAudio -> "Importing audio…"
+            vm.importingAudio -> vm.importingLabel
             else -> vm.audioImportMessage
         }
         // Only status notes (e.g. an audio import) show here; tool hints were dropped to save space.
@@ -315,6 +315,7 @@ fun PlaylistScreen(vm: DawViewModel) {
                         canDelete = rows > 1,
                         canAdd = rows < MAX_PLAYLIST_ROWS,
                         onAddAudio = { pickLane = lane; pickAudio.launch(AUDIO_TYPES) },
+                        onAddLink = { vm.linkDialogLane = lane },
                         onInsertRow = { vm.insertPlaylistRow(lane) },
                         onDeleteRow = { vm.deletePlaylistRow(lane) },
                     )
@@ -1081,6 +1082,7 @@ private fun LaneNumber(
     canDelete: Boolean,
     canAdd: Boolean,
     onAddAudio: () -> Unit,
+    onAddLink: () -> Unit,
     onInsertRow: () -> Unit,
     onDeleteRow: () -> Unit,
 ) {
@@ -1099,6 +1101,10 @@ private fun LaneNumber(
             DropdownMenuItem(
                 text = { Text("Add audio file to row ${lane + 1}") },
                 onClick = { menu = false; onAddAudio() },
+            )
+            DropdownMenuItem(
+                text = { Text("Add audio from a link (Instagram reel)") },
+                onClick = { menu = false; onAddLink() },
             )
             if (canAdd) {
                 DropdownMenuItem(

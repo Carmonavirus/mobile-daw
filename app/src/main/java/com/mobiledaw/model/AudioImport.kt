@@ -68,6 +68,22 @@ class AudioImport(private val context: Context) {
     }
 
     /**
+     * Converts a file the app downloaded itself (e.g. a reel's video from a link) and names the
+     * clip [display]. The audio track is decoded; any video is ignored. [source] is left in place.
+     */
+    fun importFile(source: File, display: String): Imported? {
+        dir.mkdirs()
+        val name = cleanName(display)
+        val target = uniqueFile(name)
+        val seconds = runCatching { convert(source, target) }.getOrNull()
+        if (seconds == null || seconds <= 0f) {
+            target.delete()
+            return null
+        }
+        return Imported(target.relativeTo(context.filesDir).path, name, seconds)
+    }
+
+    /**
      * Writes [source] as 16-bit WAV to [target] at its own sample rate, up to [MAX_SECONDS]. Stereo
      * stays stereo (left/right kept apart, like FL Studio); files with more channels keep the first two. Compressed formats are
      * decoded straight to the file block by block, so a long MP3 never sits in memory as floats.

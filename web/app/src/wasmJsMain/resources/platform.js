@@ -247,6 +247,20 @@ async function decodeForApp(file, bytes) {
   }
 }
 
+/** Decodes downloaded audio or video bytes; done(rate, left, right), rate 0 when the browser can't. */
+function decodeBytes(bytes, done) {
+  try {
+    const ctx = eng.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    ctx.decodeAudioData(copy).then(
+      (buf) => done(buf.sampleRate, buf.getChannelData(0).slice(), buf.numberOfChannels > 1 ? buf.getChannelData(1).slice() : null),
+      () => done(0, null, null),
+    );
+  } catch (e) {
+    done(0, null, null);
+  }
+}
+
 function makeInput(accept, multiple, folder) {
   const input = document.createElement('input');
   input.type = 'file';

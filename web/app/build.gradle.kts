@@ -19,6 +19,7 @@ val androidOnly = listOf(
     "com/mobiledaw/export/ExportStorage.kt",
     "com/mobiledaw/cloud/CloudPlatform.kt",
     "com/mobiledaw/ui/ResizeCursor.kt",
+    "com/mobiledaw/sound/MediaPrep.kt",
 )
 
 kotlin {

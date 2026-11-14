@@ -40,7 +40,7 @@ import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.ui.theme.DawColors
 
 @Composable
-private fun DawDialog(onDismiss: () -> Unit, title: String, content: @Composable () -> Unit) {
+internal fun DawDialog(onDismiss: () -> Unit, title: String, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
