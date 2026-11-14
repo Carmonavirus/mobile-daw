@@ -12,8 +12,6 @@ data class FoundNote(val start: Float, val end: Float, val midi: Float, val leve
     val name: String get() = noteName(pitch)
 }
 
-fun noteName(pitch: Int): String = NOTE_NAMES[pitch.mod(12)] + (pitch.floorDiv(12) - 1)
-
 /** Which part of which sound the note viewer looks at, and how it is played back. */
 data class NoteSource(
     val title: String,
