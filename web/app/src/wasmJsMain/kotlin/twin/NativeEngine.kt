@@ -98,6 +98,8 @@ object NativeEngine {
     const val MAX_INSERTS = 8
     const val MAX_SLOTS = 8
     const val MASTER_INSERT = MAX_INSERTS
+    /** Channel slot c has its own effects chain at insert CHANNEL_INSERT_BASE + c (fx::kChannelInsertBase). */
+    const val CHANNEL_INSERT_BASE = MASTER_INSERT + 1
 
     fun setChannelInsert(channel: Int, insert: Int) { Engine.call(BOTH, "ne_setChannelInsert", channel, insert) }
     fun setInsertCount(count: Int) { Engine.call(BOTH, "ne_setInsertCount", count) }

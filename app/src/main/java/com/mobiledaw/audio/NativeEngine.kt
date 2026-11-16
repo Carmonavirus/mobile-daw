@@ -100,6 +100,8 @@ object NativeEngine {
     const val MAX_SLOTS = 8
     /** Insert index of the master's own effects chain (fx::kMasterInsert). */
     const val MASTER_INSERT = MAX_INSERTS
+    /** Channel slot c has its own effects chain at insert CHANNEL_INSERT_BASE + c (fx::kChannelInsertBase). */
+    const val CHANNEL_INSERT_BASE = MASTER_INSERT + 1
 
     /** Routes a channel slot to mixer track [insert] (0 until MAX_INSERTS), or -1 for the master. */
     external fun setChannelInsert(channel: Int, insert: Int)

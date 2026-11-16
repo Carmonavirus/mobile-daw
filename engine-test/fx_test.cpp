@@ -484,6 +484,77 @@ int main() {
         }
     }
 
+    // ---- every channel has its own effects chain (before its volume and pan)
+    {
+        // Two channels play; only channel 1 gets a clipper. mode: 0 none, 1 clipper, 2 clipper
+        // added then removed, 3 clipper with the channel sent to a mixer track.
+        auto chanPeaks = [](int mode) {
+            Core core;
+            core.setSampleRate(48000);
+            core.setChannelCount(2);
+            core.setChannel(0, 5, 1.0f, 0.0f, false, false);
+            core.setChannel(1, 5, 1.0f, 0.0f, false, false);
+            core.setMasterVolume(1.0f);
+            const int chain = kChannelInsertBase + 1;
+            if (mode != 0) {
+                core.setInsertEffect(chain, 0, kFxClip, false);
+                core.setEffectParam(chain, 0, kClipGain, 0.0f);
+                core.setEffectParam(chain, 0, kClipThreshold, -12.0f);
+                core.setEffectParam(chain, 0, kClipPost, -24.0f);
+            }
+            if (mode == 3) {
+                core.setInsertCount(1);
+                core.setInsert(0, 1.0f, 0.0f, false);
+                core.setChannelInsert(1, 0);
+            }
+            std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat * 4, 69, 1.0f}, {1, 0, kTicksPerBeat * 4, 69, 1.0f}};
+            core.setSequence(ev, kTicksPerBeat * 4);
+            core.setPlaying(true);
+            std::vector<float> buf(2 * 9600);
+            core.renderMix(buf.data(), 9600);
+            if (mode == 2) {
+                core.setInsertEffect(chain, 0, kFxNone, false);
+                core.renderMix(buf.data(), 9600);
+            }
+            float lv[2];
+            core.readLevels(lv, 2);
+            float track[1] = {0.0f};
+            core.readInsertLevels(track, 1);
+            bool nan = false;
+            for (float s : buf) nan |= std::isnan(s);
+            return std::array<double, 4>{double(lv[0]), double(lv[1]), double(track[0]), nan ? 1.0 : 0.0};
+        };
+        const auto none = chanPeaks(0), on = chanPeaks(1), removed = chanPeaks(2), routed = chanPeaks(3);
+        check(none[0] > 0.1 && std::fabs(none[0] - none[1]) < 0.02, "channel fx: both channels equal without effects", none[1]);
+        check(on[1] < 0.1 && on[1] > 0.002 && on[3] == 0.0, "channel fx: clipper turns its own channel down", on[1]);
+        check(std::fabs(on[0] - none[0]) < 0.02, "channel fx: the other channel is untouched", on[0]);
+        check(removed[1] > 0.1 && std::fabs(removed[1] - removed[0]) < 0.02, "channel fx: removing the effect restores the channel", removed[1]);
+        check(routed[2] > 0.002 && routed[2] < 0.1, "channel fx: effected channel still reaches its mixer track", routed[2]);
+
+        // Pitch Correct and Key Detector are made on demand; both work on a channel chain.
+        Core core;
+        core.setSampleRate(48000);
+        core.setChannelCount(1);
+        core.setChannel(0, 5, 1.0f, 0.0f, false, false);
+        std::vector<float> key(kKeyOutCount);
+        core.readKey(kChannelInsertBase, 1, key.data());
+        check(int(key[kKeyOutKey]) == -1, "channel fx: key readout on an empty slot", key[kKeyOutKey]);
+        core.setInsertEffect(kChannelInsertBase, 0, kFxPitch, false);
+        core.setInsertEffect(kChannelInsertBase, 1, kFxKey, false);
+        core.setInsertEffect(kInsertTotal, 0, kFxEq, false);  // out of range: ignored
+        std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat * 4, 69, 1.0f}};
+        core.setSequence(ev, kTicksPerBeat * 4);
+        core.setPlaying(true);
+        std::vector<float> buf(2 * 48000);
+        core.renderMix(buf.data(), 48000);
+        double peak = 0;
+        bool nan = false;
+        for (float s : buf) { peak = std::max(peak, double(std::fabs(s))); nan |= std::isnan(s); }
+        check(peak > 0.05 && !nan, "channel fx: pitch correct + key detector chain is audible", peak);
+        core.readKey(kChannelInsertBase, 1, key.data());
+        check(key[kKeyOutHeard] > 0.5f, "channel fx: key detector on a channel hears the sound", key[kKeyOutHeard]);
+    }
+
     std::printf(failures ? "\n%d check(s) failed\n" : "\nall effect checks passed\n", failures);
     return failures ? 1 : 0;
 }

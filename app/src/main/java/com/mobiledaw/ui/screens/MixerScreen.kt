@@ -54,6 +54,7 @@ import com.mobiledaw.model.MAX_MIXER_TRACKS
 import com.mobiledaw.model.MixerTrack
 import com.mobiledaw.model.NOTE_NAMES
 import com.mobiledaw.model.Project
+import com.mobiledaw.model.channelFxId
 import com.mobiledaw.ui.RoundToggle
 import com.mobiledaw.ui.formatGainDb
 import com.mobiledaw.ui.formatMeterDb
@@ -66,8 +67,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * The mixer, top to bottom: the master, the mixer tracks (each with an effects chain, e.g. the
- * Vocals track recordings play through) and the channels, which can each be sent to a track.
+ * The mixer, top to bottom: the master, the mixer tracks (e.g. the Vocals track recordings play
+ * through) and the channels, which can each be sent to a track. Every strip has its own effects chain.
  */
 @Composable
 fun MixerScreen(vm: DawViewModel) {
@@ -96,7 +97,7 @@ fun MixerScreen(vm: DawViewModel) {
             onAction = { vm.addMixerTrack() },
         )
     }
-    val noTracks: @Composable () -> Unit = { Hint("No mixer tracks. Add one to give a group of sounds its own effects.") }
+    val noTracks: @Composable () -> Unit = { Hint("No mixer tracks. Add one to give a group of sounds shared effects.") }
     val noChannels: @Composable () -> Unit = { Hint("No sounds yet. Add drums or sounds in the Channel rack.") }
     val channelStrip: @Composable (Int, com.mobiledaw.model.Channel) -> Unit = { index, ch ->
         Strip(
@@ -115,9 +116,13 @@ fun MixerScreen(vm: DawViewModel) {
             expanded = vm.mixerOpen["ch-${ch.id}"] == true,
             onToggle = { vm.toggleMixerStrip("ch-${ch.id}") },
             header = {
+                if (ch.effects.isNotEmpty()) Badge("FX ${ch.effects.size}")
                 RouteChip(p, ch.mixerTrack) { vm.routeChannel(ch.id, it) }
             },
-        )
+        ) {
+            // The channel's own effects, shown through its track-shaped view (see channelFxId).
+            p.mixerTrack(channelFxId(ch.id))?.let { EffectChain(vm, p, it) }
+        }
     }
 
     if (windowWidthClass() != WindowWidthClass.COMPACT) {

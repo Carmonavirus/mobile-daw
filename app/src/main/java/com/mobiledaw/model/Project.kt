@@ -98,6 +98,8 @@ data class Channel(
     val pitch: Int? = null,
     /** Mixer track this channel plays through; null goes straight to the master. */
     val mixerTrack: Long? = null,
+    /** The channel's own effects, heard before its volume and pan. */
+    val effects: List<Effect> = emptyList(),
 )
 
 /** The pitch a step on this channel plays. */
@@ -262,15 +264,19 @@ data class Project(
     fun mixerTrack(id: Long?): MixerTrack? = when (id) {
         null -> null
         MASTER_TRACK_ID -> masterTrack
-        else -> mixerTracks.firstOrNull { it.id == id }
+        else -> if (id < 0) channelTrack(id) else mixerTracks.firstOrNull { it.id == id }
     }
 
     /** The master's effects chain, shaped like a mixer track so the effect editors work on it. */
     val masterTrack: MixerTrack get() = MixerTrack(MASTER_TRACK_ID, "Master", volume = masterVolume, effects = masterEffects)
 
+    /** A channel's own effects chain ([channelFxId]), shaped like a mixer track for the effect editors. */
+    private fun channelTrack(fxId: Long): MixerTrack? = channels.firstOrNull { channelFxId(it.id) == fxId }
+        ?.let { MixerTrack(fxId, it.name, volume = it.volume, pan = it.pan, mute = it.mute, effects = it.effects) }
+
     fun nextMixerTrackId(): Long = (mixerTracks.maxOfOrNull { it.id } ?: 0L) + 1
 
-    fun nextEffectId(): Long = ((mixerTracks.flatMap { it.effects } + masterEffects).maxOfOrNull { it.id } ?: 0L) + 1
+    fun nextEffectId(): Long = ((mixerTracks.flatMap { it.effects } + masterEffects + channels.flatMap { it.effects }).maxOfOrNull { it.id } ?: 0L) + 1
 
     fun nextId(): Long =
         (channels.map { it.id } + patterns.map { it.id } + audioClips.map { it.id }).maxOrNull()?.plus(1) ?: 1L

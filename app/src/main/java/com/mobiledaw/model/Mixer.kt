@@ -14,6 +14,12 @@ const val VOCALS_TRACK_ID = 1L
 /** Pseudo track id for the master's own effects chain (real mixer track ids start at 1). */
 const val MASTER_TRACK_ID = 0L
 
+/**
+ * Pseudo track id for a channel's own effects chain. Negative, so it never clashes with the
+ * master (0) or a mixer track (1 and up); [Project.mixerTrack] turns it into a track-shaped view.
+ */
+fun channelFxId(channelId: Long): Long = -channelId
+
 /** Effect plugins. The id must match fx::EffectType in app/src/main/cpp/fx/Mixer.h. */
 enum class EffectType(val id: Int, val label: String, val blurb: String) {
     EQ(1, "Parametric EQ", "Shape the tone with up to 8 bands"),
