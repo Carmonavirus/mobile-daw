@@ -26,10 +26,17 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.9.6", "2026-11-16T07:30:00Z",
+            "0.9.7", "2026-11-16T07:30:00Z",
             listOf(
                 "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
                 "A channel's effects come before its volume and pan, and the sound still goes on to its mixer track or the master. A small FX badge shows which channels have effects.",
+            ),
+        ),
+        Release(
+            "0.9.6", "2026-11-16T07:30:00Z",
+            listOf(
+                "Instagram reel links: when Instagram turns the app's request away, the app now opens the reel behind the scenes the way your browser does and takes the video from there. It also tries more places for the video first.",
+                "If a reel still can't be fetched, the note on the playlist now says exactly which step failed, so it can be fixed.",
             ),
         ),
         Release(
