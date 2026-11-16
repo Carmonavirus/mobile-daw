@@ -174,7 +174,7 @@ fun ColumnScope.SourcePage(vm: DawViewModel, source: SoundSource, actionLabel: S
         SoundSource.SYNTHS -> EnginePage(vm, actionLabel, drumMode, onPick)
         SoundSource.SFZ -> SfzPage(vm, actionLabel, onPick)
         SoundSource.FREESOUND, SoundSource.COMMONS, SoundSource.ARCHIVE -> OnlinePage(vm, source, actionLabel, onPick)
-        SoundSource.DIG -> SampleDiggerPage()
+        SoundSource.DIG -> SampleDiggerPage(vm)
         SoundSource.FREE_SITES -> FreeSitesPage()
         SoundSource.CREDITS -> CreditsPage(vm)
         SoundSource.KITS -> {}
