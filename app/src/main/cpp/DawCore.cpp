@@ -8,7 +8,7 @@
 
 namespace daw {
 
-Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kMaxInserts + 1>>()) {
+Core::Core() : inserts_(std::make_unique<std::array<fx::Insert, fx::kInsertTotal>>()) {
     for (auto& l : levels_) l.store(0.0f);
     for (int i = 0; i < kSampleSlots; ++i) {
         pendingSample_[i].store(nullptr);
@@ -421,14 +421,15 @@ void Core::setInsert(int index, float volume, float pan, bool mute) {
 }
 
 void Core::setInsertEffect(int index, int slot, int type, bool bypass) {
-    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
+    if (index < 0 || index >= fx::kInsertTotal || slot < 0 || slot >= fx::kMaxSlots) return;
     auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
+    s.ensure(type);
     s.type.store(type);
     s.bypass.store(bypass);
 }
 
 void Core::setEffectParam(int index, int slot, int param, float value) {
-    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
+    if (index < 0 || index >= fx::kInsertTotal || slot < 0 || slot >= fx::kMaxSlots || param < 0 || param >= fx::kSlotParams) return;
     (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].params[static_cast<size_t>(param)].store(value);
 }
 
@@ -437,7 +438,7 @@ void Core::readInsertLevels(float* out, int count) const {
 }
 
 void Core::readInsertSignal(int index, float* out, int count) const {
-    if (index < 0 || index > fx::kMasterInsert) return;
+    if (index < 0 || index >= fx::kInsertTotal) return;
     const auto& ins = (*inserts_)[static_cast<size_t>(index)];
     count = std::min(count, fx::kSpectrumSize);
     const int end = ins.spectrumWrite.load();
@@ -447,17 +448,20 @@ void Core::readInsertSignal(int index, float* out, int count) const {
 
 void Core::readPitch(int index, int slot, float* out) const {
     out[0] = out[1] = 0.0f;
-    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
+    if (index < 0 || index >= fx::kInsertTotal || slot < 0 || slot >= fx::kMaxSlots) return;
     const auto& s = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)];
-    out[0] = s.pitch.detectedHz();
-    out[1] = s.pitch.targetHz();
+    const fx::PitchCorrector* pc = s.pitch.load();
+    if (!pc) return;
+    out[0] = pc->detectedHz();
+    out[1] = pc->targetHz();
 }
 
 void Core::readKey(int index, int slot, float* out) const {
     for (int i = 0; i < fx::kKeyOutCount; ++i) out[i] = 0.0f;
     out[fx::kKeyOutKey] = out[fx::kKeyOutSecond] = -1.0f;
-    if (index < 0 || index > fx::kMasterInsert || slot < 0 || slot >= fx::kMaxSlots) return;
-    (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].key.read(out);
+    if (index < 0 || index >= fx::kInsertTotal || slot < 0 || slot >= fx::kMaxSlots) return;
+    const fx::KeyDetector* kd = (*inserts_)[static_cast<size_t>(index)].slots[static_cast<size_t>(slot)].key.load();
+    if (kd) kd->read(out);
 }
 
 void Core::previewNote(int channel, int pitch, float velocity) { pushPreview({channel, pitch, velocity, 0}); }
@@ -747,6 +751,10 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         std::fill(busL_[static_cast<size_t>(b)].begin(), busL_[static_cast<size_t>(b)].begin() + frames, 0.0f);
         std::fill(busR_[static_cast<size_t>(b)].begin(), busR_[static_cast<size_t>(b)].begin() + frames, 0.0f);
     }
+    // Channels with their own effects are rendered into a buffer first (before volume and pan).
+    bool ownFx[kMaxChannels];
+    for (int c = 0; c < channelCount; ++c)
+        ownFx[c] = (*inserts_)[static_cast<size_t>(fx::kChannelInsertBase + c)].anyEffect();
     SampleShape shapes[kMaxChannels];
     float synthBoost[kMaxChannels];
     for (int c = 0; c < channelCount; ++c) {
@@ -853,6 +861,11 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
                     sumR = boostSoftClip(sumR);
                 }
             }
+            if (ownFx[c]) {
+                chanL_[static_cast<size_t>(c)][static_cast<size_t>(i)] = audible[c] ? sumL : 0.0f;
+                chanR_[static_cast<size_t>(c)][static_cast<size_t>(i)] = audible[c] ? sumR : 0.0f;
+                continue;
+            }
             if (!audible[c]) continue;
             float l = sumL * gains[c][0];
             float rr = sumR * gains[c][1];
@@ -878,6 +891,34 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         }
         out[2 * i] = left;
         out[2 * i + 1] = right;
+    }
+
+    // Channels with their own effects: run the chain, then volume and pan, then on to the
+    // channel's mixer track or the master like any other channel.
+    for (int c = 0; c < channelCount; ++c) {
+        if (!ownFx[c]) continue;
+        auto& ins = (*inserts_)[static_cast<size_t>(fx::kChannelInsertBase + c)];
+        float* cl = chanL_[static_cast<size_t>(c)].data();
+        float* cr = chanR_[static_cast<size_t>(c)].data();
+        for (auto& slot : ins.slots) slot.process(cl, cr, frames, sr);
+        int w = ins.spectrumWrite.load(std::memory_order_relaxed);
+        const bool toBus = routes[c] >= 0;
+        float* dl = toBus ? busL_[static_cast<size_t>(routes[c])].data() : nullptr;
+        float* dr = toBus ? busR_[static_cast<size_t>(routes[c])].data() : nullptr;
+        for (int i = 0; i < frames; ++i) {
+            ins.spectrum[static_cast<size_t>(w)] = 0.5f * (cl[i] + cr[i]);
+            w = (w + 1) % fx::kSpectrumSize;
+            const float l = cl[i] * gains[c][0], r = cr[i] * gains[c][1];
+            peaks[c] = std::max(peaks[c], std::max(std::fabs(l), std::fabs(r)));
+            if (toBus) {
+                dl[i] += l;
+                dr[i] += r;
+            } else {
+                out[2 * i] += l;
+                out[2 * i + 1] += r;
+            }
+        }
+        ins.spectrumWrite.store(w, std::memory_order_relaxed);
     }
 
     // Mixer tracks: run each bus through its effects and add it to the master.
@@ -911,9 +952,7 @@ void Core::renderBlock(float* out, int frames, bool withClick) {
         auto& ins = (*inserts_)[fx::kMasterInsert];
         float* ml = busL_[fx::kMasterInsert].data();
         float* mr = busR_[fx::kMasterInsert].data();
-        bool any = false;
-        for (auto& slot : ins.slots) any |= slot.type.load(std::memory_order_relaxed) != fx::kFxNone || slot.activeType != fx::kFxNone;
-        if (any) {
+        if (ins.anyEffect()) {
             for (int i = 0; i < frames; ++i) {
                 ml[i] = out[2 * i];
                 mr[i] = out[2 * i + 1];

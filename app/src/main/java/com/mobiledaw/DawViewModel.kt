@@ -25,6 +25,7 @@ import com.mobiledaw.model.EffectType
 import com.mobiledaw.model.ClipSettings
 import com.mobiledaw.model.EqSettings
 import com.mobiledaw.model.MASTER_TRACK_ID
+import com.mobiledaw.model.channelFxId
 import com.mobiledaw.model.MAX_EFFECTS
 import com.mobiledaw.model.MAX_MIXER_TRACKS
 import com.mobiledaw.model.MixerTrack
@@ -76,6 +77,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     // What each engine effect slot last received, so unchanged effects aren't resent.
     // Also declared before init{} (syncEngine() -> syncMixer() reads it).
     private val sentEffects = HashMap<Int, Pair<Int, FloatArray>>()
+    // Type and on/off each engine effect slot last received (every channel has a chain, so
+    // resending them all on each knob move would be hundreds of calls).
+    private val sentSlots = HashMap<Int, Int>()
 
     /** Mixer track meters, by position in [Project.mixerTracks]. Before init{}: its loop writes it. */
     var trackLevels by mutableStateOf(FloatArray(NativeEngine.MAX_INSERTS))
@@ -2417,6 +2421,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             p
         }
         sentEffects.clear()
+        sentSlots.clear()
         tab = Tab.PLAYLIST
         // Audio clips play in song mode.
         if (mode != PlayMode.SONG) switchMode(PlayMode.SONG)
@@ -2619,15 +2624,25 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Engine insert index whose effects chain belongs to [trackId], including the master's; -1 if none. */
-    private fun fxIndex(trackId: Long): Int =
-        if (trackId == MASTER_TRACK_ID) NativeEngine.MASTER_INSERT else insertIndex(trackId)
+    private fun fxIndex(trackId: Long): Int = when {
+        trackId == MASTER_TRACK_ID -> NativeEngine.MASTER_INSERT
+        trackId < 0 -> {
+            val i = project.channels.indexOfFirst { channelFxId(it.id) == trackId }
+            if (i in 0 until NativeEngine.MAX_CHANNELS) NativeEngine.CHANNEL_INSERT_BASE + i else -1
+        }
+        else -> insertIndex(trackId)
+    }
 
     private fun syncEffects(t: Int, effects: List<Effect>, p: Project) {
         for (slot in 0 until NativeEngine.MAX_SLOTS) {
             val fx = effects.getOrNull(slot)
             val key = t * NativeEngine.MAX_SLOTS + slot
             val type = fx?.type?.id ?: 0
-            NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
+            val state = type * 2 + if (fx?.bypass == true) 1 else 0
+            if (sentSlots[key] != state) {
+                NativeEngine.setInsertEffect(t, slot, type, fx?.bypass ?: false)
+                sentSlots[key] = state
+            }
             if (fx == null) {
                 sentEffects.remove(key)
                 continue
@@ -2652,6 +2667,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         // Tracks past the end get an empty chain, so a deleted track's effects stop running.
         for (t in tracks.size until NativeEngine.MAX_INSERTS) syncEffects(t, emptyList(), p)
         syncEffects(NativeEngine.MASTER_INSERT, p.masterEffects, p)
+        // Each channel's own chain; slots past the channels (audio clips, unused) stay empty.
+        for (i in 0 until NativeEngine.MAX_CHANNELS) {
+            syncEffects(NativeEngine.CHANNEL_INSERT_BASE + i, p.channels.getOrNull(i)?.effects.orEmpty(), p)
+        }
         p.channels.take(NativeEngine.MAX_CHANNELS).forEachIndexed { i, c ->
             NativeEngine.setChannelInsert(i, insertIndex(c.mixerTrack))
         }
@@ -2673,6 +2692,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     fun updateMixerTrack(id: Long, transform: (MixerTrack) -> MixerTrack) = updateMixer { p ->
         if (id == MASTER_TRACK_ID) {
             p.copy(masterEffects = transform(p.masterTrack).effects)
+        } else if (id < 0) {
+            // A channel's own chain: only its effects live here (volume and pan are the channel's).
+            val effects = p.mixerTrack(id)?.let(transform)?.effects
+            if (effects == null) p else p.copy(channels = p.channels.map { if (channelFxId(it.id) == id) it.copy(effects = effects) else it })
         } else {
             p.copy(mixerTracks = p.mixerTracks.map { if (it.id == id) transform(it) else it })
         }
@@ -2698,6 +2721,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         sentEffects.clear()
+        sentSlots.clear()
         undoSnapshot = before
         undoLabel = "Deleted $name"
     }

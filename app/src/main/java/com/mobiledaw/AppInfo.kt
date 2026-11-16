@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.6", "2026-11-16T07:30:00Z",
+            listOf(
+                "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
+                "A channel's effects come before its volume and pan, and the sound still goes on to its mixer track or the master. A small FX badge shows which channels have effects.",
+            ),
+        ),
+        Release(
             "0.9.5", "2026-11-14T11:30:00Z",
             listOf(
                 "Add a reel's audio straight from Instagram: on a reel tap Share → Mobile DAW (\"Add audio to Mobile DAW\"), then pick a playlist row. Or tap a playlist row number → Add audio from a link and paste the reel's link.",
