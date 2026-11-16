@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobiledaw.DawViewModel
+import com.mobiledaw.sound.LinkImport
 import com.mobiledaw.sound.SampleDigger
 import com.mobiledaw.ui.theme.DawColors
 import kotlinx.coroutines.CancellationException
@@ -47,7 +49,7 @@ import kotlinx.coroutines.withContext
 
 /** Sound library → Dig for samples: a random old record by genre, decade and country. */
 @Composable
-fun ColumnScope.SampleDiggerPage() {
+fun ColumnScope.SampleDiggerPage(vm: DawViewModel) {
     val uri = LocalUriHandler.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -56,6 +58,7 @@ fun ColumnScope.SampleDiggerPage() {
     var region by remember { mutableStateOf(SampleDigger.REGIONS.first()) }
     var current by remember { mutableStateOf(SampleDigger.history.firstOrNull()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var bringHint by remember { mutableStateOf<String?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     val history = remember { mutableStateListOf<SampleDigger.Dig>().apply { addAll(SampleDigger.history.drop(1)) } }
     val digging = job?.isActive == true
@@ -87,7 +90,7 @@ fun ColumnScope.SampleDiggerPage() {
         item {
             Text(
                 "Tap Dig for a random record from the crates hip-hop and trap producers sample: old soul, funk, jazz, library and more. " +
-                    "Play it on YouTube, then bring the part you like in with Import from link.",
+                    "Play it on YouTube, copy the video's link, then tap Bring into project.",
                 fontSize = 13.sp,
                 color = DawColors.InkSoft,
                 modifier = Modifier.padding(vertical = 6.dp),
@@ -135,6 +138,22 @@ fun ColumnScope.SampleDiggerPage() {
                     TextAction("Copy name") { clipboard.setText(AnnotatedString("${d.artist} - ${d.title}")) }
                     TextAction("Record info") { uri.openUri(d.musicBrainzUrl) }
                     TextAction("Discogs") { uri.openUri(d.discogsUrl) }
+                }
+                // The dig only knows the record's name, so the video's own link comes from the user.
+                TextAction(if (vm.importingAudio) "Getting the audio…" else "Bring into project", strong = true) {
+                    val link = LinkImport.findLink(runCatching { clipboard.getText()?.text }.getOrNull())
+                    when {
+                        vm.importingAudio -> {}
+                        link == null -> bringHint = "On YouTube tap Share → Copy link on the video you like, then tap Bring into project again."
+                        else -> {
+                            bringHint = if (vm.linkService.isSet) null
+                            else "YouTube links need a downloader: add one in Settings → Link downloads."
+                            vm.importFromLink(link, null)
+                        }
+                    }
+                }
+                (vm.audioImportMessage ?: bringHint)?.let {
+                    Text(it, fontSize = 12.sp, color = DawColors.InkSoft, modifier = Modifier.padding(vertical = 4.dp))
                 }
             }
         }
