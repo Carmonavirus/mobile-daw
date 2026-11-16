@@ -2358,12 +2358,29 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         importingLabel = "Getting the audio from the link…"
         audioImportMessage = null
         viewModelScope.launch {
-            val fetched = withContext(Dispatchers.IO) { runCatching { linkImport.fetch(link, linkService) } }
+            var fetched = withContext(Dispatchers.IO) { runCatching { linkImport.fetch(link, linkService) } }
+            val code = com.mobiledaw.sound.LinkImport.shortcode(link)
+            var why = fetched.exceptionOrNull()?.let { it.message ?: "unknown error" }.orEmpty()
+            // Instagram often turns away plain requests: open the reel like a browser would.
+            if (fetched.isFailure && code != null && com.mobiledaw.sound.ReelBrowser.available) {
+                importingLabel = "Opening the reel like a browser…"
+                val (url, note) = com.mobiledaw.sound.ReelBrowser.find(getApplication<Application>(), code)
+                if (url != null) {
+                    fetched = withContext(Dispatchers.IO) { runCatching { linkImport.fetchUrl(url, "Reel $code") } }
+                    fetched.exceptionOrNull()?.let { why += " Browser: found the video, but ${it.message ?: "the download failed."}" }
+                } else {
+                    why += " Browser: $note"
+                }
+            }
             val media = fetched.getOrElse {
                 importingAudio = false
                 importingLabel = "Importing audio…"
-                audioImportMessage = (it as? com.mobiledaw.sound.LinkImport.LinkError)?.message
-                    ?: "Couldn't get the audio: ${it.message ?: "unknown error"}"
+                val hint = when {
+                    code == null -> ""
+                    linkService.isSet -> " Check the reel is public, or try another downloader in Settings → Link downloads."
+                    else -> " Check the reel is public. If it keeps failing, add a downloader in Settings → Link downloads."
+                }
+                audioImportMessage = if (code == null && !linkService.isSet) why else "Couldn't get the audio. $why$hint"
                 return@launch
             }
             importingLabel = "Converting the audio…"

@@ -26,6 +26,13 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.6", "2026-11-16T07:30:00Z",
+            listOf(
+                "Instagram reel links: when Instagram turns the app's request away, the app now opens the reel behind the scenes the way your browser does and takes the video from there. It also tries more places for the video first.",
+                "If a reel still can't be fetched, the note on the playlist now says exactly which step failed, so it can be fixed.",
+            ),
+        ),
+        Release(
             "0.9.5", "2026-11-14T11:30:00Z",
             listOf(
                 "Add a reel's audio straight from Instagram: on a reel tap Share → Mobile DAW (\"Add audio to Mobile DAW\"), then pick a playlist row. Or tap a playlist row number → Add audio from a link and paste the reel's link.",

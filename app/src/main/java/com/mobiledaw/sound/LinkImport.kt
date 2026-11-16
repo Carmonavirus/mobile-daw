@@ -64,10 +64,12 @@ class LinkImport(private val cacheDir: File) {
         } else if (!service.isSet) {
             throw LinkError("Only Instagram reel and post links work without a downloader. Add one in Settings → Link downloads for other sites.")
         }
-        val hint = if (service.isSet) "Check the reel is public, or try another downloader in Settings → Link downloads."
-        else "Check the reel is public. If it keeps failing, Instagram changed something: add a downloader in Settings → Link downloads (in the web app you always need one)."
-        throw LinkError("Couldn't get the audio. ${problems.joinToString(" ")} $hint")
+        throw LinkError(problems.joinToString(" "))
     }
+
+    /** Downloads a video whose address is already known (found by [ReelBrowser]). Blocking. */
+    fun fetchUrl(url: String, name: String): Media =
+        Media(download(url, mapOf("User-Agent" to BROWSER_UA, "Referer" to "https://www.instagram.com/")), name)
 
     // ---------------------------------------------------------------- your downloader
 
@@ -123,29 +125,56 @@ class LinkImport(private val cacheDir: File) {
 
     private fun fromInstagram(code: String): File {
         val headers = mapOf("User-Agent" to BROWSER_UA, "Accept-Language" to "en-US,en;q=0.9")
-        // 1. The embed page often carries the video link.
-        val embed = runCatching { get("https://www.instagram.com/p/$code/embed/captioned/", headers) }.getOrNull()
-        val embedText = embed?.takeIf { it.code in 200..299 }?.let { String(it.body) }.orEmpty()
-        videoUrl(embedText)?.let { return download(it, headers + ("Referer" to "https://www.instagram.com/")) }
-        // 2. The same query the website runs for a post, with the page's token.
-        val lsd = Regex("\"LSD\",\\[\\],\\{\"token\":\"([^\"]+)\"").find(embedText)?.groupValues?.get(1) ?: "AVqbxe3J_YA"
-        val form = "variables=" + URLEncoder.encode("{\"shortcode\":\"$code\"}", "UTF-8") +
-            "&doc_id=8845758582119845&lsd=$lsd"
-        val gql = runCatching {
-            request(
-                "POST", "https://www.instagram.com/graphql/query", headers + mapOf(
-                    "Content-Type" to "application/x-www-form-urlencoded",
-                    "X-IG-App-ID" to "936619743392459",
-                    "X-FB-LSD" to lsd,
-                    "X-ASBD-ID" to "129477",
-                    "Referer" to "https://www.instagram.com/reel/$code/",
-                ), form.toByteArray(),
-            )
-        }.getOrNull()
-        videoUrl(gql?.let { String(it.body) }.orEmpty())?.let { return download(it, headers + ("Referer" to "https://www.instagram.com/")) }
-        if (embed == null && gql == null) throw LinkError("couldn't reach it.")
-        if (embedText.contains("\"is_private\":true") || embedText.contains("EmbedIsBroken")) throw LinkError("this reel isn't public.")
-        throw LinkError("no video found for that reel.")
+        val dl = headers + ("Referer" to "https://www.instagram.com/")
+        val tried = mutableListOf<String>()
+        var lsd: String? = null
+        var notPublic = false
+
+        /** Reads one page; returns the video link in it, if any. */
+        fun page(label: String, url: String, h: Map<String, String>): String? {
+            val a = try {
+                get(url, h)
+            } catch (e: Exception) {
+                tried += "$label unreachable"
+                return null
+            }
+            val text = String(a.body)
+            LSD.find(text)?.let { lsd = it.groupValues[1] }
+            if (text.contains("\"is_private\":true") || text.contains("EmbedIsBroken")) notPublic = true
+            val video = if (a.code in 200..299) videoUrl(text) else null
+            tried += if (video != null) "$label ok" else if (a.code !in 200..299) "$label HTTP ${a.code}" else if (text.contains("/accounts/login")) "$label wants a login" else "$label had no video"
+            return video
+        }
+
+        // 1. The embed pages often carry the video link.
+        page("embed", "https://www.instagram.com/p/$code/embed/captioned/", headers)?.let { return download(it, dl) }
+        page("reel embed", "https://www.instagram.com/reel/$code/embed/", headers)?.let { return download(it, dl) }
+        // 2. The link preview Instagram gives other sites.
+        page("preview", "https://www.instagram.com/reel/$code/", mapOf("User-Agent" to PREVIEW_UA))?.let { return download(it, dl) }
+        // 3. The same query the website runs for a post, with the page's token.
+        val token = lsd ?: "AVqbxe3J_YA"
+        for (doc in DOC_IDS) {
+            val form = "variables=" + URLEncoder.encode("{\"shortcode\":\"$code\"}", "UTF-8") + "&doc_id=$doc&lsd=$token"
+            val a = try {
+                request(
+                    "POST", "https://www.instagram.com/graphql/query", headers + mapOf(
+                        "Content-Type" to "application/x-www-form-urlencoded",
+                        "X-IG-App-ID" to "936619743392459",
+                        "X-FB-LSD" to token,
+                        "X-ASBD-ID" to "129477",
+                        "Referer" to "https://www.instagram.com/reel/$code/",
+                    ), form.toByteArray(),
+                )
+            } catch (e: Exception) {
+                tried += "query unreachable"
+                break
+            }
+            val video = videoUrl(String(a.body))
+            if (video != null) return download(video, dl)
+            tried += if (a.code in 200..299) "query had no video" else "query HTTP ${a.code}"
+        }
+        if (notPublic) throw LinkError("this reel isn't public.")
+        throw LinkError("no video found (${tried.joinToString(", ")}).")
     }
 
     // ---------------------------------------------------------------- HTTP
@@ -204,11 +233,22 @@ class LinkImport(private val cacheDir: File) {
 
     companion object {
         /** Reels are at most a few minutes; this leaves room for HD video. */
-        const val MAX_BYTES = 200 shl 20
+        const val MAX_BYTES = 80 shl 20
 
         private const val APP_UA = "MobileDAW/0.9 (Android; link import)"
         private const val BROWSER_UA =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+
+        /** What link previews (WhatsApp, Facebook...) identify as; Instagram answers those with the video's address. */
+        private const val PREVIEW_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+        private val DOC_IDS = listOf("8845758582119845", "10015901848480474")
+        private val LSD = Regex("\"LSD\",\\[\\],\\{\"token\":\"([^\"]+)\"")
+        private val VIDEO_PATTERNS = listOf(
+            Regex("video_url\\\\*\"\\s*:\\s*\\\\*\"(https?:.+?)\\\\*\""),
+            Regex("video_versions\\\\*\"\\s*:\\s*\\[\\s*\\{[^\\]]*?url\\\\*\"\\s*:\\s*\\\\*\"(https?:.+?)\\\\*\""),
+            Regex("property=\"og:video(?::secure_url)?\"\\s+content=\"(https?:[^\"]+)\""),
+            Regex("\"contentUrl\"\\s*:\\s*\"(https?:[^\"]+)\""),
+        )
 
         private val LINK = Regex("https?://[^\\s<>\"']+")
         private val SHORTCODE = Regex("instagram\\.com/(?:[A-Za-z0-9_.]+/)?(?:reels?|p|tv)/([A-Za-z0-9_-]{5,})", RegexOption.IGNORE_CASE)
@@ -220,9 +260,8 @@ class LinkImport(private val cacheDir: File) {
         fun shortcode(link: String): String? = SHORTCODE.find(link)?.groupValues?.get(1)
 
         /** The video link in an Instagram page or answer, with its JSON escaping (often doubled) undone. */
-        fun videoUrl(text: String): String? {
-            val m = Regex("video_url\\\\*\"\\s*:\\s*\\\\*\"(https?:.+?)\\\\*\"").find(text) ?: return null
-            return unescape(m.groupValues[1]).takeIf { it.startsWith("http") }
+        fun videoUrl(text: String): String? = VIDEO_PATTERNS.firstNotNullOfOrNull { p ->
+            p.find(text)?.let { unescape(it.groupValues[1]) }?.takeIf { it.startsWith("http") }
         }
 
         fun unescape(s: String): String {
