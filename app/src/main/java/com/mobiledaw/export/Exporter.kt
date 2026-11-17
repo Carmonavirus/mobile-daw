@@ -13,6 +13,10 @@ data class ExportOptions(
     val mp3: Boolean = true,
     val stems: Boolean = false,
     val midi: Boolean = false,
+    /** MIDI: also one .mid per rack channel, each ready to drop on one FL Studio channel. */
+    val midiChannels: Boolean = true,
+    /** MIDI (song only): also one .mid per pattern, with just that pattern's notes. */
+    val midiPatterns: Boolean = true,
     /** True: the whole playlist; false: the selected pattern, once. */
     val song: Boolean = true,
     val wavBits: Int = 24,
@@ -60,6 +64,13 @@ class Exporter(
 
     suspend fun run(): List<File> {
         val files = ArrayList<File>()
+        if (options.wav || options.mp3 || options.stems) renderAudio(files)
+        if (options.midi) writeMidi(files)
+        progress(1f, "Done")
+        return files
+    }
+
+    private suspend fun renderAudio(files: MutableList<File>) {
         val passes = 1 + if (options.stems) stems.size else 0
         val sampleRate = NativeEngine.offlineBegin()
         try {
@@ -90,11 +101,53 @@ class Exporter(
         } finally {
             NativeEngine.offlineEnd()
         }
-        if (options.midi) {
-            File(outDir, "$baseName.mid").also { MidiWriter.write(it, project, compiled.events); files += it }
+    }
+
+    /**
+     * The MIDI files: "<name>.mid" with every channel (what was picked: the song or the pattern),
+     * then, if asked, "<name> MIDI channels/NN <channel>.mid" (one channel each, same timeline) and
+     * "<name> MIDI patterns/NN <pattern>.mid" (each pattern on its own, from bar 1).
+     */
+    private fun writeMidi(files: MutableList<File>) {
+        progress(0.99f, "Writing MIDI")
+        val parts = MidiWriter.parts(project, compiled.events)
+        val song = MidiWriter.song(project, compiled.loopTicks)
+        File(outDir, "$baseName.mid").also { MidiWriter.writeSong(it, song, parts); files += it }
+        if (options.midiChannels && parts.size > 1) {
+            val dir = File(outDir, "$baseName $MIDI_CHANNELS").apply { mkdirs() }
+            numbered(parts.map { it.name }).forEachIndexed { i, name ->
+                File(dir, "$name.mid").also { MidiWriter.writeChannel(it, song, parts[i]); files += it }
+            }
         }
-        progress(1f, "Done")
-        return files
+        if (options.midiPatterns && options.song) {
+            val made = project.patterns.mapNotNull { pattern ->
+                val c = SequenceCompiler.pattern(project, pattern)
+                val p = MidiWriter.parts(project, c.events)
+                if (p.isEmpty()) null else Triple(pattern.name, p, c.loopTicks)
+            }
+            if (made.isNotEmpty()) {
+                val dir = File(outDir, "$baseName $MIDI_PATTERNS").apply { mkdirs() }
+                numbered(made.map { it.first }).forEachIndexed { i, name ->
+                    val (_, p, ticks) = made[i]
+                    val s = MidiWriter.song(project, ticks)
+                    File(dir, "$name.mid").also { f ->
+                        // One channel: a single-track file, so it drops straight onto an FL channel.
+                        if (p.size == 1) MidiWriter.writeChannel(f, s, p[0]) else MidiWriter.writeSong(f, s, p)
+                        files += f
+                    }
+                }
+            }
+        }
+    }
+
+    /** "01 Kick", "02 Kick 2", ...: safe, unique, in order. */
+    private fun numbered(names: List<String>): List<String> {
+        val used = HashMap<String, Int>()
+        return names.mapIndexed { i, raw ->
+            val n = (used[raw] ?: 0) + 1
+            used[raw] = n
+            "${(i + 1).toString().padStart(2, '0')} ${safeName(if (n > 1) "$raw $n" else raw)}"
+        }
     }
 
     /**
@@ -136,6 +189,9 @@ class Exporter(
     }
 
     companion object {
+        const val MIDI_CHANNELS = "MIDI channels"
+        const val MIDI_PATTERNS = "MIDI patterns"
+
         /** Characters a file name can't hold on Android's storage, replaced with "_". */
         fun safeName(name: String): String =
             name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trim('.').ifEmpty { "Untitled" }.take(80)
