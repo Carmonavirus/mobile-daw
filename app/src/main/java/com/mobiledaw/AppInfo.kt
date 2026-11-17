@@ -26,6 +26,15 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.9", "2026-11-17T11:50:00Z",
+            listOf(
+                "Playlist: pattern clips now show their notes inside the clip, like a tiny piano roll, instead of a plain colour block. Melodies go by pitch and each drum sound gets its own row.",
+                "Audio clips: tap a clip and use Clone to put an identical copy right after it.",
+                "On a computer: in the playlist, P picks the Pencil, C the Cut tool and M the Mute tool.",
+                "A moving soundwave now sits to the right of the Play button. It and the piano roll's Wave now show the loudness of the last few seconds of what you hear, so the peaks line up with the kicks, snares and quiet parts of your song.",
+            ),
+        ),
+        Release(
             "0.9.8", "2026-11-17T11:45:00Z",
             listOf(
                 "Pan knobs in the Mixer: every channel and mixer track has a small knob next to its volume, even when the strip is folded. Drag up or right to send the sound right, down or left for left. Double-tap puts it back in the middle (C).",

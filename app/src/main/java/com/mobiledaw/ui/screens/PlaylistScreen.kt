@@ -31,6 +31,7 @@ import com.mobiledaw.model.AudioClip
 import com.mobiledaw.model.ClipStretch
 import com.mobiledaw.model.Clip
 import com.mobiledaw.model.ClipEdit
+import com.mobiledaw.model.Pattern
 import com.mobiledaw.model.Project
 import com.mobiledaw.model.TICKS_PER_BEAT
 import com.mobiledaw.model.TICKS_PER_STEP
@@ -132,6 +133,74 @@ private class Grid(val bw: Float, val lh: Float, val header: Float, val gap: Flo
     }
 }
 
+/**
+ * A pattern's notes laid out for drawing in its playlist clips: melodic notes by pitch (high on
+ * top), then one row per drum sound (rack order), so a beat reads like the step sequencer.
+ */
+private class PatternPreview(val starts: IntArray, val lengths: IntArray, val rows: IntArray, val rowCount: Int)
+
+private fun patternPreview(p: Project, pattern: Pattern): PatternPreview {
+    class N(val start: Int, val length: Int, val key: Long)
+    val notes = ArrayList<N>()
+    val pitches = HashSet<Int>()
+    val drumKeys = LinkedHashSet<Long>()
+    for (channel in p.channels) {
+        val list = pattern.notesFor(channel.id).filter { it.start < pattern.lengthTicks }
+        if (list.isEmpty()) continue
+        if (channel.instrument.isDrum) {
+            // One row per drum sound (and per pitch, if it is played at several).
+            list.map { it.pitch }.distinct().sortedDescending().forEach { drumKeys += channel.id * 128 + it }
+            list.forEach { notes += N(it.start, it.length, -(channel.id * 128 + it.pitch) - 1) }
+        } else {
+            list.forEach { pitches += it.pitch; notes += N(it.start, it.length, it.pitch.toLong()) }
+        }
+    }
+    val melodic = pitches.sortedDescending()
+    val rowOf = HashMap<Long, Int>()
+    melodic.forEachIndexed { i, pitch -> rowOf[pitch.toLong()] = i }
+    drumKeys.forEachIndexed { i, k -> rowOf[-k - 1] = melodic.size + i }
+    return PatternPreview(
+        IntArray(notes.size) { notes[it].start },
+        IntArray(notes.size) { notes[it].length },
+        IntArray(notes.size) { rowOf[notes[it].key] ?: 0 },
+        rowOf.size,
+    )
+}
+
+/** Draws [pv]'s notes between ticks [from] and [to] of the pattern, inside the given box. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPatternNotes(
+    pv: PatternPreview,
+    g: Grid,
+    clipX: Float,
+    from: Int,
+    to: Int,
+    left: Float,
+    right: Float,
+    top: Float,
+    bottom: Float,
+    color: Color,
+) {
+    if (pv.rowCount == 0 || bottom - top < 6.dp.toPx() || right - left < 4.dp.toPx()) return
+    val area = bottom - top
+    // Few rows: keep the bars slim and centred instead of stretching them over the whole clip.
+    val rowH = minOf(area / pv.rowCount, 7.dp.toPx())
+    val y0 = top + (area - rowH * pv.rowCount) / 2f
+    val barH = (rowH * 0.78f).coerceAtLeast(1f)
+    val minW = 1.5.dp.toPx()
+    val radius = CornerRadius(minOf(barH / 2f, 2.dp.toPx()))
+    for (i in pv.starts.indices) {
+        val s = maxOf(pv.starts[i], from)
+        val e = minOf(pv.starts[i] + maxOf(pv.lengths[i], 1), to)
+        if (e <= s) continue
+        val nx = (clipX + g.x(s - from)).coerceAtLeast(left)
+        val nr = minOf(clipX + g.x(e - from) - 0.5f, right)
+        val w = (nr - nx).coerceAtLeast(minW)
+        if (nx >= right) continue
+        val ny = y0 + pv.rows[i] * rowH + (rowH - barH) / 2f
+        drawRoundRect(color, Offset(nx, ny), Size(w, barH), radius)
+    }
+}
+
 private fun hitTest(p: Project, g: Grid, pos: Offset, handleHit: Float, rows: Int): Hit? {
     // Round handles first (they hang under the clip's bottom corners); nearest one wins.
     var best: Hit? = null
@@ -198,6 +267,11 @@ fun PlaylistScreen(vm: DawViewModel) {
     // Waveforms of the audio files, worked out once per clip list.
     val audioPeaks = remember(project.audioClips.map { it.path }.distinct()) {
         project.audioClips.map { it.path }.distinct().associateWith { vm.samplePeaks(it, 1200) }
+    }
+
+    // Mini piano roll of each pattern, drawn inside its clips (worked out when notes or sounds change).
+    val previews = remember(project.patterns, project.channels) {
+        project.patterns.associate { it.id to patternPreview(project, it) }
     }
 
     // A clip being dragged or resized: drawn in its new place, saved when the finger lifts.
@@ -595,7 +669,16 @@ fun PlaylistScreen(vm: DawViewModel) {
                             overflow = TextOverflow.Ellipsis,
                             constraints = androidx.compose.ui.unit.Constraints(maxWidth = (w - 12.dp.toPx()).toInt().coerceAtLeast(1)),
                         )
-                        drawText(label, topLeft = Offset(x + 6.dp.toPx(), y + 6.dp.toPx()))
+                        drawText(label, topLeft = Offset(x + 6.dp.toPx(), y + 4.dp.toPx()))
+                        // The pattern's notes, like a tiny piano roll, for the part this clip plays.
+                        previews[pattern.id]?.let { pv ->
+                            drawPatternNotes(
+                                pv, g, clipX = g.x(clip.startTick), from = clip.trim, to = clip.trim + p.clipLength(clip),
+                                left = x + 3.dp.toPx(), right = right - 3.dp.toPx(),
+                                top = y + 4.dp.toPx() + label.size.height + 2.dp.toPx(), bottom = y + lh - gap * 2 - 4.dp.toPx(),
+                                color = textColor.copy(alpha = if (clip.muted) 0.5f else 0.85f),
+                            )
+                        }
                         handles += Offset(x, g.bottom(clip.lane)) to base
                         handles += Offset(right, g.bottom(clip.lane)) to base
                     }
@@ -996,6 +1079,8 @@ private fun AudioClipWindow(vm: DawViewModel, id: Long, onDismiss: () -> Unit) {
             if (clip.reverse || clip.pitchSemis != 0 || clip.gain != 1f) {
                 TextAction("Reset") { set { it.copy(reverse = false, pitchSemis = 0, gain = 1f) } }
             }
+            // Clone: the same clip again, right after this one.
+            TextAction("Clone") { vm.cloneAudioClip(id); onDismiss() }
             Spacer(Modifier.weight(1f))
             TextAction("Delete") { vm.deleteAudioClip(id); onDismiss() }
         }

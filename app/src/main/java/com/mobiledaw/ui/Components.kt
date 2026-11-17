@@ -145,20 +145,26 @@ fun RoundToggle(label: String, on: Boolean, onColor: Color, onClick: () -> Unit)
     }
 }
 
-/** Mirrored bar waveform, drawn from engine scope peaks. */
+/**
+ * The moving soundwave: the loudness of the last few seconds, newest on the right, so it pulses
+ * with the song. Shows as many of the newest values as fit at one bar per [barSpacing].
+ */
 @Composable
-fun WaveformStrip(peaks: FloatArray, modifier: Modifier = Modifier) {
+fun LiveWave(history: FloatArray, modifier: Modifier = Modifier, barSpacing: androidx.compose.ui.unit.Dp = 3.dp, color: Color = DawColors.Ink) {
     Canvas(modifier) {
-        val n = peaks.size
-        if (n == 0) return@Canvas
-        val step = size.width / n
-        val bar = (step * 0.45f).coerceAtLeast(1f)
+        if (history.isEmpty() || size.width <= 0f) return@Canvas
+        val step = barSpacing.toPx()
+        val n = minOf(history.size, (size.width / step).toInt()).coerceAtLeast(1)
+        val bar = (step * 0.55f).coerceAtLeast(1f)
         val mid = size.height / 2f
+        val from = history.size - n
         for (i in 0 until n) {
-            val h = (peaks[i].coerceIn(0f, 1f) * 0.9f + 0.02f) * size.height / 2f
-            val x = i * step + step / 2f
-            val fade = 0.25f + 0.75f * (i.toFloat() / n)
-            drawLine(DawColors.Ink.copy(alpha = fade), Offset(x, mid - h), Offset(x, mid + h), bar)
+            val v = history[from + i].coerceIn(0f, 1f)
+            val h = maxOf(v * 0.92f * mid, bar / 2f)
+            val x = size.width - (n - i) * step + step / 2f
+            val fade = 0.25f + 0.75f * ((i + 1).toFloat() / n)
+            drawLine(color.copy(alpha = fade), Offset(x, mid - h), Offset(x, mid + h), bar, cap = androidx.compose.ui.graphics.StrokeCap.Round)
         }
     }
 }
+
