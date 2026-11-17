@@ -7,9 +7,11 @@
 #include <atomic>
 #include <memory>
 
+#include "Delay.h"
 #include "KeyDetector.h"
 #include "ParametricEq.h"
 #include "PitchCorrector.h"
+#include "Reverb.h"
 #include "SoftClipper.h"
 
 namespace daw::fx {
@@ -25,12 +27,14 @@ constexpr int kMaxSlots = 8;
 constexpr int kSlotParams = 64;
 constexpr int kSpectrumSize = 2048;
 
-enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2, kFxClip = 3, kFxKey = 4 };
+enum EffectType : int { kFxNone = 0, kFxEq = 1, kFxPitch = 2, kFxClip = 3, kFxKey = 4, kFxDelay = 5, kFxReverb = 6 };
 
 static_assert(kEqParamCount <= kSlotParams, "EQ parameters must fit a slot");
 static_assert(kPitchParamCount <= kSlotParams, "pitch parameters must fit a slot");
 static_assert(kClipParamCount <= kSlotParams, "clipper parameters must fit a slot");
 static_assert(kKeyParamCount <= kSlotParams, "key detector parameters must fit a slot");
+static_assert(kDelayParamCount <= kSlotParams, "delay parameters must fit a slot");
+static_assert(kRevParamCount <= kSlotParams, "reverb parameters must fit a slot");
 
 struct EffectSlot {
     std::atomic<int> type{kFxNone};
@@ -42,11 +46,13 @@ struct EffectSlot {
     std::array<float, kSlotParams> snapshot{};
     ParametricEq eq;
     SoftClipper clip;
-    // The two big effects are only made when a slot first uses them, so the many channel
+    // The big effects (and the ones with long echo memories) are only made when a slot first uses them, so the many channel
     // chains stay small. Made by ensure() on the control thread before the type is stored,
     // and kept until the slot is destroyed, so the audio thread never sees one go away.
     std::atomic<PitchCorrector*> pitch{nullptr};
     std::atomic<KeyDetector*> key{nullptr};
+    std::atomic<Delay*> delay{nullptr};
+    std::atomic<Reverb*> reverb{nullptr};
 
     EffectSlot() = default;
     EffectSlot(const EffectSlot&) = delete;
@@ -54,24 +60,32 @@ struct EffectSlot {
     ~EffectSlot() {
         delete pitch.load();
         delete key.load();
+        delete delay.load();
+        delete reverb.load();
     }
 
     // Control thread: call before storing `t` in `type`.
     void ensure(int t) {
         if (t == kFxPitch && pitch.load() == nullptr) pitch.store(new PitchCorrector());
         if (t == kFxKey && key.load() == nullptr) key.store(new KeyDetector());
+        if (t == kFxDelay && delay.load() == nullptr) delay.store(new Delay());
+        if (t == kFxReverb && reverb.load() == nullptr) reverb.store(new Reverb());
     }
 
     void process(float* left, float* right, int frames, float sampleRate) {
         const int t = type.load();
         PitchCorrector* const pc = pitch.load();
         KeyDetector* const kd = key.load();
+        Delay* const dl = delay.load();
+        Reverb* const rv = reverb.load();
         if (t != activeType) {
             activeType = t;
             eq.reset();
             if (pc) pc->reset();
             clip.reset();
             if (kd) kd->reset();
+            if (dl) dl->reset();
+            if (rv) rv->reset();
         }
         if (t == kFxNone || bypass.load(std::memory_order_relaxed)) return;
         for (int i = 0; i < kSlotParams; ++i)
@@ -88,6 +102,12 @@ struct EffectSlot {
         } else if (t == kFxKey && kd) {
             kd->prepare(sampleRate);
             kd->process(left, right, frames, snapshot.data());
+        } else if (t == kFxDelay && dl) {
+            dl->prepare(sampleRate);
+            dl->process(left, right, frames, snapshot.data());
+        } else if (t == kFxReverb && rv) {
+            rv->prepare(sampleRate);
+            rv->process(left, right, frames, snapshot.data());
         }
     }
 };

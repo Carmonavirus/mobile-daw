@@ -77,6 +77,12 @@ fun EffectEditor(vm: DawViewModel, trackId: Long, effectId: Long) {
                     EffectType.CLIP -> ClipEditor(effect.clip ?: ClipSettings()) { c ->
                         vm.updateEffect(trackId, effectId) { it.copy(clip = c) }
                     }
+                    EffectType.DELAY -> DelayEditor(effect.delay ?: com.mobiledaw.model.DelaySettings(), vm.project.bpm) { d ->
+                        vm.updateEffect(trackId, effectId) { it.copy(delay = d) }
+                    }
+                    EffectType.REVERB -> ReverbEditor(effect.reverb ?: com.mobiledaw.model.ReverbSettings()) { r ->
+                        vm.updateEffect(trackId, effectId) { it.copy(reverb = r) }
+                    }
                     EffectType.KEY -> KeyEditor(vm, trackId, effectId, effect.key ?: com.mobiledaw.model.KeySettings(), effect.bypass) { k ->
                         vm.updateEffect(trackId, effectId) { it.copy(key = k) }
                     }

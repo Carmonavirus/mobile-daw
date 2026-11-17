@@ -287,6 +287,15 @@ private fun summary(fx: Effect, p: Project): String = when (fx.type) {
         fun db(v: Float) = (if (v > 0.05f) "+" else "") + "%.1f".format(v)
         "gain ${db(c.gain)} · threshold ${db(c.threshold)} · post ${db(c.post)} dB"
     }
+    EffectType.DELAY -> {
+        val d = fx.delay ?: com.mobiledaw.model.DelaySettings()
+        "${d.time.label} · ${d.mode.label.lowercase()} · feedback ${(d.feedback * 100).roundToInt()}%"
+    }
+    EffectType.REVERB -> {
+        val r = fx.reverb ?: com.mobiledaw.model.ReverbSettings()
+        val space = com.mobiledaw.model.ReverbSpace.entries.firstOrNull { it.matches(r) }?.label?.lowercase()
+        (space?.let { "$it · " } ?: "") + "${"%.1f".format(r.decay)} s · wet ${(r.wet * 100).roundToInt()}%"
+    }
     EffectType.KEY -> "listens to: " + (fx.key ?: com.mobiledaw.model.KeySettings()).memory.label.lowercase() + " · tap to see the key"
 }
 

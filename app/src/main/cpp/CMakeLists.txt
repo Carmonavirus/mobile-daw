@@ -38,6 +38,8 @@ add_library(mobiledaw SHARED
         fx/PitchCorrector.cpp
         fx/ClipStretch.cpp
         fx/SoftClipper.cpp
+        fx/Delay.cpp
+        fx/Reverb.cpp
         fx/KeyDetector.cpp
         fx/NoteDetect.cpp
         wavesynth/WaveSynth.cpp

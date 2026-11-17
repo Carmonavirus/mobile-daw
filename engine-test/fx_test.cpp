@@ -10,6 +10,8 @@
 #include "fx/PitchCorrector.h"
 #include "fx/SoftClipper.h"
 #include "fx/KeyDetector.h"
+#include "fx/Delay.h"
+#include "fx/Reverb.h"
 
 using namespace daw;
 using namespace daw::fx;
@@ -447,7 +449,7 @@ int main() {
             // Silence holds the result.
             std::vector<float> quiet(48000 * 3, 0.0f), quiet2(quiet);
             float params[kKeyParamCount] = {0.0f, 5.0f};
-            for (size_t i = 0; i < quiet.size(); i += 512) kd.process(quiet.data() + i, quiet2.data() + i, 512, params);
+            for (size_t i = 0; i < quiet.size(); i += 512) kd.process(quiet.data() + i, quiet2.data() + i, int(std::min<size_t>(512, quiet.size() - i)), params);
             kd.read(out.data());
             check(int(out[kKeyOutKey]) == 2, "key: silence keeps the last key", out[kKeyOutKey]);
             // Start over clears it.
@@ -553,6 +555,144 @@ int main() {
         check(peak > 0.05 && !nan, "channel fx: pitch correct + key detector chain is audible", peak);
         core.readKey(kChannelInsertBase, 1, key.data());
         check(key[kKeyOutHeard] > 0.5f, "channel fx: key detector on a channel hears the sound", key[kKeyOutHeard]);
+    }
+
+    // ---- Delay ----
+    {
+        const int n = 48000;
+        auto runDelay = [&](float mode, float fb, std::vector<float>& l, std::vector<float>& r) {
+            Delay d;
+            d.prepare(kSr);
+            float p[kDelayParamCount] = {};
+            p[kDelayTime] = 0.25f;
+            p[kDelayFeedback] = fb;
+            p[kDelayMode] = mode;
+            p[kDelayTone] = 20000.0f;
+            p[kDelayDry] = 1.0f;
+            p[kDelayWet] = 1.0f;
+            l.assign(n, 0.0f);
+            r.assign(n, 0.0f);
+            l[0] = r[0] = 1.0f;  // a click
+            for (int i = 0; i < n; i += 128) d.process(&l[i], &r[i], std::min(128, n - i), p);
+        };
+        std::vector<float> l, r;
+        runDelay(0, 0.5f, l, r);
+        auto around = [](const std::vector<float>& x, int at) {
+            double m = 0;
+            for (int i = at - 20; i <= at + 20; ++i) m = std::max(m, double(std::fabs(x[i])));
+            return m;
+        };
+        check(std::fabs(l[0] - 1.0f) < 1e-6f, "delay: dry click passes untouched", l[0]);
+        check(around(l, 12000) > 0.7, "delay: first echo lands 250 ms later", around(l, 12000));
+        check(around(l, 6000) < 1e-4, "delay: nothing before the echo time", around(l, 6000));
+        const double e2 = around(l, 24000) / around(l, 12000);
+        check(std::fabs(e2 - 0.5) < 0.08, "delay: second echo is feedback x first", e2);
+
+        runDelay(kDelayPingPong, 0.6f, l, r);
+        check(around(l, 12000) > 0.3 && around(r, 12000) < 0.01, "delay: ping-pong first echo on the left", around(l, 12000));
+        check(around(r, 24000) > 0.15 && around(l, 24000) < 0.01, "delay: ping-pong second echo on the right", around(r, 24000));
+
+        // Loud input with full feedback stays bounded and NaN-free.
+        Delay d;
+        d.prepare(kSr);
+        float p[kDelayParamCount] = {0.01f, 0.95f, 0, 20000.0f, 1.0f, 1.0f, 0.0f};
+        std::vector<float> a(n), b(n);
+        for (int i = 0; i < n; ++i) a[i] = b[i] = static_cast<float>(0.9 * std::sin(2 * kPi * 220 * i / kSr));
+        for (int i = 0; i < n; i += 256) d.process(&a[i], &b[i], std::min(256, n - i), p);
+        double peak = 0;
+        bool nan = false;
+        for (int i = 0; i < n; ++i) { peak = std::max(peak, double(std::fabs(a[i]))); nan |= std::isnan(a[i]); }
+        check(peak < 6.0 && !nan, "delay: 95% feedback stays bounded", peak);
+    }
+
+    // ---- Reverb ----
+    {
+        const int n = 48000 * 4;
+        auto runReverb = [&](float decay, float size, std::vector<float>& l, std::vector<float>& r, float pre = 0.0f) {
+            Reverb rv;
+            rv.prepare(kSr);
+            float p[kRevParamCount] = {};
+            p[kRevPreDelay] = pre;
+            p[kRevSize] = size;
+            p[kRevDecay] = decay;
+            p[kRevHighCut] = 20000.0f;
+            p[kRevLowCut] = 20.0f;
+            p[kRevWidth] = 1.0f;
+            p[kRevDry] = 0.0f;
+            p[kRevWet] = 1.0f;
+            l.assign(n, 0.0f);
+            r.assign(n, 0.0f);
+            // 50 ms of noise burst.
+            uint32_t seed = 1;
+            for (int i = 0; i < 2400; ++i) {
+                seed = seed * 1664525u + 1013904223u;
+                l[i] = r[i] = 0.5f * (static_cast<float>(seed >> 8) / 8388608.0f - 1.0f);
+            }
+            for (int i = 0; i < n; i += 256) rv.process(&l[i], &r[i], 256, p);
+        };
+        auto rmsDb = [](const std::vector<float>& x, int from, int len) {
+            double e = 0;
+            for (int i = from; i < from + len; ++i) e += double(x[i]) * x[i];
+            return 10 * std::log10(e / len + 1e-30);
+        };
+        std::vector<float> l, r;
+        runReverb(2.0f, 0.6f, l, r);
+        // Decay rate between 0.3 s and 1.3 s, extrapolated to 60 dB.
+        const double drop = rmsDb(l, 14400, 4800) - rmsDb(l, 62400, 4800);
+        const double rt60 = 60.0 / (drop / 1.0);
+        check(rt60 > 1.4 && rt60 < 2.8, "reverb: 2 s decay setting gives ~2 s tail", rt60);
+        const double level = rmsDb(l, 2400, 9600);
+        check(level > -30 && level < 0, "reverb: tail is a sensible level", level);
+        bool nan = false;
+        for (float s : l) nan |= std::isnan(s);
+        check(!nan, "reverb: no NaN", 0);
+        // Left and right tails differ (stereo width).
+        double corr = 0, el = 0, er = 0;
+        for (int i = 4800; i < 48000; ++i) { corr += double(l[i]) * r[i]; el += double(l[i]) * l[i]; er += double(r[i]) * r[i]; }
+        corr /= std::sqrt(el * er + 1e-30);
+        check(corr < 0.6, "reverb: left and right tails are decorrelated", corr);
+
+        std::vector<float> l2, r2;
+        runReverb(6.0f, 0.6f, l2, r2);
+        check(rmsDb(l2, 96000, 9600) > rmsDb(l, 96000, 9600) + 10, "reverb: longer decay lasts longer", rmsDb(l2, 96000, 9600) - rmsDb(l, 96000, 9600));
+
+        // Pre-delay: nothing comes out before it.
+        runReverb(2.0f, 0.6f, l2, r2, 100.0f);
+        check(rmsDb(l2, 0, 2400) < -100 && rmsDb(l2, 4800, 4800) > -60, "reverb: 100 ms pre-delay holds the tail back", rmsDb(l2, 0, 2400));
+
+        // Dry only = untouched.
+        Reverb rv;
+        rv.prepare(kSr);
+        float p[kRevParamCount] = {0, 0.5f, 2.0f, 8000.0f, 100.0f, 1.0f, 1.0f, 0.0f};
+        std::vector<float> a(4800), b(4800);
+        for (int i = 0; i < 4800; ++i) a[i] = b[i] = static_cast<float>(0.5 * std::sin(2 * kPi * 440 * i / kSr));
+        rv.process(a.data(), b.data(), 4800, p);
+        double err = 0;
+        for (int i = 0; i < 4800; ++i) err = std::max(err, std::fabs(a[i] - 0.5 * std::sin(2 * kPi * 440 * i / kSr)));
+        check(err < 1e-5, "reverb: wet 0 leaves the sound untouched", err);
+    }
+
+    // ---- Delay + reverb on a channel chain: the tail rings on after the note ----
+    {
+        Core core;
+        core.setSampleRate(48000);
+        core.setChannelCount(1);
+        core.setChannel(0, 5, 1.0f, 0.0f, false, false);
+        core.setInsertEffect(kChannelInsertBase, 0, kFxDelay, false);
+        const float dp[] = {0.2f, 0.5f, 1, 6000.0f, 1.0f, 0.5f, 0.0f};
+        for (int i = 0; i < kDelayParamCount; ++i) core.setEffectParam(kChannelInsertBase, 0, i, dp[i]);
+        core.setInsertEffect(kChannelInsertBase, 1, kFxReverb, false);
+        const float rp[] = {20.0f, 0.6f, 2.5f, 9000.0f, 120.0f, 1.0f, 1.0f, 0.4f};
+        for (int i = 0; i < kRevParamCount; ++i) core.setEffectParam(kChannelInsertBase, 1, i, rp[i]);
+        std::vector<NoteEvent> ev{{0, 0, kTicksPerBeat / 4, 69, 1.0f}};
+        core.setSequence(ev, kTicksPerBeat * 16);
+        core.setPlaying(true);
+        std::vector<float> buf(2 * 48000);
+        core.renderMix(buf.data(), 48000);
+        double late = 0;
+        bool nan = false;
+        for (int i = 2 * 36000; i < 2 * 48000; ++i) { late = std::max(late, double(std::fabs(buf[i]))); nan |= std::isnan(buf[i]); }
+        check(late > 0.002 && !nan, "channel fx: delay + reverb ring on after a short note", late);
     }
 
     std::printf(failures ? "\n%d check(s) failed\n" : "\nall effect checks passed\n", failures);

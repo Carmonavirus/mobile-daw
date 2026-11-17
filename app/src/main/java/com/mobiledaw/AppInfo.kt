@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.8", "2026-11-17T12:00:00Z",
+            listOf(
+                "New Delay effect: echoes in time with the song. Pick the echo length (1/16 to 1 bar, with dotted and triplet times), Normal or Ping-pong, then Feedback, Tone, Dry and Wet.",
+                "New Reverb effect: start from a space (Room, Studio, Hall, Bright plate, Huge space, Dark), then shape it with Pre-delay, Size, Decay, Width, High cut, Low cut, Dry and Wet.",
+                "Both work on any channel, mixer track or the master: Mixer, + Add effect. Echoes and tails ring on after the sound stops.",
+            ),
+        ),
+        Release(
             "0.9.7", "2026-11-16T07:30:00Z",
             listOf(
                 "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
