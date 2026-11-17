@@ -164,12 +164,17 @@ await settle();
 s = await probe();
 const rack0 = s.rackBars;
 check(rack0 >= 2, 'Ctrl+- zooms the rack out (more bars)', s);
-await page.mouse.move(viewport.width / 2, viewport.height * 0.55);
-await page.keyboard.down('Control');
-await page.mouse.wheel(0, -100);
-await page.keyboard.up('Control');
-await settle();
-s = await probe();
+// On a laptop-wide window the rack shares the screen with the piano roll (rack on the left),
+// so point at the left part of the screen.
+for (const x of [0.12, 0.2, 0.3]) {
+  await page.mouse.move(viewport.width * x, viewport.height * 0.55);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await settle();
+  s = await probe();
+  if (s.rackBars !== rack0) break;
+}
 check(s.rackBars === rack0 - 1, 'Ctrl+wheel up zooms the rack in', { before: rack0, ...s });
 await page.keyboard.press('Control+Equal');
 await settle();
