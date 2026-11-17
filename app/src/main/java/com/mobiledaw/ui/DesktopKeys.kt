@@ -105,6 +105,19 @@ object Desktop {
             "Digit4" -> if (typing == TypingKeys.OFF) { switchTo(vm, Tab.MIXER); return true }
             "KeyL" -> { vm.switchMode(if (vm.mode == PlayMode.PATTERN) PlayMode.SONG else PlayMode.PATTERN); return true }
         }
+        // Playlist tools, FL-style: P pencil, C cut, M mute. (With the typing keyboard on, these letters play notes.)
+        if (vm.tab == Tab.PLAYLIST && !vm.recordMode) {
+            val tool = when (code) {
+                "KeyP" -> com.mobiledaw.PlaylistTool.PENCIL
+                "KeyC" -> com.mobiledaw.PlaylistTool.CUT
+                "KeyM" -> com.mobiledaw.PlaylistTool.MUTE
+                else -> null
+            }
+            if (tool != null) {
+                if (!repeat) vm.playlistTool = tool
+                return true
+            }
+        }
         if (pianoVisible(vm)) {
             val grid = vm.drawLength
             when (code) {
