@@ -60,6 +60,7 @@ private val SECTIONS: List<Pair<String, List<Pair<String, String>>>> = listOf(
         "Esc" to "Clear the selection",
     ),
     "Playlist and rack" to listOf(
+        "P / C / M" to "Playlist tools: Pencil, Cut, Mute",
         "Right click a clip" to "Delete it; right-drag deletes many",
         "Ctrl+wheel or pinch" to "Zoom the playlist",
         "Shift+wheel" to "Scroll sideways",

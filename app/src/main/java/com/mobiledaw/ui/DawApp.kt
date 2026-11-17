@@ -275,7 +275,7 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
             )
         }
         PlayButton(vm.playing, vm::togglePlay, diameter = 38.dp)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             if (vm.pianoVisible) {
                 UndoButton(
                     enabled = vm.canUndo,
@@ -286,6 +286,8 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
                 )
             }
             if (vm.tab == Tab.PLAYLIST) RecordChip(onRecordMode, Modifier.padding(start = 14.dp))
+            // The moving soundwave of what is playing, in the room left of the play button's right side.
+            LiveWave(vm.waveHistory, Modifier.weight(1f).height(26.dp).padding(start = 12.dp))
         }
     }
 }
@@ -297,7 +299,8 @@ private fun Transport(vm: DawViewModel, onRecordMode: () -> Unit) {
 @Composable
 private fun LandscapeTransport(vm: DawViewModel, modifier: Modifier, onRecordMode: () -> Unit) {
     Row(modifier.padding(start = 14.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Spacer(Modifier.weight(1f))
+        // The moving soundwave of what is playing, right next to Play.
+        LiveWave(vm.waveHistory, Modifier.weight(1f).height(26.dp).padding(end = 12.dp))
         Segmented(
             options = listOf(PlayMode.PATTERN to "PAT", PlayMode.SONG to "SONG"),
             selected = vm.mode,

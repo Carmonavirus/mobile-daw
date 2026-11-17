@@ -78,7 +78,7 @@ import com.mobiledaw.ui.DawChip
 import com.mobiledaw.ui.rightMouseTarget
 import com.mobiledaw.ui.Wheel
 import com.mobiledaw.ui.Segmented
-import com.mobiledaw.ui.WaveformStrip
+import com.mobiledaw.ui.LiveWave
 import com.mobiledaw.ui.theme.DawColors
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -181,8 +181,8 @@ fun PianoRollScreen(vm: DawViewModel, showPatternBar: Boolean = true) {
             }
         }
         if (vm.showWaveform) {
-            WaveformStrip(
-                vm.scope,
+            LiveWave(
+                vm.waveHistory,
                 Modifier
                     .fillMaxWidth()
                     .height(56.dp)

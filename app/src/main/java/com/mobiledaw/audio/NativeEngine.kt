@@ -71,6 +71,8 @@ object NativeEngine {
     external fun bufferLatencyMs(): Double
     /** AudioDeviceInfo id of the output in use, 0 = unknown. */
     external fun outputDeviceId(): Int
+    /** Plays to this AudioDeviceInfo id from now on (0 = let Android choose); reopens the stream. */
+    external fun setOutputDevice(deviceId: Int)
 
     /** Fills per-channel peaks; the last slot receives the master peak. */
     external fun readLevels(out: FloatArray)

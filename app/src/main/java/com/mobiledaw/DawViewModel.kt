@@ -222,6 +222,50 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val visualDelay = com.mobiledaw.audio.VisualDelay()
     private val latencyMeter = com.mobiledaw.audio.LatencyMeter()
 
+    // ---------------------------------------------------------------- audio devices
+    // Settings → Audio devices: which output the engine plays to and which mic takes record from.
+    // Null = Automatic (the system decides). Remembered as device keys, see AudioDevices.
+
+    var audioOutputs by mutableStateOf<List<com.mobiledaw.audio.AudioPort>>(emptyList())
+        private set
+    var audioInputs by mutableStateOf<List<com.mobiledaw.audio.AudioPort>>(emptyList())
+        private set
+    var chosenOutputKey by mutableStateOf(prefs.getString("audio_output", null)?.ifEmpty { null })
+        private set
+    var chosenInputKey by mutableStateOf(prefs.getString("audio_input", null)?.ifEmpty { null })
+        private set
+
+    /** Re-reads the device lists (the Settings section calls this when it opens). */
+    fun refreshAudioDevices() {
+        com.mobiledaw.audio.AudioDevices.list(getApplication<Application>()) { outs, ins ->
+            audioOutputs = outs
+            audioInputs = ins
+        }
+    }
+
+    fun chooseOutput(key: String?) {
+        chosenOutputKey = key
+        prefs.edit().putString("audio_output", key.orEmpty()).apply()
+        com.mobiledaw.audio.AudioDevices.useOutput(getApplication<Application>(), key)
+    }
+
+    fun chooseInput(key: String?) {
+        chosenInputKey = key
+        prefs.edit().putString("audio_input", key.orEmpty()).apply()
+        com.mobiledaw.audio.AudioDevices.useInput(getApplication<Application>(), key)
+    }
+
+    /** Web: lets the browser show device names (it hides them until the mic is allowed). */
+    fun allowAudioDeviceNames() = com.mobiledaw.audio.AudioDevices.askForNames { refreshAudioDevices() }
+
+    private fun startAudioDevices() {
+        val ctx = getApplication<Application>()
+        com.mobiledaw.audio.AudioDevices.useOutput(ctx, chosenOutputKey)
+        com.mobiledaw.audio.AudioDevices.useInput(ctx, chosenInputKey)
+        com.mobiledaw.audio.AudioDevices.watch(ctx) { refreshAudioDevices() }
+        refreshAudioDevices()
+    }
+
     /** What the app is playing through right now (speaker, wired, or the earbuds' name). */
     var outputDevice by mutableStateOf(com.mobiledaw.audio.OutputDevice("speaker", "Phone speaker", false))
         private set
@@ -338,6 +382,27 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var scope by mutableStateOf(FloatArray(SCOPE_BINS))
         private set
+    /**
+     * Loudness of what has been heard over the last few seconds, oldest first, one value (0..1, on a
+     * dB scale) per screen refresh. Drawn as the moving soundwave, so its peaks line up with the
+     * kicks, snares and quiet parts of the song as they play.
+     */
+    var waveHistory by mutableStateOf(FloatArray(WAVE_HISTORY))
+        private set
+
+    /** Adds the loudest moment of the newest [SCOPE_BINS] slice (about one refresh's worth) to [waveHistory]. */
+    private fun pushWave(scope: FloatArray) {
+        val newest = (scope.size * 2 / 5).coerceAtLeast(1)
+        var peak = 0f
+        for (i in scope.size - newest until scope.size) peak = maxOf(peak, scope[i])
+        val db = if (peak <= 1e-5f) -100f else 20f * kotlin.math.log10(peak)
+        val v = ((db + WAVE_FLOOR_DB) / WAVE_FLOOR_DB).coerceIn(0f, 1f)
+        val old = waveHistory
+        val next = FloatArray(old.size)
+        old.copyInto(next, 0, 1, old.size)
+        next[next.size - 1] = v
+        waveHistory = next
+    }
 
     // Recording state. Declared before init{} because syncEngine() reads takeState.
     private val recorder = Recorder()
@@ -392,6 +457,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         syncEngine()
+        startAudioDevices()
         loadLatency()
         cloud.syncSoon(1_000)
         viewModelScope.launch {
@@ -418,6 +484,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 positionTicks = shown.tick
                 levels = shown.levels
                 scope = shown.scope
+                pushWave(shown.scope)
                 trackLevels = shown.trackLevels
                 delay(33)
             }
@@ -2024,6 +2091,21 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         return project.clips.lastIndex
     }
 
+    /**
+     * Clone an audio clip: an identical copy (same sound, trim, pitch, volume...) right after it,
+     * on the same row when there is room there, else the first free row below. Returns its id.
+     */
+    fun cloneAudioClip(id: Long): Long? {
+        val p = project
+        val clip = p.audioClips.firstOrNull { it.id == id } ?: return null
+        val len = clip.lengthTicks(p.bpm)
+        val start = clip.startTick + len
+        val lane = freeLane(p, clip.lane, start, start + len)
+        val copy = clip.copy(id = p.nextId(), lane = lane, startTick = start)
+        update { q -> q.copy(audioClips = q.audioClips + copy, playlistRows = maxOf(q.rowCount, lane + 1)) }
+        return copy.id
+    }
+
     /** A new pattern with the same notes and length, named "Name 2" (then 3, ...). */
     private fun clonedPattern(p: Project, source: Pattern, id: Long): Pattern {
         val base = source.name.replace(Regex(" \\d+$"), "")
@@ -2975,6 +3057,10 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         /** How long a preset preview is shown in the library player bar. */
         const val ENGINE_PREVIEW_MS = 1500L
         const val SCOPE_BINS = 96
+        /** Soundwave length: 90 refreshes of ~33 ms, about 3 seconds. */
+        const val WAVE_HISTORY = 90
+        /** Anything this many dB below full scale draws as silence. */
+        const val WAVE_FLOOR_DB = 48f
         private const val MAX_PIANO_UNDO = 100
         /** "Loop bars" always works in blocks of this many bars. */
         private const val LOOP_BLOCK_BARS = 4
