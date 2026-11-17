@@ -4,6 +4,8 @@
     <!-- Sound library: Freesound, Wikimedia Commons and Internet Archive search and downloads. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Bluetooth headset mics: turning on the earbuds' call audio link while recording. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
         android:allowBackup="true"

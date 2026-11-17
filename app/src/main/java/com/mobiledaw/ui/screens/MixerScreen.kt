@@ -1,6 +1,20 @@
 package com.mobiledaw.ui.screens
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -449,6 +463,10 @@ private fun Strip(
                 }
             }
             header()
+            if (pan != null) {
+                Spacer(Modifier.width(6.dp))
+                PanKnob(pan, onPan)
+            }
             Spacer(Modifier.width(6.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(formatGainDb(volume), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1)
@@ -467,20 +485,75 @@ private fun Strip(
         Meter(level)
         if (!expanded) return@Column
         Slider(value = volume, onValueChange = onVolume, valueRange = 0f..maxVolume, colors = inkSliderColors())
-        if (pan != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("L", fontSize = 11.sp, color = DawColors.Muted)
-                Slider(
-                    value = pan,
-                    onValueChange = onPan,
-                    valueRange = -1f..1f,
-                    colors = inkSliderColors(),
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                )
-                Text("R", fontSize = 11.sp, color = DawColors.Muted)
-            }
-        }
         content()
+    }
+}
+
+/**
+ * Pan knob, always on the strip (folded or open): drag up or right to send the sound right,
+ * down or left for left. Double-tap puts it back in the centre.
+ */
+@Composable
+private fun PanKnob(pan: Float, onPan: (Float) -> Unit) {
+    val change by rememberUpdatedState(onPan)
+    val current by rememberUpdatedState(pan)
+    var drag by remember { mutableStateOf<Float?>(null) }
+    val shown = drag ?: pan
+    val travel = with(LocalDensity.current) { 160.dp.toPx() }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(38.dp)) {
+        Canvas(
+            Modifier
+                .size(28.dp)
+                .semantics { contentDescription = "Pan ${panLabel(pan)}" }
+                .pointerInput(Unit) { detectTapGestures(onDoubleTap = { change(0f) }) }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { drag = current },
+                        onDragEnd = { drag = null },
+                        onDragCancel = { drag = null },
+                    ) { pointer, delta ->
+                        pointer.consume()
+                        val next = ((drag ?: 0f) + 2f * (delta.x - delta.y) / travel).coerceIn(-1f, 1f)
+                        drag = next
+                        change(next)
+                    }
+                },
+        ) {
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2 + 1.dp.toPx()
+            val arc = Size(size.width - inset * 2, size.height - inset * 2)
+            val tl = Offset(inset, inset)
+            drawArc(DawColors.Line, 135f, 270f, false, tl, arc, style = Stroke(stroke, cap = StrokeCap.Round))
+            val sweep = shown * 135f
+            if (abs(sweep) > 0.5f) drawArc(DawColors.Accent, 270f, sweep, false, tl, arc, style = Stroke(stroke, cap = StrokeCap.Round))
+            val angle = Math.toRadians(270.0 + shown * 135.0)
+            val c = Offset(size.width / 2, size.height / 2)
+            val r = arc.width / 2 - stroke * 1.4f
+            drawCircle(DawColors.Card, radius = arc.width / 2 - stroke, center = c)
+            drawLine(
+                DawColors.Ink,
+                c + Offset((cos(angle) * r * 0.3).toFloat(), (sin(angle) * r * 0.3).toFloat()),
+                c + Offset((cos(angle) * r).toFloat(), (sin(angle) * r).toFloat()),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+        }
+        Text(
+            panLabel(shown),
+            fontSize = 9.sp,
+            color = if (drag != null) DawColors.Accent else DawColors.Muted,
+            maxLines = 1,
+        )
+    }
+}
+
+/** "C" in the middle, else "L 40" / "R 40" (percent of the way over). */
+private fun panLabel(pan: Float): String {
+    val pct = (abs(pan) * 100).roundToInt()
+    return when {
+        pct == 0 -> "C"
+        pan < 0f -> "L $pct"
+        else -> "R $pct"
     }
 }
 

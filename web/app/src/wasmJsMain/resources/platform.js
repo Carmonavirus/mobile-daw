@@ -113,6 +113,7 @@ function engineInit(done) {
       processorOptions: { wasm: bytes },
     });
     node.connect(ctx.destination);
+    audioApplyOutput();
     node.port.onmessage = (ev) => onEngineMessage(ev.data);
     eng.node = node;
     const unlock = () => { if (ctx.state !== 'running') ctx.resume(); };
@@ -319,6 +320,47 @@ try {
   }).catch(() => {});
 } catch (e) {}
 
+// ------------------------------------------------------------------ audio devices
+// Settings → Audio devices. Ids are the browser's deviceIds, which stay the same for this site.
+const audioDev = { output: '', input: '' };
+
+/** done("in|out \t id \t label" lines). Labels are empty until the mic has been allowed. */
+function audioDevicesList(done) {
+  const md = navigator.mediaDevices;
+  if (!md || !md.enumerateDevices) { done(''); return; }
+  md.enumerateDevices().then((list) => {
+    const lines = [];
+    for (const d of list) {
+      if (d.kind !== 'audioinput' && d.kind !== 'audiooutput') continue;
+      // 'default' / 'communications' are aliases of a real device that is listed too.
+      if (!d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications') continue;
+      const label = (d.label || '').replace(/[\t\n]/g, ' ');
+      lines.push((d.kind === 'audioinput' ? 'in' : 'out') + '\t' + d.deviceId + '\t' + label);
+    }
+    done(lines.join('\n'));
+  }).catch(() => done(''));
+}
+function audioCanPickOutput() {
+  const AC = window.AudioContext;
+  return !!(AC && AC.prototype && typeof AC.prototype.setSinkId === 'function');
+}
+function audioNeedNames() { return mic.state !== 'granted'; }
+function audioApplyOutput() {
+  const ctx = eng.ctx;
+  if (!ctx || typeof ctx.setSinkId !== 'function') return;
+  const want = audioDev.output || '';
+  if ((ctx.sinkId || '') === want) return;
+  // A device that is unplugged fails here; play to the default until it comes back.
+  ctx.setSinkId(want).catch(() => { if (want && ctx.sinkId) ctx.setSinkId('').catch(() => {}); });
+}
+function audioSetOutput(id) { audioDev.output = id || ''; audioApplyOutput(); }
+function audioSetInput(id) { audioDev.input = id || ''; }
+function audioWatch(onChange) {
+  const md = navigator.mediaDevices;
+  if (!md || !md.addEventListener) return;
+  md.addEventListener('devicechange', () => { audioApplyOutput(); onChange(); });
+}
+
 function micPermission() { return mic.state; }
 function askMicPermission(done) {
   navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
@@ -345,7 +387,11 @@ function micStart(peakFrames) {
   mic.startedAt = performance.now();
   const ctx = eng.ctx;
   ctx.resume();
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+  const plain = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  // The mic picked in Settings → Audio devices; if it's gone, the browser's default instead.
+  const picked = audioDev.input ? Object.assign({ deviceId: { exact: audioDev.input } }, plain) : plain;
+  navigator.mediaDevices.getUserMedia({ audio: picked })
+    .catch((err) => (audioDev.input ? navigator.mediaDevices.getUserMedia({ audio: plain }) : Promise.reject(err)))
     .then((stream) => {
       if (!mic.running) { stream.getTracks().forEach((t) => t.stop()); return; }
       mic.state = 'granted';
