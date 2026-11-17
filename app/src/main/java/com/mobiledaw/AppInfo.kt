@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.10.0", "2026-11-17T12:00:00Z",
+            listOf(
+                "Export project: Projects now has Export project next to Import project, and the Export screen has a Project (.zip) option. It packs the project with every sound it uses; open it anywhere with Projects → Import project.",
+                "Import project accepts the file however it arrives (chat apps and cloud drives often send a .zip without a zip type), and big projects with long loops and recordings no longer run out of memory while importing.",
+                "Picking an audio export (WAV, MP3, stems or MIDI .zip) in Import project now explains that it isn't a project instead of a vague error. The Projects button for audio is now called Export audio.",
+            ),
+        ),
+        Release(
             "0.9.9", "2026-11-17T11:50:00Z",
             listOf(
                 "Playlist: pattern clips now show their notes inside the clip, like a tiny piano roll, instead of a plain colour block. Melodies go by pitch and each drum sound gets its own row.",

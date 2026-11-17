@@ -2697,9 +2697,14 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                     projectShare = if (kit != null) ProjectShareState.Done("Drum kit added", "That .zip isn't a project, so its sounds were added as the drum kit \"$kit\".")
                     else ProjectShareState.Done("Nothing to import", "That .zip has no project and no .wav sounds in it.")
                 }
+                shareIo.lastAudioFiles > 0 -> projectShare = ProjectShareState.Done(
+                    "That's an audio export",
+                    "That .zip holds exported audio (WAV, MP3, stems or MIDI), not a project, so there's nothing to open. " +
+                        "To move a project with all its sounds, use Projects → Export project (or Share on a project), then Import project on the other device.",
+                )
                 else -> projectShare = ProjectShareState.Done(
                     "Not a project",
-                    "That file isn't a project shared from Mobile DAW. To add drum sounds from a .zip, use Settings → Drum kits.",
+                    "That file isn't a project from Mobile DAW. Make one with Projects → Export project. To add drum sounds from a .zip, use Settings → Drum kits.",
                 )
             }
         }
