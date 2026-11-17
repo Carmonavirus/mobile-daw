@@ -121,13 +121,17 @@ fun ProjectsDialog(vm: DawViewModel, onDismiss: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextAction("Rename") { vm.renameProject(name); onDismiss() }
             TextAction("New project", strong = true) { vm.newProject(); onDismiss() }
-            TextAction("Export") { onDismiss(); vm.openExport() }
+            TextAction("Export audio") { onDismiss(); vm.openExport() }
         }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("OPEN", fontSize = 11.sp, letterSpacing = 2.sp, color = DawColors.Muted, modifier = Modifier.weight(1f))
+            TextAction("Export project") { vm.shareProject(vm.project.name); onDismiss() }
+            Spacer(Modifier.size(6.dp))
             TextAction("Import project") {
-                importer.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                // Any file: chat apps and cloud drives often hand a .zip over without a zip type,
+                // and the import checks the file itself.
+                importer.launch(arrayOf("*/*"))
             }
         }
         Spacer(Modifier.height(4.dp))

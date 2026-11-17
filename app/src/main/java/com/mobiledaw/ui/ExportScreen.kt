@@ -131,6 +131,18 @@ private fun OptionsForm(vm: DawViewModel, error: String?) {
         FormatRow("MIDI", "The notes of every channel, one track each, at the song's tempo.", o.midi, { v -> set { it.copy(midi = v) } })
     }
 
+    Title("Project")
+    Card {
+        Text(
+            "The whole project with every sound it uses, as one .zip. Open it in Mobile DAW (phone or web) with " +
+                "Projects → Import project to keep working on it, or send it to a friend.",
+            fontSize = 13.sp,
+            color = DawColors.InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextAction("Export project (.zip)") { vm.closeExport(); vm.shareProject(vm.project.name) }
+    }
+
     Title("FL Studio")
     Card {
         Text(

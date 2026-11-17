@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.8", "2026-11-17T12:00:00Z",
+            listOf(
+                "Export project: Projects now has Export project next to Import project, and the Export screen has a Project (.zip) option. It packs the project with every sound it uses; open it anywhere with Projects → Import project.",
+                "Import project accepts the file however it arrives (chat apps and cloud drives often send a .zip without a zip type), and big projects with long loops and recordings no longer run out of memory while importing.",
+                "Picking an audio export (WAV, MP3, stems or MIDI .zip) in Import project now explains that it isn't a project instead of a vague error. The Projects button for audio is now called Export audio.",
+            ),
+        ),
+        Release(
             "0.9.7", "2026-11-16T07:30:00Z",
             listOf(
                 "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
