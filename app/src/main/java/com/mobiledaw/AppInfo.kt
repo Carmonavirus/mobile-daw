@@ -26,11 +26,19 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
-            "0.9.10", "2026-11-17T12:00:00Z",
+            "0.10.1", "2026-11-17T12:10:00Z",
             listOf(
                 "Export on a PC: Cancel now stops the export straight away, and when an export finishes the screen shows Done so you can close it. Before, the page froze while exporting and could stay stuck on the progress screen.",
                 "On a PC, a master volume knob sits at the top, next to the metronome: drag it, scroll the mouse wheel over it, or double-click to put it back. It's the same level as the Master strip in the mixer.",
                 "Zoom the channel rack on a PC: Ctrl+mouse wheel (or a trackpad pinch), Ctrl+= and Ctrl+-, or the − and + buttons beside the bar count. Shift+wheel moves to the next or previous bars.",
+            ),
+        ),
+        Release(
+            "0.10.0", "2026-11-17T12:00:00Z",
+            listOf(
+                "Export project: Projects now has Export project next to Import project, and the Export screen has a Project (.zip) option. It packs the project with every sound it uses; open it anywhere with Projects → Import project.",
+                "Import project accepts the file however it arrives (chat apps and cloud drives often send a .zip without a zip type), and big projects with long loops and recordings no longer run out of memory while importing.",
+                "Picking an audio export (WAV, MP3, stems or MIDI .zip) in Import project now explains that it isn't a project instead of a vague error. The Projects button for audio is now called Export audio.",
             ),
         ),
         Release(

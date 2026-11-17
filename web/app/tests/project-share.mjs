@@ -115,6 +115,27 @@ try {
     console.log(`skip clash check: C's loop landed at ${cOwn}, not ${loopPath}`);
   }
 
+  // The import unpacks into a staging folder that must be gone afterwards.
+  check((await fileBytes(b, '.project-import/0')) === null, 'nothing is left in the staging folder');
+
+  // A project that was unzipped and zipped again inside a folder (with Mac extras) still imports.
+  const rezip = await b.evaluate((bytes) => {
+    const files = fflate.unzipSync(new Uint8Array(bytes));
+    const out = {};
+    for (const [n, d] of Object.entries(files)) {
+      out['My beat/' + n] = d;
+      out['__MACOSX/My beat/._' + n.split('/').pop()] = new Uint8Array([0, 5, 22, 7]);
+    }
+    return [...fflate.zipSync(out)];
+  }, zip);
+  r = await importZip(b, rezip);
+  check(r.title === 'Project imported' && r.audio.length === 1, `a re-zipped folder imports (${r.title})`);
+
+  // A song export (stems .zip) isn't a project: say so instead of a vague error.
+  const stems = await b.evaluate((w) => [...fflate.zipSync({ 'Song/Song - Drums.wav': new Uint8Array(w), 'Song/Song.mid': new Uint8Array([77, 84, 104, 100]) })], wav(330));
+  r = await importZip(b, stems);
+  check(r.title === "That's an audio export", `an audio export .zip is explained (${r.title})`);
+
   // Something that isn't a project.
   r = await importZip(b, [...Buffer.from('not a zip at all')]);
   check(r.title !== 'Project imported', `a random file is refused (${r.title})`);

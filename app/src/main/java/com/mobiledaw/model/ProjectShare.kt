@@ -29,6 +29,10 @@ class ProjectShare(private val filesDir: File, private val store: ProjectStore) 
 
     class Imported(val project: Project, val sounds: Int)
 
+    /** After an [import] that found no project: how many audio or MIDI files the zip held (an audio export, say). */
+    var lastAudioFiles = 0
+        private set
+
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true }
 
     /** Packs [project] and its sounds into [out]. */
@@ -61,30 +65,55 @@ class ProjectShare(private val filesDir: File, private val store: ProjectStore) 
      * other project has. Returns null when the zip isn't a Mobile DAW project.
      */
     fun import(input: InputStream): Imported? {
-        val entries = LinkedHashMap<String, ByteArray>()
-        ZipInputStream(input.buffered()).use { zip ->
+        // Sounds are unpacked to a staging folder first, one at a time, so a project with long
+        // loops and recordings never has to fit in memory at once.
+        val staging = File(filesDir, STAGING).apply { deleteRecursively(); mkdirs() }
+        try {
+            return importFrom(input, staging)
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
+
+    private fun importFrom(input: InputStream, staging: File): Imported? {
+        // name in the zip -> unpacked file (sounds) or bytes (the project and its marker).
+        val staged = LinkedHashMap<String, File>()
+        val small = HashMap<String, ByteArray>()
+        var n = 0
+        lastAudioFiles = 0
+        ZipInputStream(input.buffered(1 shl 16)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                if (!entry.isDirectory) entries[entry.name.trimStart('/')] = zip.readBytes()
+                val name = entry.name.replace('\\', '/').trimStart('/')
+                if (!entry.isDirectory && !name.startsWith("__MACOSX/")) {
+                    if (name.substringAfterLast('/') == PROJECT || name.substringAfterLast('/') == MARKER) {
+                        small[name] = zip.readBytes()
+                    } else if (name.contains(FILES)) {
+                        val f = File(staging, "${n++}")
+                        f.outputStream().use { zip.copyTo(it) }
+                        staged[name] = f
+                    } else if (AUDIO.matches(name.substringAfterLast('.', "").lowercase())) {
+                        lastAudioFiles++
+                    }
+                }
                 zip.closeEntry()
             }
         }
         // A project that was unzipped and zipped again by hand sits inside one folder.
         val prefix = when {
-            PROJECT in entries -> ""
-            else -> entries.keys.filter { it.endsWith("/$PROJECT") && it.count { ch -> ch == '/' } == 1 }
+            PROJECT in small -> ""
+            else -> small.keys.filter { it.endsWith("/$PROJECT") && it.count { ch -> ch == '/' } == 1 }
                 .minOrNull()?.removeSuffix(PROJECT) ?: return null
         }
-        val marked = (prefix + MARKER) in entries
-        val projectBytes = entries[prefix + PROJECT]
-        val bundled = LinkedHashMap<String, ByteArray>()
-        for ((name, data) in entries) {
+        val marked = (prefix + MARKER) in small
+        val projectBytes = small[prefix + PROJECT] ?: return null
+        val bundled = LinkedHashMap<String, File>()
+        for ((name, file) in staged) {
             if (!name.startsWith(prefix + FILES)) continue
             val path = name.removePrefix(prefix + FILES)
-            if (safePath(path)) bundled[path] = data
+            if (safePath(path)) bundled[path] = file
         }
-        val bytes = projectBytes ?: return null
-        val shared = runCatching { json.decodeFromString(Project.serializer(), bytes.decodeToString()) }.getOrNull()
+        val shared = runCatching { json.decodeFromString(Project.serializer(), projectBytes.decodeToString().removePrefix("\uFEFF")) }.getOrNull()
             ?: return if (marked) throw IllegalArgumentException("This project was made by a newer version of the app.") else null
 
         // Where each bundled file goes. SFZ instruments move as a whole folder so the .sfz still
@@ -101,18 +130,18 @@ class ProjectShare(private val filesDir: File, private val store: ProjectStore) 
             val newDir = if (clash) freeFolder(dir) else dir
             inside.forEach { moved[it] = newDir + it.removePrefix(dir) }
         }
-        for ((path, data) in bundled) {
+        for ((path, file) in bundled) {
             if (path in moved) continue
-            moved[path] = if (clashes(path, data)) freeFile(path, bundled.keys) else path
+            moved[path] = if (clashes(path, file)) freeFile(path, bundled.keys) else path
         }
-        for ((path, data) in bundled) {
+        for ((path, file) in bundled) {
             val target = File(filesDir, moved.getValue(path))
-            if (target.isFile && target.length() == data.size.toLong() && target.readBytes().contentEquals(data)) continue
+            if (target.isFile && sameContent(target, file)) continue
             target.parentFile?.mkdirs()
-            val tmp = File(target.path + ".importing")
-            tmp.writeBytes(data)
             if (target.exists()) target.delete()
-            tmp.renameTo(target)
+            if (!file.renameTo(target)) {
+                file.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+            }
         }
 
         fun remap(p: String?): String? = p?.let { moved[it] ?: it }
@@ -132,11 +161,38 @@ class ProjectShare(private val filesDir: File, private val store: ProjectStore) 
     }
 
     /** True when [path] is already used by a different file. */
-    private fun clashes(path: String, data: ByteArray): Boolean {
+    private fun clashes(path: String, incoming: File): Boolean {
         val f = File(filesDir, path)
         if (!f.exists()) return false
-        if (!f.isFile || f.length() != data.size.toLong()) return true
-        return !f.readBytes().contentEquals(data)
+        return !f.isFile || !sameContent(f, incoming)
+    }
+
+    /** Compares two files a block at a time. */
+    private fun sameContent(a: File, b: File): Boolean {
+        if (a.length() != b.length()) return false
+        a.inputStream().buffered(1 shl 16).use { x ->
+            b.inputStream().buffered(1 shl 16).use { y ->
+                val bx = ByteArray(1 shl 16)
+                val by = ByteArray(1 shl 16)
+                while (true) {
+                    val nx = readFully(x, bx)
+                    val ny = readFully(y, by)
+                    if (nx != ny) return false
+                    if (nx <= 0) return true
+                    for (i in 0 until nx) if (bx[i] != by[i]) return false
+                }
+            }
+        }
+    }
+
+    private fun readFully(input: InputStream, buf: ByteArray): Int {
+        var n = 0
+        while (n < buf.size) {
+            val r = input.read(buf, n, buf.size - n)
+            if (r < 0) break
+            n += r
+        }
+        return n
     }
 
     private fun freeFile(path: String, incoming: Set<String>): String {
@@ -163,6 +219,9 @@ class ProjectShare(private val filesDir: File, private val store: ProjectStore) 
         const val PROJECT = "project.json"
         const val FILES = "files/"
         const val FORMAT = 1
+        /** Folder (in the files folder) an import unpacks into before the sounds move in place. */
+        private val AUDIO = Regex("wav|mp3|mid|midi|ogg|flac|m4a|aac")
+        const val STAGING = ".project-import"
 
         /** File name for a shared project, e.g. "My beat (Mobile DAW).zip". */
         fun fileName(projectName: String): String =
