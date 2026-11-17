@@ -24,6 +24,11 @@ public:
     double outputLatencyMillis();
     /** Android AudioDeviceInfo id the stream plays to, 0 when unknown. */
     int outputDeviceId();
+    /**
+     * Plays to the Android AudioDeviceInfo [deviceId] (0 = let Android route it), reopening the
+     * stream if it is running. If that device can't be opened (unplugged), falls back to routing.
+     */
+    void setOutputDevice(int deviceId);
     /** Latency the buffer alone adds (buffer size / rate), in ms; a floor when timestamps are missing. */
     double bufferLatencyMillis();
 
@@ -41,9 +46,11 @@ public:
 
 private:
     bool openStream();
+    bool openStreamOn(int deviceId);
 
     Core core_;
     std::mutex lock_;
+    int preferredDevice_ = 0;  // guarded by lock_
     std::atomic<bool> offline_{false};
     std::atomic<bool> inCallback_{false};
     std::shared_ptr<oboe::AudioStream> stream_;

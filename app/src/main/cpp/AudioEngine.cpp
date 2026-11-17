@@ -12,7 +12,14 @@
 namespace daw {
 
 bool AudioEngine::openStream() {
+    if (preferredDevice_ != 0 && openStreamOn(preferredDevice_)) return true;
+    return openStreamOn(oboe::kUnspecified);
+}
+
+bool AudioEngine::openStreamOn(int deviceId) {
+    stream_.reset();
     oboe::AudioStreamBuilder builder;
+    builder.setDeviceId(deviceId);
     builder.setDirection(oboe::Direction::Output)
         ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
         ->setSharingMode(oboe::SharingMode::Exclusive)
@@ -33,6 +40,8 @@ bool AudioEngine::openStream() {
     result = stream_->requestStart();
     if (result != oboe::Result::OK) {
         LOGE("requestStart failed: %s", oboe::convertToText(result));
+        stream_->close();
+        stream_.reset();
         return false;
     }
     return true;
@@ -82,6 +91,17 @@ double AudioEngine::outputLatencyMillis() {
     return result ? result.value() : -1.0;
 }
 
+void AudioEngine::setOutputDevice(int deviceId) {
+    std::lock_guard<std::mutex> guard(lock_);
+    if (deviceId == preferredDevice_ && (!stream_ || deviceId == 0 || stream_->getDeviceId() == deviceId)) return;
+    preferredDevice_ = deviceId;
+    if (!stream_) return;  // not started yet: start() opens on it
+    stream_->stop();
+    stream_->close();
+    stream_.reset();
+    openStream();
+}
+
 int AudioEngine::outputDeviceId() {
     std::lock_guard<std::mutex> guard(lock_);
     return stream_ ? stream_->getDeviceId() : 0;
@@ -93,11 +113,13 @@ double AudioEngine::bufferLatencyMillis() {
     return 1000.0 * stream_->getBufferSizeInFrames() / stream_->getSampleRate();
 }
 
-void AudioEngine::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {
+void AudioEngine::onErrorAfterClose(oboe::AudioStream* closed, oboe::Result error) {
     // A disconnect (headphone plug/unplug, or another app taking exclusive audio) closes the
     // stream. Reopen so playback resumes on the current device instead of going silent.
     LOGE("stream closed with error: %s; reopening", oboe::convertToText(error));
     std::lock_guard<std::mutex> guard(lock_);
+    // setOutputDevice may already have replaced the stream that failed.
+    if (stream_ && stream_.get() != closed) return;
     stream_.reset();
     openStream();
 }

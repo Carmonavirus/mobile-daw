@@ -222,6 +222,50 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
     private val visualDelay = com.mobiledaw.audio.VisualDelay()
     private val latencyMeter = com.mobiledaw.audio.LatencyMeter()
 
+    // ---------------------------------------------------------------- audio devices
+    // Settings → Audio devices: which output the engine plays to and which mic takes record from.
+    // Null = Automatic (the system decides). Remembered as device keys, see AudioDevices.
+
+    var audioOutputs by mutableStateOf<List<com.mobiledaw.audio.AudioPort>>(emptyList())
+        private set
+    var audioInputs by mutableStateOf<List<com.mobiledaw.audio.AudioPort>>(emptyList())
+        private set
+    var chosenOutputKey by mutableStateOf(prefs.getString("audio_output", null)?.ifEmpty { null })
+        private set
+    var chosenInputKey by mutableStateOf(prefs.getString("audio_input", null)?.ifEmpty { null })
+        private set
+
+    /** Re-reads the device lists (the Settings section calls this when it opens). */
+    fun refreshAudioDevices() {
+        com.mobiledaw.audio.AudioDevices.list(getApplication<Application>()) { outs, ins ->
+            audioOutputs = outs
+            audioInputs = ins
+        }
+    }
+
+    fun chooseOutput(key: String?) {
+        chosenOutputKey = key
+        prefs.edit().putString("audio_output", key.orEmpty()).apply()
+        com.mobiledaw.audio.AudioDevices.useOutput(getApplication<Application>(), key)
+    }
+
+    fun chooseInput(key: String?) {
+        chosenInputKey = key
+        prefs.edit().putString("audio_input", key.orEmpty()).apply()
+        com.mobiledaw.audio.AudioDevices.useInput(getApplication<Application>(), key)
+    }
+
+    /** Web: lets the browser show device names (it hides them until the mic is allowed). */
+    fun allowAudioDeviceNames() = com.mobiledaw.audio.AudioDevices.askForNames { refreshAudioDevices() }
+
+    private fun startAudioDevices() {
+        val ctx = getApplication<Application>()
+        com.mobiledaw.audio.AudioDevices.useOutput(ctx, chosenOutputKey)
+        com.mobiledaw.audio.AudioDevices.useInput(ctx, chosenInputKey)
+        com.mobiledaw.audio.AudioDevices.watch(ctx) { refreshAudioDevices() }
+        refreshAudioDevices()
+    }
+
     /** What the app is playing through right now (speaker, wired, or the earbuds' name). */
     var outputDevice by mutableStateOf(com.mobiledaw.audio.OutputDevice("speaker", "Phone speaker", false))
         private set
@@ -392,6 +436,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         syncEngine()
+        startAudioDevices()
         loadLatency()
         cloud.syncSoon(1_000)
         viewModelScope.launch {
