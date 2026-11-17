@@ -2,6 +2,10 @@ package com.mobiledaw.ui.fx
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -31,47 +36,74 @@ import kotlin.math.tanh
  */
 @Composable
 fun ClipEditor(settings: ClipSettings, onChange: (ClipSettings) -> Unit) {
-    Column {
-        SynthCard(title = "Curve") {
-            ClipCurve(settings)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Straight line = untouched. Where it bends, peaks are rounded off. More Gain pushes more of the sound into the bend.",
-                fontSize = 11.sp,
-                color = DawColors.Muted,
-            )
-        }
-        SynthCard(title = "Controls") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                FxKnob(
-                    "Gain",
-                    settings.gain,
-                    KnobRange(ClipSettings.GAIN_MIN, ClipSettings.GAIN_MAX, 0f),
-                    ::formatDb,
-                    { onChange(settings.copy(gain = snap(it))) },
-                )
-                FxKnob(
-                    "Threshold",
-                    settings.threshold,
-                    KnobRange(ClipSettings.THRESHOLD_MIN, 0f, -6f),
-                    ::formatDb,
-                    { onChange(settings.copy(threshold = snap(it))) },
-                )
-                FxKnob(
-                    "Post",
-                    settings.post,
-                    KnobRange(ClipSettings.POST_MIN, ClipSettings.POST_MAX, 0f),
-                    ::formatDb,
-                    { onChange(settings.copy(post = snap(it))) },
-                )
+    // On a wide window (a PC screen, a tablet) the curve and the knobs sit side by side and the
+    // curve keeps a modest size, instead of a full-width graph that fills the whole screen.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        if (maxWidth >= 600.dp) {
+            Row(
+                Modifier.widthIn(max = 860.dp).align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(Modifier.weight(1f)) { CurveCard(settings) }
+                Box(Modifier.weight(1f)) { ControlsCard(settings, onChange) }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Gain: how hard the sound hits the clipper.  Threshold: where clipping starts.  Post: the level that comes out.",
-                fontSize = 11.sp,
-                color = DawColors.Muted,
+        } else {
+            Column {
+                CurveCard(settings)
+                ControlsCard(settings, onChange)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurveCard(settings: ClipSettings) {
+    SynthCard(title = "Curve") {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            ClipCurve(settings, Modifier.widthIn(max = 420.dp).heightIn(max = 240.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Straight line = untouched. Where it bends, peaks are rounded off. More Gain pushes more of the sound into the bend.",
+            fontSize = 11.sp,
+            color = DawColors.Muted,
+        )
+    }
+}
+
+@Composable
+private fun ControlsCard(settings: ClipSettings, onChange: (ClipSettings) -> Unit) {
+    SynthCard(title = "Controls") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+            FxKnob(
+                "Gain",
+                settings.gain,
+                KnobRange(ClipSettings.GAIN_MIN, ClipSettings.GAIN_MAX, 0f),
+                ::formatDb,
+                { onChange(settings.copy(gain = snap(it))) },
+            )
+            FxKnob(
+                "Threshold",
+                settings.threshold,
+                KnobRange(ClipSettings.THRESHOLD_MIN, 0f, -6f),
+                ::formatDb,
+                { onChange(settings.copy(threshold = snap(it))) },
+            )
+            FxKnob(
+                "Post",
+                settings.post,
+                KnobRange(ClipSettings.POST_MIN, ClipSettings.POST_MAX, 0f),
+                ::formatDb,
+                { onChange(settings.copy(post = snap(it))) },
             )
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Gain: how hard the sound hits the clipper.  Threshold: where clipping starts.  Post: the level that comes out.",
+            fontSize = 11.sp,
+            color = DawColors.Muted,
+        )
     }
 }
 
@@ -92,11 +124,11 @@ private fun shape(x: Float, threshold: Float): Float {
 
 /** Input level (across) against output level (up), from -1 to 1 on both. */
 @Composable
-private fun ClipCurve(s: ClipSettings) {
+private fun ClipCurve(s: ClipSettings, modifier: Modifier = Modifier) {
     val gain = dbToGain(s.gain)
     val threshold = dbToGain(s.threshold)
     val post = dbToGain(s.post)
-    Canvas(Modifier.fillMaxWidth().aspectRatio(1.6f)) {
+    Canvas(modifier.aspectRatio(1.6f, matchHeightConstraintsFirst = true)) {
         val w = size.width
         val h = size.height
         fun px(x: Float) = (x + 1f) / 2f * w

@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.8", "2026-11-17T11:45:00Z",
+            listOf(
+                "Pan knobs in the Mixer: every channel and mixer track has a small knob next to its volume, even when the strip is folded. Drag up or right to send the sound right, down or left for left. Double-tap puts it back in the middle (C).",
+                "Play and pause inside an effect: the effect window now has its own Play button (and Space works on a computer), so you can hear the song while you turn the knobs.",
+                "Soft Clipper fits on a computer screen: the curve stays a sensible size, with the knobs beside it on wide windows.",
+            ),
+        ),
+        Release(
             "0.9.7", "2026-11-16T07:30:00Z",
             listOf(
                 "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
