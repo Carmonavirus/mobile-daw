@@ -48,7 +48,8 @@ class Recorder {
     @SuppressLint("MissingPermission")
     fun start(out: File): Boolean {
         if (running) return false
-        val (record, sampleRate) = open() ?: return false
+        AudioDevices.beginCapture()
+        val (record, sampleRate) = open() ?: run { AudioDevices.endCapture(); return false }
         rate = sampleRate
         out.parentFile?.mkdirs()
         val raf = RandomAccessFile(out, "rw").apply { setLength(0); write(ByteArray(44)) }
@@ -66,6 +67,7 @@ class Recorder {
             record.release()
             raf.close()
             out.delete()
+            AudioDevices.endCapture()
             return false
         }
         thread = Thread({ loop(record, raf, sampleRate) }, "mic-recorder").apply {
@@ -82,6 +84,7 @@ class Recorder {
         thread?.join(2000)
         thread = null
         level = 0f
+        AudioDevices.endCapture()
         val out = file ?: return null
         file = null
         val seconds = frames.toFloat() / rate
@@ -108,7 +111,11 @@ class Recorder {
             } catch (e: Exception) {
                 null
             } ?: continue
-            if (record.state == AudioRecord.STATE_INITIALIZED) return record to sampleRate
+            if (record.state == AudioRecord.STATE_INITIALIZED) {
+                // The mic picked in Settings → Audio devices (null = Android's default).
+                AudioDevices.preferredInput?.let { runCatching { record.setPreferredDevice(it) } }
+                return record to sampleRate
+            }
             record.release()
         }
         return null

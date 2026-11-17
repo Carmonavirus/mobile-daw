@@ -29,6 +29,7 @@ import com.mobiledaw.model.ClipSettings
 import com.mobiledaw.model.EffectType
 import com.mobiledaw.model.EqSettings
 import com.mobiledaw.model.PitchSettings
+import com.mobiledaw.ui.PlayButton
 import com.mobiledaw.ui.TextAction
 import com.mobiledaw.ui.synth.Switch
 import com.mobiledaw.ui.theme.DawColors
@@ -55,6 +56,9 @@ fun EffectEditor(vm: DawViewModel, trackId: Long, effectId: Long) {
                     Text(effect.type.label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DawColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("on ${track.name}", fontSize = 12.sp, color = DawColors.Muted)
                 }
+                // Play/pause right here, to hear the effect while changing it (Space works too).
+                PlayButton(vm.playing, vm::togglePlay, diameter = 36.dp)
+                Spacer(Modifier.width(10.dp))
                 Switch(if (effect.bypass) "Off" else "On", !effect.bypass) { on ->
                     vm.updateEffect(trackId, effectId) { it.copy(bypass = !on) }
                 }

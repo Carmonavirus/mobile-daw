@@ -57,6 +57,13 @@ object Desktop {
             if (code == "Escape" || code == "F1" || (code == "Slash" && shift)) { shortcutsOpen = false; return true }
             return false
         }
+        // Space still plays and pauses inside an effect's editor, so the effect can be heard while tweaking.
+        if (code == "Space" && !ctrl && !alt && vm.openEffect != null && !vm.settingsOpen && !vm.exportOpen &&
+            vm.synthEditorChannelId == null
+        ) {
+            if (!repeat) vm.togglePlay()
+            return true
+        }
         if (covered) return false
 
         // Typing keyboard first, so its letters and numbers play notes.

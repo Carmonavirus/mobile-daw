@@ -16,6 +16,7 @@ val androidOnly = listOf(
     "com/mobiledaw/audio/NativeEngine.kt",
     "com/mobiledaw/audio/SynthEngine.kt",
     "com/mobiledaw/audio/Recorder.kt",
+    "com/mobiledaw/audio/AudioDevices.kt",
     "com/mobiledaw/export/ExportStorage.kt",
     "com/mobiledaw/cloud/CloudPlatform.kt",
     "com/mobiledaw/ui/ResizeCursor.kt",
