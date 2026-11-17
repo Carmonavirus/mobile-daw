@@ -144,6 +144,8 @@ class SoundSources(private val context: Context) {
 
     companion object {
         val FREE_SITES = listOf(
+            // BeatStars has no public API and its terms forbid bots and scrapers: link out only, never fetch from it.
+            FreeSite("BeatStars free beats", "https://www.beatstars.com", "Full beats from producers; look for the Free Download button (free account)", "Free beats are usually tagged and for non-profit use only: buy a lease before releasing. Share the MP3/WAV to Mobile DAW to put it on a playlist row."),
             FreeSite("99Sounds", "https://99sounds.org", "Free sample packs and drum kits", "Royalty-free for your music. Download the .zip, then import it in Drum kits."),
             FreeSite("Bedroom Producers Blog", "https://bedroomproducersblog.com/free-samples/", "Round-ups of free sample packs", "Each pack has its own terms; most allow use in music. Import the .zip in Drum kits."),
             FreeSite("Philharmonia sound samples", "https://philharmonia.co.uk/resources/sound-samples/", "Orchestral one-shots, every instrument", "Free to use in music; check their terms page. Import the .zip in Drum kits."),
