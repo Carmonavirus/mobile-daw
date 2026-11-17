@@ -48,7 +48,8 @@ import java.io.File
 @Composable
 fun ExportScreen(vm: DawViewModel) {
     val state = vm.exportState
-    val running = state is ExportState.Running
+    // Decided by the export itself, not the screen state, so Close/Done always shows once it ends.
+    val running = vm.exportBusy
     Dialog(
         onDismissRequest = { vm.closeExport() },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !running, dismissOnClickOutside = false),
@@ -71,7 +72,7 @@ fun ExportScreen(vm: DawViewModel) {
                     .padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
                 when (state) {
-                    is ExportState.Running -> RunningCard(state) { vm.cancelExport() }
+                    is ExportState.Running -> if (running) RunningCard(state) { vm.cancelExport() } else OptionsForm(vm, null)
                     is ExportState.Done -> DoneCard(vm, state)
                     else -> OptionsForm(vm, (state as? ExportState.Failed)?.message)
                 }

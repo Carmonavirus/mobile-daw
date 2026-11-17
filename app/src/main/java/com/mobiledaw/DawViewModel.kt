@@ -2850,9 +2850,34 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         if (exportState !is com.mobiledaw.export.ExportState.Running) exportState = com.mobiledaw.export.ExportState.Idle
     }
 
+    /** True while an export is rendering or saving (Cancel is the only way out then). */
+    var exportBusy by mutableStateOf(false)
+        private set
+
     fun cancelExport() {
         exportCancel = true
+        // Nothing left to stop (it finished a moment ago): just go back to the options.
+        if (!exporting) {
+            exportState = com.mobiledaw.export.ExportState.Idle
+            return
+        }
+        if (exportState is com.mobiledaw.export.ExportState.Running) {
+            exportState = com.mobiledaw.export.ExportState.Running((exportState as com.mobiledaw.export.ExportState.Running).progress, "Cancelling…")
+        }
     }
+
+    /**
+     * Shows export progress on the main thread. A late update (queued before the export ended)
+     * is dropped, so it can't put the finished screen back to "Saving…" with no way out.
+     */
+    private fun postExportProgress(job: Int, f: Float, label: String) {
+        mainHandler.post {
+            if (exporting && job == exportJob && !exportCancel && exportState is com.mobiledaw.export.ExportState.Running) {
+                exportState = com.mobiledaw.export.ExportState.Running(f, label)
+            }
+        }
+    }
+    private var exportJob = 0
 
     /** Stems the current options would make (rack channels that play, plus audio clips per mixer track). */
     fun exportStemNames(): List<String> {
@@ -2876,7 +2901,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
         val base = com.mobiledaw.export.Exporter.safeName(name)
         val ctx = getApplication<Application>()
         exporting = true
+        exportBusy = true
         exportCancel = false
+        val job = ++exportJob
         exportState = com.mobiledaw.export.ExportState.Running(0f, "Starting")
         viewModelScope.launch {
             try {
@@ -2890,13 +2917,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                     val dir = com.mobiledaw.export.ExportStorage.workDir(ctx)
                     val files = com.mobiledaw.export.Exporter(
                         p, compiled, stems, opts, dir, base,
-                        progress = { f, label ->
-                            mainHandler.post {
-                                if (exportState is com.mobiledaw.export.ExportState.Running) {
-                                    exportState = com.mobiledaw.export.ExportState.Running(f, label)
-                                }
-                            }
-                        },
+                        progress = { f, label -> postExportProgress(job, f, label) },
                         cancelled = { exportCancel },
                     ).run()
                     // Stems and MIDI come as many files: they go out as one .zip instead.
@@ -2904,18 +2925,13 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                         java.io.File(dir, "$base.zip").also { out ->
                             com.mobiledaw.export.ExportStorage.zip(
                                 files, dir, base, out,
-                                onProgress = { f ->
-                                    mainHandler.post {
-                                        if (exportState is com.mobiledaw.export.ExportState.Running) {
-                                            exportState = com.mobiledaw.export.ExportState.Running(f, "Packing everything into one .zip")
-                                        }
-                                    }
-                                },
+                                onProgress = { f -> postExportProgress(job, f, "Packing everything into one .zip") },
                                 cancelled = { exportCancel },
                             )
                         }
                     } else null
-                    mainHandler.post { exportState = com.mobiledaw.export.ExportState.Running(1f, "Saving to Downloads") }
+                    if (exportCancel) throw com.mobiledaw.export.ExportCancelled()
+                    postExportProgress(job, 1f, "Saving to Downloads")
                     if (zip != null) {
                         com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, zip, base, null)
                     } else {
@@ -2939,6 +2955,7 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                 exportState = com.mobiledaw.export.ExportState.Failed(e.message ?: e.javaClass.simpleName)
             } finally {
                 exporting = false
+                exportBusy = false
                 if (visible) NativeEngine.start()
                 syncEngine()
             }

@@ -64,6 +64,12 @@ private val SECTIONS: List<Pair<String, List<Pair<String, String>>>> = listOf(
         "Ctrl+wheel or pinch" to "Zoom the playlist",
         "Shift+wheel" to "Scroll sideways",
         "Right click a step" to "Clear it",
+        "Ctrl+wheel or pinch on the rack" to "Zoom the rack (1 to 4 bars)",
+        "Ctrl+= / Ctrl+- on the rack" to "Zoom the rack in / out",
+        "Shift+wheel on the rack" to "Next / previous bars",
+    ),
+    "Top bar" to listOf(
+        "Drag or wheel the VOL knob" to "Master volume (double-click: back to default)",
     ),
     "Typing keyboard" to listOf(
         "Z S X D C V G B H N J M" to "Play notes from C (the lower row)",

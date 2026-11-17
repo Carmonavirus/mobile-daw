@@ -45,8 +45,20 @@ class Exporter(
     private val cancelled: () -> Boolean,
 ) {
     private val block = 2048
+    private var lastBreath = System.nanoTime()
 
-    fun run(): List<File> {
+    /**
+     * Gives the UI a moment every ~30 ms of rendering. In the browser the export runs on the
+     * page's only thread, so without this the screen froze and Cancel could not be pressed.
+     */
+    private suspend fun breathe() {
+        val now = System.nanoTime()
+        if (now - lastBreath < 30_000_000L) return
+        kotlinx.coroutines.delay(1)
+        lastBreath = System.nanoTime()
+    }
+
+    suspend fun run(): List<File> {
         val files = ArrayList<File>()
         val passes = 1 + if (options.stems) stems.size else 0
         val sampleRate = NativeEngine.offlineBegin()
@@ -90,7 +102,7 @@ class Exporter(
      * renders until the song is over and the tail has gone quiet (at most 10 s of tail). Returns
      * the frames rendered.
      */
-    private fun render(mask: Long, sinks: List<AudioSink>, sampleRate: Int, songFrames: Long, exactFrames: Long?, onProgress: (Float) -> Unit): Long {
+    private suspend fun render(mask: Long, sinks: List<AudioSink>, sampleRate: Int, songFrames: Long, exactFrames: Long?, onProgress: (Float) -> Unit): Long {
         val buf = FloatArray(block * 2)
         var frames = 0L
         var tail = 0L
@@ -98,6 +110,7 @@ class Exporter(
         try {
             NativeEngine.offlineStart(mask)
             while (true) {
+                breathe()
                 if (cancelled()) throw ExportCancelled()
                 val want = if (exactFrames != null) minOf(block.toLong(), exactFrames - frames).toInt() else block
                 if (want <= 0) break

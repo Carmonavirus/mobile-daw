@@ -195,8 +195,10 @@ fun DawApp(vm: DawViewModel) {
 @Composable
 private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, onMenu: () -> Unit) {
     val p = vm.project
+    // On a PC (mouse or keyboard in use) a master volume knob sits next to the metronome.
+    val volumeKnob = Desktop.active
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Column(Modifier.align(Alignment.Center).padding(horizontal = 84.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.align(Alignment.Center).padding(horizontal = if (volumeKnob) 100.dp else 84.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 p.name,
                 fontSize = 20.sp,
@@ -214,7 +216,13 @@ private fun Header(vm: DawViewModel, onTitle: () -> Unit, onTempo: () -> Unit, o
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onTempo).padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
-        MetronomeToggle(vm.metronomeOn, vm::toggleMetronome, Modifier.align(Alignment.CenterStart))
+        Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically) {
+            MetronomeToggle(vm.metronomeOn, vm::toggleMetronome)
+            if (volumeKnob) {
+                Spacer(Modifier.width(6.dp))
+                MasterVolumeKnob(p.masterVolume, vm::setMasterVolume)
+            }
+        }
         MenuGlyph(onMenu, Modifier.align(Alignment.CenterEnd))
         CloudStatusButton(vm, onMenu, Modifier.align(Alignment.CenterEnd).padding(end = 42.dp))
     }

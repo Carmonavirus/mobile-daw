@@ -26,6 +26,14 @@ object AppInfo {
     /** Newest first. Add an entry here with every update. */
     val releases = listOf(
         Release(
+            "0.9.8", "2026-11-17T12:00:00Z",
+            listOf(
+                "Export on a PC: Cancel now stops the export straight away, and when an export finishes the screen shows Done so you can close it. Before, the page froze while exporting and could stay stuck on the progress screen.",
+                "On a PC, a master volume knob sits at the top, next to the metronome: drag it, scroll the mouse wheel over it, or double-click to put it back. It's the same level as the Master strip in the mixer.",
+                "Zoom the channel rack on a PC: Ctrl+mouse wheel (or a trackpad pinch), Ctrl+= and Ctrl+-, or the − and + buttons beside the bar count. Shift+wheel moves to the next or previous bars.",
+            ),
+        ),
+        Release(
             "0.9.7", "2026-11-16T07:30:00Z",
             listOf(
                 "Effects on every sound: in the Mixer, open any channel (tap its name) and tap + Add effect. Parametric EQ, Soft Clipper, Pitch Correct and Key Detector now work on each channel, not only on the master and mixer tracks.",
