@@ -2764,6 +2764,8 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
             EffectType.PITCH -> Effect(id, type, pitch = PitchSettings())
             EffectType.CLIP -> Effect(id, type, clip = ClipSettings())
             EffectType.KEY -> Effect(id, type, key = com.mobiledaw.model.KeySettings())
+            EffectType.DELAY -> Effect(id, type, delay = com.mobiledaw.model.DelaySettings())
+            EffectType.REVERB -> Effect(id, type, reverb = com.mobiledaw.model.ReverbSettings())
         }
         updateMixerTrack(trackId) { it.copy(effects = it.effects + fx) }
         openEffect = trackId to id

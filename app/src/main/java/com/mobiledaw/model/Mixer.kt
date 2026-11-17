@@ -26,6 +26,8 @@ enum class EffectType(val id: Int, val label: String, val blurb: String) {
     PITCH(2, "Pitch Correct", "Pull the voice to the notes of a key"),
     CLIP(3, "Soft Clipper", "Drive it in and round off the peaks"),
     KEY(4, "Key Detector", "Listens and tells you which key the sound is in"),
+    DELAY(5, "Delay", "Echoes in time with the song"),
+    REVERB(6, "Reverb", "Puts the sound in a room or a hall"),
 }
 
 /** Band shapes. The id must match fx::BandType in app/src/main/cpp/fx/ParametricEq.h. */
@@ -244,6 +246,97 @@ class KeyReading(raw: FloatArray) {
     }
 }
 
+/** Delay times, in 1/16 steps of the song's tempo. T = triplet, dotted = one and a half. */
+enum class DelayTime(val label: String, val steps: Float) {
+    SIXTEENTH("1/16", 1f),
+    EIGHTH_TRIPLET("1/8 T", 4f / 3f),
+    EIGHTH("1/8", 2f),
+    EIGHTH_DOTTED("1/8 dotted", 3f),
+    QUARTER_TRIPLET("1/4 T", 8f / 3f),
+    QUARTER("1/4", 4f),
+    QUARTER_DOTTED("1/4 dotted", 6f),
+    HALF("1/2", 8f),
+    BAR("1 bar", 16f),
+    ;
+
+    /** Length in seconds at [bpm], kept inside what the engine can hold (fx::Delay::kMaxSeconds). */
+    fun seconds(bpm: Int): Float = (steps * 15f / bpm.coerceAtLeast(20)).coerceAtMost(DelaySettings.MAX_SECONDS)
+}
+
+/** Where the echoes go. The id must match fx::DelayMode in app/src/main/cpp/fx/Delay.h. */
+enum class DelayMode(val id: Int, val label: String) {
+    NORMAL(0, "Normal"),
+    PING_PONG(1, "Ping-pong"),
+}
+
+/** Delay settings. Matches fx::DelayParam in app/src/main/cpp/fx/Delay.h. */
+@Serializable
+data class DelaySettings(
+    val time: DelayTime = DelayTime.EIGHTH_DOTTED,
+    /** How much of each echo comes back again, 0..0.95. */
+    val feedback: Float = 0.4f,
+    val mode: DelayMode = DelayMode.PING_PONG,
+    /** Low-pass on the echoes, Hz: lower = darker repeats. */
+    val tone: Float = 6000f,
+    /** Levels, 0..1. */
+    val dry: Float = 1f,
+    val wet: Float = 0.35f,
+) {
+    fun toParams(project: Project) = floatArrayOf(time.seconds(project.bpm), feedback, mode.id.toFloat(), tone, dry, wet, 0f)
+
+    companion object {
+        const val MAX_SECONDS = 4f
+        const val FEEDBACK_MAX = 0.95f
+        const val TONE_MIN = 300f
+        const val TONE_MAX = 16000f
+    }
+}
+
+/** Reverb settings. Matches fx::ReverbParam in app/src/main/cpp/fx/Reverb.h. */
+@Serializable
+data class ReverbSettings(
+    /** Gap before the tail starts, ms. */
+    val preDelay: Float = 10f,
+    /** Room size, 0..1. */
+    val size: Float = 0.5f,
+    /** Tail length in seconds (time to fade by 60 dB). */
+    val decay: Float = 1.6f,
+    /** Darkens the tail above this, Hz. */
+    val highCut: Float = 7000f,
+    /** Keeps the tail out of the bass below this, Hz. */
+    val lowCut: Float = 150f,
+    /** 0 = mono tail, 1 = full stereo. */
+    val width: Float = 1f,
+    val dry: Float = 1f,
+    val wet: Float = 0.25f,
+) {
+    fun toParams() = floatArrayOf(preDelay, size, decay, highCut, lowCut, width, dry, wet)
+
+    companion object {
+        const val PRE_DELAY_MAX = 200f
+        const val DECAY_MIN = 0.2f
+        const val DECAY_MAX = 12f
+        const val HIGH_CUT_MIN = 1000f
+        const val HIGH_CUT_MAX = 18000f
+        const val LOW_CUT_MIN = 20f
+        const val LOW_CUT_MAX = 1000f
+    }
+}
+
+/** One-tap starting points for the Reverb; each sets the room, the user can tweak after. */
+enum class ReverbSpace(val label: String, val hint: String, val settings: ReverbSettings) {
+    ROOM("Room", "Small and close", ReverbSettings(preDelay = 5f, size = 0.3f, decay = 0.8f, highCut = 6000f, lowCut = 200f, wet = 0.25f)),
+    STUDIO("Studio", "Natural, just a touch", ReverbSettings()),
+    HALL("Hall", "Big and smooth", ReverbSettings(preDelay = 25f, size = 0.8f, decay = 3f, highCut = 6000f, lowCut = 150f, wet = 0.3f)),
+    BRIGHT("Bright plate", "Shiny vocal sheen", ReverbSettings(preDelay = 15f, size = 0.55f, decay = 2f, highCut = 14000f, lowCut = 300f, wet = 0.25f)),
+    HUGE("Huge space", "Long, dreamy wash", ReverbSettings(preDelay = 40f, size = 1f, decay = 8f, highCut = 5000f, lowCut = 200f, wet = 0.35f)),
+    DARK("Dark", "Warm and muffled", ReverbSettings(preDelay = 10f, size = 0.6f, decay = 2.2f, highCut = 2500f, lowCut = 120f, wet = 0.3f)),
+    ;
+
+    /** Same room shape (Dry/Wet are the user's own). */
+    fun matches(s: ReverbSettings) = s.copy(dry = settings.dry, wet = settings.wet) == settings
+}
+
 @Serializable
 data class Effect(
     val id: Long,
@@ -253,12 +346,16 @@ data class Effect(
     val pitch: PitchSettings? = null,
     val clip: ClipSettings? = null,
     val key: KeySettings? = null,
+    val delay: DelaySettings? = null,
+    val reverb: ReverbSettings? = null,
 ) {
     fun params(project: Project): FloatArray = when (type) {
         EffectType.EQ -> (eq ?: EqSettings.flat()).toParams()
         EffectType.PITCH -> (pitch ?: PitchSettings()).toParams(project)
         EffectType.CLIP -> (clip ?: ClipSettings()).toParams()
         EffectType.KEY -> (key ?: KeySettings()).toParams()
+        EffectType.DELAY -> (delay ?: DelaySettings()).toParams(project)
+        EffectType.REVERB -> (reverb ?: ReverbSettings()).toParams()
     }
 }
 
