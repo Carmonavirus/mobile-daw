@@ -182,6 +182,10 @@ JNIEXPORT jdouble JNICALL Java_com_mobiledaw_audio_NativeEngine_bufferLatencyMs(
     return engine()->bufferLatencyMillis();
 }
 
+JNIEXPORT void JNICALL Java_com_mobiledaw_audio_NativeEngine_setOutputDevice(JNIEnv*, jobject, jint deviceId) {
+    engine()->setOutputDevice(deviceId);
+}
+
 JNIEXPORT jint JNICALL Java_com_mobiledaw_audio_NativeEngine_outputDeviceId(JNIEnv*, jobject) {
     return engine()->outputDeviceId();
 }

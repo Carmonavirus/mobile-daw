@@ -113,6 +113,10 @@ fun SettingsScreen(vm: DawViewModel, onOpenProjects: () -> Unit, onDismiss: () -
                     }
                 }
 
+                // ---------------------------------------------------------------- audio devices
+                SectionTitle("Audio devices")
+                SectionCard { AudioDevicesSection(vm) }
+
                 // ---------------------------------------------------------------- audio sync
                 SectionTitle("Audio sync (Bluetooth delay)")
                 SectionCard { AudioSyncSection(vm) }
