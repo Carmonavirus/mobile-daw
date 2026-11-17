@@ -129,7 +129,21 @@ private fun OptionsForm(vm: DawViewModel, error: String?) {
             o.stems, { v -> set { it.copy(stems = v) } },
         )
         Divider()
-        FormatRow("MIDI", "The notes of every channel, one track each, at the song's tempo.", o.midi, { v -> set { it.copy(midi = v) } })
+        FormatRow(
+            "MIDI",
+            "The notes, at the song's tempo: one file with every channel, plus the extra files picked below. " +
+                "Saved as plain .mid files, never only inside a .zip.",
+            o.midi, { v -> set { it.copy(midi = v) } },
+        ) {
+            SubToggle("One file per channel", "Drop one on an FL Studio channel to give it those notes.", o.midiChannels) { v ->
+                set { it.copy(midiChannels = v) }
+            }
+            if (o.song) {
+                SubToggle("One file per pattern", "Each pattern on its own from bar 1, not the whole song.", o.midiPatterns) { v ->
+                    set { it.copy(midiPatterns = v) }
+                }
+            }
+        }
     }
 
     Title("Project")
@@ -148,11 +162,22 @@ private fun OptionsForm(vm: DawViewModel, error: String?) {
     Card {
         Text(
             "FL Studio's own project file (.flp) is a closed format that only FL can write, so it can't be made here. " +
-                "Export Stems + MIDI instead: drag the stem WAVs into FL's playlist (they all start at bar 1, so they line up), " +
-                "and drop the .mid on a channel to get the notes back, ready for FL's own instruments.",
+                "Export Stems + MIDI instead.",
             fontSize = 13.sp,
             color = DawColors.InkSoft,
         )
+        Spacer(Modifier.height(6.dp))
+        listOf(
+            "Audio: drag the stem WAVs into FL's playlist. They all start at bar 1, so they line up.",
+            "One channel's notes: in FL's channel rack, add or pick the instrument, then drag a file from " +
+                "\"MIDI channels\" (or a one-channel file from \"MIDI patterns\") onto that channel's name. " +
+                "The notes land in the current pattern.",
+            "A whole pattern or the song with all its channels: in FL use File › Import › MIDI file and pick the " +
+                ".mid. FL makes a channel per track; tick \"Start new project\" off to add to what's open.",
+            "Get the files to your computer first (share them to Drive, email or a USB cable), then drag from the folder.",
+        ).forEachIndexed { i, step ->
+            Text("${i + 1}. $step", fontSize = 13.sp, color = DawColors.InkSoft, modifier = Modifier.padding(top = 4.dp))
+        }
         Spacer(Modifier.height(8.dp))
         TextAction("Pick Stems + MIDI") { vm.exportOptions = vm.exportOptions.copy(stems = true, midi = true) }
     }
@@ -180,7 +205,8 @@ private fun OptionsForm(vm: DawViewModel, error: String?) {
     }
     Text(
         "Saved to Download › Mobile DAW › ${name.ifBlank { "Untitled" }}" +
-            (if (o.stems || o.midi) " as one .zip with every file." else ".") + " The metronome is never in an export.",
+            (if (o.stems) " as one .zip with every file" else "") +
+            (if (o.stems && o.midi) ", and the MIDI files on their own too." else ".") + " The metronome is never in an export.",
         fontSize = 12.sp,
         color = DawColors.Muted,
         modifier = Modifier.padding(top = 8.dp, bottom = 24.dp, start = 4.dp),
@@ -232,11 +258,30 @@ private fun DoneCard(vm: DawViewModel, state: ExportState.Done) {
             TextAction(if (state.all.size == 1) "Share" else "Share all (${state.all.size})", strong = true) { vm.shareExport(state.all) }
         }
     }
-    if (state.mix.isNotEmpty() || state.midi != null) {
+    if (state.mix.isNotEmpty()) {
         Title("Files")
         Card {
-            (state.mix + listOfNotNull(state.midi)).forEachIndexed { i, f ->
+            state.mix.forEachIndexed { i, f ->
                 if (i > 0) Divider()
+                FileRow(f) { vm.shareExport(listOf(f)) }
+            }
+        }
+    }
+    if (state.midi.isNotEmpty()) {
+        Title("MIDI (${state.midi.size})")
+        Card {
+            if (state.midi.size > 1) {
+                TextAction("Share all MIDI") { vm.shareExport(state.midi) }
+                Spacer(Modifier.height(6.dp))
+            }
+            var group: String? = null
+            state.midi.forEachIndexed { i, f ->
+                val folder = f.parentFile?.name?.substringAfter(" MIDI ", "")?.takeIf { it.isNotEmpty() }
+                if (i > 0 && folder != null && folder != group) {
+                    Text("Per ${folder.removeSuffix("s")}", fontSize = 12.sp, color = DawColors.Muted, modifier = Modifier.padding(top = 10.dp))
+                }
+                group = folder
+                if (i > 0 || state.midi.size > 1) Divider()
                 FileRow(f) { vm.shareExport(listOf(f)) }
             }
         }
@@ -297,6 +342,21 @@ private fun FormatRow(
             Spacer(Modifier.height(6.dp))
             extra()
         }
+    }
+}
+
+@Composable
+private fun SubToggle(title: String, subtitle: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(start = 12.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, color = DawColors.Ink)
+            Text(subtitle, fontSize = 12.sp, color = DawColors.Muted)
+        }
+        Switch(
+            checked = on,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = DawColors.Note, checkedThumbColor = DawColors.OnNote),
+        )
     }
 }
 

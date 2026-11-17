@@ -3007,8 +3007,9 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                         progress = { f, label -> postExportProgress(job, f, label) },
                         cancelled = { exportCancel },
                     ).run()
-                    // Stems and MIDI come as many files: they go out as one .zip instead.
-                    val zip = if ((opts.stems || opts.midi) && files.size > 1) {
+                    // Stems come as many WAVs: with them, everything also goes out as one .zip.
+                    val midi = files.filter { it.extension == "mid" }
+                    val zip = if (opts.stems && files.size > 1) {
                         java.io.File(dir, "$base.zip").also { out ->
                             com.mobiledaw.export.ExportStorage.zip(
                                 files, dir, base, out,
@@ -3019,19 +3020,17 @@ class DawViewModel(app: Application) : AndroidViewModel(app) {
                     } else null
                     if (exportCancel) throw com.mobiledaw.export.ExportCancelled()
                     postExportProgress(job, 1f, "Saving to Downloads")
-                    if (zip != null) {
-                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, zip, base, null)
-                    } else {
-                        files.forEach { f ->
-                            val sub = f.parentFile?.takeIf { it != dir }?.name
-                            com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
-                        }
+                    // MIDI files are always saved loose too, ready to drag into FL Studio.
+                    val loose = if (zip != null) listOf(zip) + midi else files
+                    loose.forEach { f ->
+                        val sub = f.parentFile?.takeIf { it != dir }?.name
+                        com.mobiledaw.export.ExportStorage.saveToDownloads(ctx, f, base, sub)
                     }
                     com.mobiledaw.export.ExportState.Done(
                         folder = com.mobiledaw.export.ExportStorage.folderLabel(ctx, base),
                         mix = files.filter { it.parentFile == dir && it.extension != "mid" },
-                        stems = files.filter { it.parentFile != dir },
-                        midi = files.firstOrNull { it.extension == "mid" },
+                        stems = files.filter { it.parentFile != dir && it.extension != "mid" },
+                        midi = midi,
                         zip = zip,
                     )
                 }
