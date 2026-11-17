@@ -152,6 +152,72 @@ await settle();
 s = await probe();
 check(s.clips === 0, 'a right click deletes it', s);
 
+// Channel rack zoom: Ctrl+wheel and Ctrl+= / Ctrl+- change how many bars it shows (1-4).
+await page.keyboard.press('F6');
+await settle();
+s = await probe();
+check(s.tab === 'RACK', 'F6 opens the channel rack', s);
+await page.keyboard.press('Control+Minus');
+await settle();
+await page.keyboard.press('Control+Minus');
+await settle();
+s = await probe();
+const rack0 = s.rackBars;
+check(rack0 >= 2, 'Ctrl+- zooms the rack out (more bars)', s);
+// On a laptop-wide window the rack shares the screen with the piano roll (rack on the left),
+// so point at the left part of the screen.
+for (const x of [0.12, 0.2, 0.3]) {
+  await page.mouse.move(viewport.width * x, viewport.height * 0.55);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await settle();
+  s = await probe();
+  if (s.rackBars !== rack0) break;
+}
+check(s.rackBars === rack0 - 1, 'Ctrl+wheel up zooms the rack in', { before: rack0, ...s });
+await page.keyboard.press('Control+Equal');
+await settle();
+s = await probe();
+check(s.rackBars === Math.max(1, rack0 - 2), 'Ctrl+= zooms the rack in', { before: rack0, ...s });
+
+// Master volume knob at the top left, beside the metronome: the wheel over it changes the level.
+const master0 = s.master;
+let moved = false;
+for (const x of [70, 78, 86, 94]) {
+  for (const y of [22, 28, 34]) {
+    await page.mouse.move(x, y);
+    await page.mouse.wheel(0, 300);
+    await settle();
+    s = await probe();
+    if (s.master < master0) { moved = true; break; }
+  }
+  if (moved) break;
+}
+check(moved, 'the wheel over the top VOL knob turns the master volume down', { before: master0, ...s });
+
+// Export: Cancel stops it promptly (the page keeps responding), and a finished export can be closed.
+await page.evaluate(() => window.dawExport.open());
+await settle();
+await page.evaluate(() => window.dawExport.start());
+await page.waitForTimeout(150);
+s = await probe();
+check(s.exportBusy && s.export === 'Running', 'export starts', s);
+const cancelAt = Date.now();
+await page.evaluate(() => window.dawExport.cancel());
+await page.waitForFunction(() => !JSON.parse(window.dawProbe()).exportBusy, null, { timeout: 5000 }).catch(() => {});
+s = await probe();
+check(!s.exportBusy && s.export === 'Idle' && s.exportOpen, 'Cancel stops the export and goes back to the options', { ms: Date.now() - cancelAt, ...s });
+await page.evaluate(() => window.dawExport.start());
+await page.waitForFunction(() => !JSON.parse(window.dawProbe()).exportBusy, null, { timeout: 120000 }).catch(() => {});
+await page.waitForTimeout(500);
+s = await probe();
+check(s.export === 'Done', 'a finished export shows Done (not stuck on the progress screen)', s);
+await page.evaluate(() => window.dawExport.close());
+await settle();
+s = await probe();
+check(!s.exportOpen, 'Done closes the export screen', s);
+
 const zoom = await page.evaluate(() => window.visualViewport ? window.visualViewport.scale : 1);
 check(zoom === 1, 'the page itself does not zoom', { zoom });
 

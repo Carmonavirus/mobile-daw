@@ -41,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.input.pointer.pointerInput
@@ -95,11 +98,14 @@ fun ChannelRackScreen(vm: DawViewModel) {
                 vm.setPatternBars(pattern.bars + 1)
                 page = pattern.bars
             },
+            onZoom = if (com.mobiledaw.ui.Desktop.active) vm::changeRackBars else null,
         )
         LazyColumn(
             // Swipe (bars) and pinch (zoom) work anywhere in the rack area, including the
             // empty space below the channels.
-            Modifier.weight(1f).barSwipe(swipePage).pinchBars(shown, vm::changeRackBars),
+            // On a PC: Ctrl+wheel (or a trackpad pinch) zooms, Shift+wheel pages through the bars.
+            Modifier.weight(1f).barSwipe(swipePage).pinchBars(shown, vm::changeRackBars)
+                .wheelBars(shown, vm::changeRackBars, swipePage),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -186,6 +192,52 @@ private fun Modifier.barSwipe(onPage: (Int) -> Unit): Modifier {
         change.consume()
         total += dx
     }
+    }
+}
+
+/**
+ * Mouse wheel on a PC: Ctrl+wheel (a trackpad pinch arrives the same way) zooms, up = in = fewer
+ * bars; Shift+wheel pages through the bars. Plain scrolling is left to the list.
+ */
+@Composable
+private fun Modifier.wheelBars(shown: Int, onZoom: (Int) -> Unit, onPage: (Int) -> Unit): Modifier {
+    val latestShown = androidx.compose.runtime.rememberUpdatedState(shown)
+    val zoom = androidx.compose.runtime.rememberUpdatedState(onZoom)
+    val page = androidx.compose.runtime.rememberUpdatedState(onPage)
+    return pointerInput(Unit) {
+        var zoomSum = 0f
+        var pageSum = 0f
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Scroll) continue
+                val change = event.changes.firstOrNull() ?: continue
+                val d = change.scrollDelta
+                // One wheel notch is about 100 px in a browser and 1 on Android.
+                val notch = if (com.mobiledaw.ui.Wheel.reportsPixels) 100f else 1f
+                val mods = event.keyboardModifiers
+                if (mods.isCtrlPressed || mods.isMetaPressed) {
+                    zoomSum += d.y
+                    if (kotlin.math.abs(zoomSum) >= notch * 0.6f) {
+                        val now = latestShown.value
+                        if (zoomSum < 0f && now > 1) zoom.value(now - 1)
+                        else if (zoomSum > 0f && now < 4) zoom.value(now + 1)
+                        zoomSum = 0f
+                    }
+                    change.consume()
+                } else if (mods.isShiftPressed || d.x != 0f && kotlin.math.abs(d.x) > kotlin.math.abs(d.y)) {
+                    pageSum += if (d.x != 0f) d.x else d.y
+                    if (kotlin.math.abs(pageSum) >= notch) {
+                        page.value(if (pageSum > 0f) 1 else -1)
+                        pageSum = 0f
+                    }
+                    change.consume()
+                } else {
+                    zoomSum = 0f
+                    pageSum = 0f
+                }
+            }
+        }
     }
 }
 
@@ -385,7 +437,17 @@ private fun StepperButton(label: String, enabled: Boolean, onClick: () -> Unit) 
  * last bar the right arrow becomes "+" and adds a new bar.
  */
 @Composable
-private fun BarPager(page: Int, shown: Int, bars: Int, playingBar: Int, onPage: (Int) -> Unit, modifier: Modifier = Modifier, onAddBar: () -> Unit) {
+private fun BarPager(
+    page: Int,
+    shown: Int,
+    bars: Int,
+    playingBar: Int,
+    onPage: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    onAddBar: () -> Unit,
+    /** Shown on a PC: zoom out/in buttons beside the bar count (1-4 bars at a time). */
+    onZoom: ((Int) -> Unit)? = null,
+) {
     Row(
         modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -393,7 +455,17 @@ private fun BarPager(page: Int, shown: Int, bars: Int, playingBar: Int, onPage: 
         PagerArrow("‹", enabled = page > 0) { onPage(page - shown) }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             val last = minOf(page + shown, bars)
-            Text(if (last - page > 1) "Bars ${page + 1}–$last of $bars" else "Bar ${page + 1} of $bars", fontSize = 12.sp, color = DawColors.Muted, letterSpacing = 1.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onZoom != null) {
+                    ZoomButton("−", "Zoom out: show more bars", enabled = shown < 4) { onZoom(shown + 1) }
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (last - page > 1) "Bars ${page + 1}–$last of $bars" else "Bar ${page + 1} of $bars", fontSize = 12.sp, color = DawColors.Muted, letterSpacing = 1.sp)
+                if (onZoom != null) {
+                    Spacer(Modifier.width(8.dp))
+                    ZoomButton("+", "Zoom in: show fewer bars", enabled = shown > 1) { onZoom(shown - 1) }
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Row(
                 Modifier.horizontalScroll(rememberScrollState()),
@@ -429,6 +501,20 @@ private fun BarPager(page: Int, shown: Int, bars: Int, playingBar: Int, onPage: 
         } else {
             PagerArrow("+", enabled = bars < MAX_BARS, onClick = onAddBar)
         }
+    }
+}
+
+@Composable
+private fun ZoomButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (enabled) DawColors.Chip else Color.Transparent)
+            .clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = if (enabled) DawColors.Ink else DawColors.LineStrong)
     }
 }
 

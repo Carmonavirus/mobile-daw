@@ -56,7 +56,9 @@ private fun dawProbe(): String {
     val notes = vm.selectedChannel?.let { vm.selectedPattern.notesFor(it.id).size } ?: 0
     val desk = com.mobiledaw.ui.Desktop
     val extra = "\"tab\":\"${vm.tab}\",\"notes\":$notes,\"sel\":${vm.pianoSelection.size},\"barDp\":${vm.playlistBarDp},\"clips\":${p.clips.size}," +
-        "\"typing\":\"${desk.typing}\",\"help\":${desk.shortcutsOpen},\"desktop\":${desk.active}"
+        "\"typing\":\"${desk.typing}\",\"help\":${desk.shortcutsOpen},\"desktop\":${desk.active}," +
+        "\"rackBars\":${vm.rackBars},\"master\":${p.masterVolume},\"exportOpen\":${vm.exportOpen},\"exportBusy\":${vm.exportBusy}," +
+        "\"export\":\"${vm.exportState::class.simpleName}\""
     return "{\"name\":\"${p.name}\",\"channels\":${p.channels.size},\"playing\":${vm.playing},\"pos\":${com.mobiledaw.audio.NativeEngine.positionTicks()},$extra${if (probeText.isEmpty()) "" else ",$probeText"}}"
 }
 
@@ -68,6 +70,8 @@ private external fun listenDesktopInput(
 )
 
 private external fun registerProbe(probe: () -> String, togglePlay: () -> Unit, addBeat: () -> Unit)
+/** For web/app/tests/desktop.mjs: open, start (a long pattern, WAV + MP3), cancel and close the export. */
+private external fun registerExportProbe(open: () -> Unit, start: () -> Unit, cancel: () -> Unit, close: () -> Unit)
 private external fun registerCloudProbe(probe: () -> String, signIn: () -> Unit, syncNow: () -> Unit, newProject: () -> Unit)
 
 /** Tests only: what the Google Drive sync is doing, as JSON. */
@@ -167,6 +171,16 @@ fun main() {
             vm.addChannel(com.mobiledaw.model.Instrument.KICK)
             vm.selectedChannel?.let { kick -> listOf(0, 4, 8, 12).forEach { vm.toggleStep(kick, it) } }
         }
+        registerExportProbe(
+            { vm.openExport() },
+            {
+                vm.setPatternBars(16)
+                vm.exportOptions = com.mobiledaw.export.ExportOptions(wav = true, mp3 = true, song = false)
+                vm.startExport("probe")
+            },
+            { vm.cancelExport() },
+            { vm.closeExport() },
+        )
         registerCloudProbe(::cloudProbe, { vm.cloud.signIn() }, { vm.cloud.syncSoon(0) }, { vm.newProject() })
         registerShareProbe(
             ::shareProbe,

@@ -86,6 +86,11 @@ object Desktop {
                 "KeyO" -> { projectsRequested = true; return true }
                 "KeyK" -> { toggleTyping(vm); return true }
             }
+            // Rack zoom (1-4 bars at a time); elsewhere the browser keeps its own page zoom.
+            if (vm.tab == Tab.RACK) when (code) {
+                "Equal", "NumpadAdd" -> { vm.changeRackBars(vm.rackBars - 1); return true }
+                "Minus", "NumpadSubtract" -> { vm.changeRackBars(vm.rackBars + 1); return true }
+            }
             if (pianoVisible(vm)) when (code) {
                 "KeyA" -> { vm.selectAllNotes(); return true }
                 "KeyD" -> { vm.pianoSelection = emptySet(); return true }
