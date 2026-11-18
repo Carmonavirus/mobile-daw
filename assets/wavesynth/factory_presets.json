@@ -1,0 +1,565 @@
+{
+ "version": 1,
+ "presets": [
+  {
+   "name": "Init",
+   "category": "Init",
+   "params": {}
+  },
+  {
+   "name": "Deep 808",
+   "category": "808",
+   "params": {
+    "a_table": 11.0,
+    "a_pos": 0.15,
+    "mono": 1.0,
+    "glide": 0.08,
+    "amp_a": 0.001,
+    "amp_d": 2.5,
+    "amp_s": 0.0,
+    "amp_r": 0.25,
+    "mod_a": 0.0,
+    "mod_d": 0.08,
+    "mod_s": 0.0,
+    "mod_pitch": 12.0,
+    "flt_on": 0.0,
+    "drive": 0.15,
+    "vel_amt": 0.2,
+    "volume": 0.85
+   }
+  },
+  {
+   "name": "Dirty 808",
+   "category": "808",
+   "params": {
+    "a_table": 11.0,
+    "a_pos": 0.6,
+    "sub_level": 0.35,
+    "mono": 1.0,
+    "glide": 0.1,
+    "amp_a": 0.001,
+    "amp_d": 1.8,
+    "amp_s": 0.0,
+    "amp_r": 0.2,
+    "mod_a": 0.0,
+    "mod_d": 0.06,
+    "mod_pitch": 14.0,
+    "flt_cutoff": 3200.0,
+    "flt_res": 0.1,
+    "drive": 0.55,
+    "vel_amt": 0.2,
+    "volume": 0.75
+   }
+  },
+  {
+   "name": "Punchy 808",
+   "category": "808",
+   "params": {
+    "a_table": 11.0,
+    "a_pos": 0.3,
+    "mono": 1.0,
+    "glide": 0.05,
+    "amp_a": 0.001,
+    "amp_d": 0.9,
+    "amp_s": 0.0,
+    "amp_r": 0.12,
+    "mod_a": 0.0,
+    "mod_d": 0.04,
+    "mod_pitch": 24.0,
+    "flt_on": 0.0,
+    "drive": 0.3,
+    "vel_amt": 0.25,
+    "volume": 0.85
+   }
+  },
+  {
+   "name": "Sliding 808",
+   "category": "808",
+   "params": {
+    "a_table": 11.0,
+    "a_pos": 0.25,
+    "mono": 1.0,
+    "glide": 0.22,
+    "amp_a": 0.001,
+    "amp_d": 3.0,
+    "amp_s": 0.55,
+    "amp_r": 0.35,
+    "mod_a": 0.0,
+    "mod_d": 0.07,
+    "mod_pitch": 10.0,
+    "flt_on": 0.0,
+    "drive": 0.2,
+    "vel_amt": 0.2,
+    "volume": 0.85
+   }
+  },
+  {
+   "name": "Rubber Bass",
+   "category": "Bass",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.667,
+    "b_on": 1.0,
+    "b_table": 1.0,
+    "b_pos": 0.3,
+    "b_oct": -1.0,
+    "b_level": 0.5,
+    "flt_type": 1.0,
+    "flt_cutoff": 300.0,
+    "flt_res": 0.35,
+    "flt_env": 0.45,
+    "mod_d": 0.25,
+    "mod_s": 0.1,
+    "amp_s": 0.8,
+    "amp_r": 0.08,
+    "mono": 1.0,
+    "glide": 0.03
+   }
+  },
+  {
+   "name": "Growl Bass",
+   "category": "Bass",
+   "params": {
+    "a_table": 10.0,
+    "a_pos": 0.2,
+    "a_unison": 3.0,
+    "a_detune": 0.2,
+    "a_spread": 0.3,
+    "sub_level": 0.5,
+    "lfo_sync": 1.0,
+    "lfo_div": 3.0,
+    "lfo_pos": 0.4,
+    "lfo_cutoff": 0.3,
+    "flt_cutoff": 900.0,
+    "flt_res": 0.3,
+    "flt_drive": 0.3,
+    "amp_s": 0.9,
+    "amp_r": 0.08,
+    "mono": 1.0,
+    "drive": 0.2
+   }
+  },
+  {
+   "name": "Sub Bass",
+   "category": "Bass",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.0,
+    "amp_a": 0.003,
+    "amp_s": 1.0,
+    "amp_r": 0.1,
+    "flt_on": 0.0,
+    "drive": 0.1,
+    "mono": 1.0,
+    "glide": 0.05,
+    "volume": 0.85
+   }
+  },
+  {
+   "name": "Wide Reese",
+   "category": "Bass",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.667,
+    "a_unison": 5.0,
+    "a_detune": 0.35,
+    "a_spread": 0.4,
+    "b_on": 1.0,
+    "b_table": 5.0,
+    "b_pos": 0.2,
+    "b_oct": -1.0,
+    "b_level": 0.4,
+    "flt_type": 1.0,
+    "flt_cutoff": 700.0,
+    "flt_res": 0.2,
+    "lfo_cutoff": 0.15,
+    "lfo_rate": 0.3,
+    "lfo_retrig": 0.0,
+    "amp_s": 0.9,
+    "amp_r": 0.15,
+    "mono": 1.0,
+    "volume": 0.65
+   }
+  },
+  {
+   "name": "Glass Pluck",
+   "category": "Pluck",
+   "params": {
+    "a_table": 12.0,
+    "a_pos": 0.5,
+    "a_unison": 3.0,
+    "a_detune": 0.15,
+    "mod_d": 0.18,
+    "mod_pos": 0.3,
+    "flt_cutoff": 600.0,
+    "flt_res": 0.3,
+    "flt_env": 0.6,
+    "amp_d": 0.5,
+    "amp_s": 0.0,
+    "amp_r": 0.3
+   }
+  },
+  {
+   "name": "Soft Pluck",
+   "category": "Pluck",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.333,
+    "b_on": 1.0,
+    "b_table": 0.0,
+    "b_pos": 0.667,
+    "b_oct": 1.0,
+    "b_level": 0.3,
+    "flt_cutoff": 400.0,
+    "flt_env": 0.55,
+    "mod_d": 0.2,
+    "amp_d": 0.4,
+    "amp_s": 0.0,
+    "amp_r": 0.25
+   }
+  },
+  {
+   "name": "Bit Pluck",
+   "category": "Pluck",
+   "params": {
+    "a_table": 9.0,
+    "a_pos": 0.55,
+    "flt_cutoff": 1500.0,
+    "flt_env": 0.4,
+    "mod_d": 0.12,
+    "amp_d": 0.3,
+    "amp_s": 0.0,
+    "amp_r": 0.15
+   }
+  },
+  {
+   "name": "Bent Pluck",
+   "category": "Pluck",
+   "params": {
+    "a_table": 6.0,
+    "a_pos": 0.0,
+    "a_unison": 2.0,
+    "a_detune": 0.12,
+    "mod_pos": 0.9,
+    "mod_d": 0.15,
+    "flt_on": 0.0,
+    "amp_d": 0.45,
+    "amp_s": 0.0,
+    "amp_r": 0.2
+   }
+  },
+  {
+   "name": "Warm Strings",
+   "category": "Pad",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.667,
+    "a_unison": 7.0,
+    "a_detune": 0.3,
+    "a_spread": 0.9,
+    "b_on": 1.0,
+    "b_table": 2.0,
+    "b_pos": 0.4,
+    "b_level": 0.4,
+    "b_unison": 3.0,
+    "flt_cutoff": 1800.0,
+    "flt_res": 0.1,
+    "amp_a": 0.8,
+    "amp_d": 1.0,
+    "amp_s": 0.85,
+    "amp_r": 1.5,
+    "lfo_pos": 0.15,
+    "lfo_rate": 0.2,
+    "lfo_cutoff": 0.1,
+    "lfo_retrig": 0.0,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Vowel Choir",
+   "category": "Pad",
+   "params": {
+    "a_table": 3.0,
+    "a_pos": 0.2,
+    "a_unison": 5.0,
+    "a_detune": 0.2,
+    "a_spread": 0.8,
+    "lfo_shape": 1.0,
+    "lfo_pos": 0.35,
+    "lfo_rate": 0.15,
+    "lfo_retrig": 0.0,
+    "flt_cutoff": 5000.0,
+    "amp_a": 1.2,
+    "amp_s": 0.9,
+    "amp_r": 2.0,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Glass Air",
+   "category": "Pad",
+   "params": {
+    "a_table": 12.0,
+    "a_pos": 0.3,
+    "a_unison": 4.0,
+    "a_detune": 0.15,
+    "a_spread": 1.0,
+    "b_on": 1.0,
+    "b_table": 7.0,
+    "b_pos": 0.6,
+    "b_oct": 1.0,
+    "b_level": 0.3,
+    "noise_level": 0.05,
+    "flt_type": 2.0,
+    "flt_cutoff": 200.0,
+    "amp_a": 1.5,
+    "amp_s": 0.9,
+    "amp_r": 2.5,
+    "lfo_pos": 0.3,
+    "lfo_rate": 0.1,
+    "lfo_retrig": 0.0,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Drift Pad",
+   "category": "Pad",
+   "params": {
+    "a_table": 5.0,
+    "a_pos": 0.1,
+    "a_unison": 5.0,
+    "a_detune": 0.25,
+    "flt_type": 1.0,
+    "flt_cutoff": 900.0,
+    "flt_res": 0.25,
+    "lfo_cutoff": 0.25,
+    "lfo_rate": 0.12,
+    "lfo_retrig": 0.0,
+    "amp_a": 1.0,
+    "amp_s": 0.85,
+    "amp_r": 2.0,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Bright Saw Lead",
+   "category": "Lead",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.667,
+    "a_unison": 3.0,
+    "a_detune": 0.18,
+    "b_on": 1.0,
+    "b_table": 1.0,
+    "b_pos": 0.4,
+    "b_semi": 7.0,
+    "b_level": 0.3,
+    "flt_cutoff": 5000.0,
+    "flt_res": 0.2,
+    "lfo_pitch": 0.2,
+    "lfo_rate": 5.5,
+    "mono": 1.0,
+    "glide": 0.06,
+    "amp_a": 0.005,
+    "amp_s": 0.9,
+    "amp_r": 0.15,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Sync Lead",
+   "category": "Lead",
+   "params": {
+    "a_table": 5.0,
+    "a_pos": 0.3,
+    "mod_pos": 0.5,
+    "mod_d": 0.5,
+    "mod_s": 0.2,
+    "flt_cutoff": 6000.0,
+    "mono": 1.0,
+    "glide": 0.05,
+    "amp_s": 0.9,
+    "amp_r": 0.15,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Square Lead",
+   "category": "Lead",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 1.0,
+    "b_on": 1.0,
+    "b_table": 0.0,
+    "b_pos": 1.0,
+    "b_oct": -1.0,
+    "b_level": 0.4,
+    "flt_cutoff": 2500.0,
+    "flt_res": 0.15,
+    "flt_env": 0.2,
+    "mod_d": 0.3,
+    "lfo_pitch": 0.15,
+    "lfo_rate": 5.0,
+    "amp_s": 0.9,
+    "amp_r": 0.12,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Fold Lead",
+   "category": "Lead",
+   "params": {
+    "a_table": 4.0,
+    "a_pos": 0.35,
+    "lfo_pos": 0.25,
+    "lfo_rate": 3.0,
+    "drive": 0.2,
+    "amp_s": 0.9,
+    "amp_r": 0.2,
+    "mono": 1.0,
+    "glide": 0.04,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Clear Bell",
+   "category": "Bells",
+   "params": {
+    "a_table": 7.0,
+    "a_pos": 0.7,
+    "b_on": 1.0,
+    "b_table": 12.0,
+    "b_pos": 0.4,
+    "b_oct": 1.0,
+    "b_level": 0.3,
+    "flt_on": 0.0,
+    "amp_a": 0.001,
+    "amp_d": 2.5,
+    "amp_s": 0.0,
+    "amp_r": 1.5,
+    "vel_amt": 0.7
+   }
+  },
+  {
+   "name": "Music Box",
+   "category": "Bells",
+   "params": {
+    "a_table": 7.0,
+    "a_pos": 0.9,
+    "a_oct": 1.0,
+    "flt_cutoff": 8000.0,
+    "amp_a": 0.001,
+    "amp_d": 1.2,
+    "amp_s": 0.0,
+    "amp_r": 0.8,
+    "vel_amt": 0.6
+   }
+  },
+  {
+   "name": "Glass Chime",
+   "category": "Bells",
+   "params": {
+    "a_table": 12.0,
+    "a_pos": 0.8,
+    "b_on": 1.0,
+    "b_table": 7.0,
+    "b_pos": 0.4,
+    "b_level": 0.5,
+    "mod_pos": -0.4,
+    "mod_d": 1.0,
+    "flt_on": 0.0,
+    "amp_a": 0.001,
+    "amp_d": 3.0,
+    "amp_s": 0.0,
+    "amp_r": 2.0,
+    "vel_amt": 0.6
+   }
+  },
+  {
+   "name": "Soft Mallet",
+   "category": "Bells",
+   "params": {
+    "a_table": 7.0,
+    "a_pos": 0.3,
+    "flt_cutoff": 1500.0,
+    "flt_env": 0.4,
+    "mod_d": 0.15,
+    "amp_a": 0.001,
+    "amp_d": 1.0,
+    "amp_s": 0.0,
+    "amp_r": 0.6
+   }
+  },
+  {
+   "name": "Drawbar Organ",
+   "category": "Keys",
+   "params": {
+    "a_table": 8.0,
+    "a_pos": 0.5,
+    "flt_on": 0.0,
+    "amp_a": 0.005,
+    "amp_s": 1.0,
+    "amp_r": 0.08,
+    "lfo_amp": 0.15,
+    "lfo_rate": 6.0,
+    "lfo_retrig": 0.0,
+    "volume": 0.6
+   }
+  },
+  {
+   "name": "Electric Keys",
+   "category": "Keys",
+   "params": {
+    "a_table": 6.0,
+    "a_pos": 0.25,
+    "b_on": 1.0,
+    "b_table": 7.0,
+    "b_pos": 0.2,
+    "b_level": 0.3,
+    "flt_cutoff": 4000.0,
+    "flt_env": 0.2,
+    "amp_d": 1.5,
+    "amp_s": 0.3,
+    "amp_r": 0.4,
+    "vel_amt": 0.7,
+    "lfo_amp": 0.1,
+    "lfo_rate": 4.0,
+    "lfo_retrig": 0.0
+   }
+  },
+  {
+   "name": "Soft Keys",
+   "category": "Keys",
+   "params": {
+    "a_table": 0.0,
+    "a_pos": 0.3,
+    "b_on": 1.0,
+    "b_table": 0.0,
+    "b_pos": 0.0,
+    "b_oct": 1.0,
+    "b_level": 0.25,
+    "flt_cutoff": 2500.0,
+    "amp_d": 1.2,
+    "amp_s": 0.4,
+    "amp_r": 0.4
+   }
+  },
+  {
+   "name": "Chip Keys",
+   "category": "Keys",
+   "params": {
+    "a_table": 1.0,
+    "a_pos": 0.5,
+    "b_on": 1.0,
+    "b_table": 9.0,
+    "b_pos": 0.7,
+    "b_level": 0.3,
+    "flt_on": 0.0,
+    "amp_d": 0.6,
+    "amp_s": 0.5,
+    "amp_r": 0.1,
+    "volume": 0.55
+   }
+  }
+ ]
+}
