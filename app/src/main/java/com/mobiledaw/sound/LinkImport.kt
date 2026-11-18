@@ -186,8 +186,8 @@ class LinkImport(private val cacheDir: File) {
     private fun request(method: String, url: String, headers: Map<String, String>, body: ByteArray?): Answer {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = method
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 60_000
+        conn.connectTimeout = 30_000
+        conn.readTimeout = 100_000  // a free downloader host can take a minute to wake up
         conn.instanceFollowRedirects = true
         if (!headers.containsKey("User-Agent")) conn.setRequestProperty("User-Agent", APP_UA)
         headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
