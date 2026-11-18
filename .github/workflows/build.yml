@@ -5,21 +5,76 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Works out whether this push touches the APK, the web app, or both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.diff.outputs.apk }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: bash .github/scripts/changed-areas.sh
+
   engine-test:
+    needs: changes
+    # Skipped (which counts as passed) when only web code changed.
+    if: needs.changes.outputs.apk == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build and run the audio engine smoke test
         run: |
+          engine-test/build.sh
+          # The bundled General MIDI bank, same pinned copy the app build fetches.
+          curl -sSfL -o engine-test/out/GeneralUser-GS.sf2 \
+            https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
+          cd engine-test && ./out/enginetest out/GeneralUser-GS.sf2
+      - name: Run the chord test (stacked notes all sound, on every instrument)
+        run: |
+          # Built by engine-test/build.sh in the first step; uses the SoundFont fetched there.
+          cd engine-test && ./out/chordtest out/GeneralUser-GS.sf2
+      - name: Build and run the mixer effects test (EQ, pitch correction, mixer tracks)
+        run: |
+          # build.sh (above) also links the effects test against the full engine.
+          cd engine-test && ./out/fxtest
+      - name: Build and run the metronome and count-in test
+        run: |
+          mkdir -p engine-test/out
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/metronometest
+      - name: Run the export test (song end, tails, stems, MP3 encoder)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/exporttest
+      - name: Run the note detection test (note viewer)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/notestest
+      - name: Run the clip stretch test (pitch shift that keeps the tempo)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/stretchtest
+      - name: Run the imported-sample quality test (stereo, resampling, clean output)
+        run: |
+          # Built by engine-test/build.sh in the first step.
+          cd engine-test && ./out/samplequalitytest
+      - name: Build and run the wavetable synth test (renders every factory preset)
+        run: |
           mkdir -p engine-test/out
           g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
-            engine-test/main.cpp app/src/main/cpp/DawCore.cpp -o engine-test/out/enginetest
-          cd engine-test && ./out/enginetest
+            engine-test/synth_test.cpp app/src/main/cpp/wavesynth/*.cpp -o engine-test/out/synthtest
+          cd engine-test && ./out/synthtest
 
   apk:
+    needs: changes
+    # Skipped (which counts as passed) when only web code changed.
+    if: needs.changes.outputs.apk == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -33,19 +88,64 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mobile-daw-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-      # Keep one always-current APK on the "latest-build" release so it can be
-      # installed straight from a phone browser.
-      - name: Publish APK to the latest-build release
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  # Boots an emulator, installs the APK and makes sure it actually opens.
+  # A build that crashes on launch fails here, so it never reaches the publish job.
+  launch-test:
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-daw-debug-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install the app and confirm it opens without crashing
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          disable-animations: true
+          # Keep this a single command: the runner executes `script` with sh.
+          script: bash .github/scripts/launch-check.sh app-debug.apk
+
+  # Keep one always-current APK on the "latest-build" release so it can be
+  # installed straight from a phone browser. Only after the launch test passes.
+  publish:
+    needs: launch-test
+    runs-on: ubuntu-latest
+    # Feature branches are merged into the main work branch before release, so they never publish.
+    if: github.ref_name != 'claude/project-thread-n1suni' && github.ref_name != 'claude/project-thread-1ebecy' && github.ref_name != 'claude/project-thread-hr3nbu' && github.ref_name != 'claude/project-thread-289y4e' && github.ref_name != 'claude/project-thread-0rnesk' && github.ref_name != 'claude/project-thread-5cuiq8'
+    # Pushes to different branches must not update the release at the same time.
+    concurrency: publish-apk
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-daw-debug-apk
+      # Feature branches still being tried out publish to their own release, never latest-build.
+      - name: Publish APK to its release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk mobile-daw.apk
-          if gh release view latest-build >/dev/null 2>&1; then
-            gh release upload latest-build mobile-daw.apk --clobber
-            gh release edit latest-build --target "$GITHUB_SHA" \
-              --notes "Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
+          set -x
+          case "$GITHUB_REF_NAME" in
+            claude/project-thread-ht5fxu) tag=sounds-build; title="Sounds test build"; latest="" ;;
+            *) tag=latest-build; title="Latest build"; latest="--latest" ;;
+          esac
+          cp app-debug.apk mobile-daw.apk
+          notes="Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null; then
+            gh release upload "$tag" mobile-daw.apk --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --notes "$notes" -R "$GITHUB_REPOSITORY"
           else
-            gh release create latest-build mobile-daw.apk --target "$GITHUB_SHA" --title "Latest build" --latest \
-              --notes "Debug build of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Updated automatically on every push."
+            gh release create "$tag" mobile-daw.apk --target "$GITHUB_SHA" --title "$title" $latest \
+              --notes "$notes" -R "$GITHUB_REPOSITORY"
           fi
